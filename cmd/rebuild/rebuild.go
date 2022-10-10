@@ -2,24 +2,19 @@ package rebuild
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
-	"shipyard/requests"
-	"shipyard/requests/uri"
+	"os"
 
 	"github.com/spf13/cobra"
+
+	"shipyard/requests"
+	"shipyard/requests/uri"
 )
 
 func NewRebuildCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rebuild",
 		Short: "Rebuild an environment",
-		Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
 	}
 
 	cmd.AddCommand(newEnvironmentCmd())
@@ -32,12 +27,6 @@ func newEnvironmentCmd() *cobra.Command {
 		Aliases: []string{"env"},
 		Use:     "environment",
 		Short:   "Rebuild a running environment",
-		Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return rebuildEnvironmentByID(args[0])
@@ -50,7 +39,7 @@ to quickly create a Cobra application.`,
 }
 
 func rebuildEnvironmentByID(id string) error {
-	client, err := requests.NewHTTPClient()
+	client, err := requests.NewClient(os.Stdout)
 	if err != nil {
 		return err
 	}
@@ -60,6 +49,5 @@ func rebuildEnvironmentByID(id string) error {
 		return err
 	}
 
-	fmt.Println(string(body))
-	return nil
+	return client.Write(body)
 }

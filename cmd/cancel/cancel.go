@@ -2,8 +2,8 @@ package cancel
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -51,7 +51,7 @@ to quickly create a Cobra application.`,
 }
 
 func cancelEnvironmentByID(id string) error {
-	client, err := requests.NewHTTPClient()
+	client, err := requests.NewClient(os.Stdout)
 	if err != nil {
 		return err
 	}
@@ -61,6 +61,5 @@ func cancelEnvironmentByID(id string) error {
 		return err
 	}
 
-	fmt.Println(string(body))
-	return nil
+	return client.Write(body)
 }

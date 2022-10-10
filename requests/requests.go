@@ -6,23 +6,26 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
 	"shipyard/auth"
 )
 
 type Client interface {
 	Do(method string, uri string, body any) ([]byte, error)
+	Write([]byte) error
 }
 
 type httpClient struct {
+	w     io.Writer
 	token string
 }
 
-func NewHTTPClient() (Client, error) {
+func NewClient(w io.Writer) (Client, error) {
 	token, err := auth.GetAPIToken()
 	if err != nil {
 		return nil, err
 	}
-	return &httpClient{token: token}, nil
+	return &httpClient{token: token, w: w}, nil
 }
 
 func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
@@ -59,4 +62,9 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 	}
 
 	return b, nil
+}
+
+func (c httpClient) Write(p []byte) error {
+	_, err := fmt.Fprintf(c.w, string(p))
+	return err
 }

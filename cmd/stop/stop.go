@@ -2,8 +2,8 @@ package stop
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
+	"os"
 	"shipyard/requests"
 	"shipyard/requests/uri"
 
@@ -14,12 +14,6 @@ func NewStopCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stop",
 		Short: "Stop an environment",
-		Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
 	}
 
 	cmd.AddCommand(newEnvironmentCmd())
@@ -32,12 +26,6 @@ func newEnvironmentCmd() *cobra.Command {
 		Aliases: []string{"env"},
 		Use:     "environment",
 		Short:   "Stop a running environment",
-		Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return stopEnvironmentByID(args[0])
@@ -50,7 +38,7 @@ to quickly create a Cobra application.`,
 }
 
 func stopEnvironmentByID(id string) error {
-	client, err := requests.NewHTTPClient()
+	client, err := requests.NewClient(os.Stdout)
 	if err != nil {
 		return err
 	}
@@ -60,6 +48,5 @@ func stopEnvironmentByID(id string) error {
 		return err
 	}
 
-	fmt.Println(string(body))
-	return nil
+	return client.Write(body)
 }

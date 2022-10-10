@@ -1,12 +1,13 @@
 package get
 
 import (
-	"fmt"
 	"net/http"
-	"shipyard/requests"
-	"shipyard/requests/uri"
+	"os"
 
 	"github.com/spf13/cobra"
+
+	"shipyard/requests"
+	"shipyard/requests/uri"
 )
 
 func newEnvironmentCmd() *cobra.Command {
@@ -33,7 +34,7 @@ to quickly create a Cobra application.`,
 }
 
 func getAllEnvironments() error {
-	client, err := requests.NewHTTPClient()
+	client, err := requests.NewClient(os.Stdout)
 	if err != nil {
 		return err
 	}
@@ -43,12 +44,11 @@ func getAllEnvironments() error {
 		return err
 	}
 
-	fmt.Println(string(body))
-	return nil
+	return client.Write(body)
 }
 
 func getEnvironmentByID(id string) error {
-	client, err := requests.NewHTTPClient()
+	client, err := requests.NewClient(os.Stdout)
 	if err != nil {
 		return err
 	}
@@ -58,6 +58,5 @@ func getEnvironmentByID(id string) error {
 		return err
 	}
 
-	fmt.Println(string(body))
-	return nil
+	return client.Write(body)
 }
