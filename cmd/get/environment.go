@@ -1,6 +1,7 @@
 package get
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 
@@ -10,25 +11,42 @@ import (
 	"shipyard/requests/uri"
 )
 
-func newEnvironmentCmd() *cobra.Command {
+func newGetEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Aliases:      []string{"env"},
 		Use:          "environment",
+		Aliases:      []string{"env"},
 		SilenceUsage: true,
-		Short:        "Get environments",
-		Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+		Short:        "Get environment by ID",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return getEnvironmentByID(args[0])
 			}
+			return fmt.Errorf("missing ID argument")
+		},
+	}
+
+	return cmd
+}
+
+func newGetAllEnvironmentsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:          "environments",
+		Aliases:      []string{"envs"},
+		SilenceUsage: true,
+		Short:        "Get all environments",
+		RunE: func(cmd *cobra.Command, args []string) error {
 			return getAllEnvironments()
 		},
 	}
+
+	cmd.Flags().String("name", "", "Filter by name")
+	cmd.Flags().String("org_name", "", "Filter by org name")
+	cmd.Flags().String("repo_name", "", "Filter by repo name")
+	cmd.Flags().String("branch", "", "Filter by branch")
+	cmd.Flags().String("pull_request_number", "", "Filter by pull request number")
+	cmd.Flags().Bool("deleted", false, "Filter by deleted")
+	cmd.Flags().Int("page", 0, "Page number requested")
+	cmd.Flags().Int("page_size", 0, "Page size requested")
 
 	return cmd
 }
@@ -39,7 +57,7 @@ func getAllEnvironments() error {
 		return err
 	}
 
-	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", ""), nil)
+	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", "", nil), nil)
 	if err != nil {
 		return err
 	}
@@ -53,7 +71,7 @@ func getEnvironmentByID(id string) error {
 		return err
 	}
 
-	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id), nil)
+	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, nil), nil)
 	if err != nil {
 		return err
 	}

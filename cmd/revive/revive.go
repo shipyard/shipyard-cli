@@ -44,7 +44,7 @@ func reviveEnvironmentByID(id string) error {
 		return err
 	}
 
-	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("revive", "environment", id), nil)
+	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("revive", "environment", id, nil), nil)
 	if err != nil {
 		return err
 	}

@@ -56,7 +56,7 @@ func cancelEnvironmentByID(id string) error {
 		return err
 	}
 
-	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("cancel", "environment", id), nil)
+	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("cancel", "environment", id, nil), nil)
 	if err != nil {
 		return err
 	}

@@ -44,7 +44,7 @@ func restartEnvironmentByID(id string) error {
 		return err
 	}
 
-	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("restart", "environment", id), nil)
+	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("restart", "environment", id, nil), nil)
 	if err != nil {
 		return err
 	}

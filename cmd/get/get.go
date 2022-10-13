@@ -7,10 +7,11 @@ import (
 func NewGetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get",
-		Short: "Get information about something",
+		Short: "Get information about a resource",
 	}
 
-	cmd.AddCommand(newEnvironmentCmd())
+	cmd.AddCommand(newGetAllEnvironmentsCmd())
+	cmd.AddCommand(newGetEnvironmentCmd())
 
 	return cmd
 }
