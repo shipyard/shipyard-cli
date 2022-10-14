@@ -1,4 +1,4 @@
-package get
+package env
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ import (
 	"shipyard/requests/uri"
 )
 
-func newGetEnvironmentCmd() *cobra.Command {
+func NewGetEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "environment",
 		Aliases:      []string{"env"},
@@ -30,7 +30,7 @@ func newGetEnvironmentCmd() *cobra.Command {
 	return cmd
 }
 
-func newGetAllEnvironmentsCmd() *cobra.Command {
+func NewGetAllEnvironmentsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "environments",
 		Aliases:      []string{"envs"},

@@ -1,4 +1,4 @@
-package restart
+package env
 
 import (
 	"errors"
@@ -11,25 +11,25 @@ import (
 	"shipyard/requests/uri"
 )
 
-func NewRestartCmd() *cobra.Command {
+func NewStopCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "restart",
-		Short: "Restart an environment",
+		Use:   "stop",
+		Short: "Stop an environment",
 	}
 
-	cmd.AddCommand(newEnvironmentCmd())
+	cmd.AddCommand(newStopEnvironmentCmd())
 
 	return cmd
 }
 
-func newEnvironmentCmd() *cobra.Command {
+func newStopEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Aliases: []string{"env"},
 		Use:     "environment",
-		Short:   "Restart a running environment",
+		Short:   "Stop a running environment",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
-				return restartEnvironmentByID(args[0])
+				return stopEnvironmentByID(args[0])
 			}
 			return errors.New("missing environment ID")
 		},
@@ -38,13 +38,13 @@ func newEnvironmentCmd() *cobra.Command {
 	return cmd
 }
 
-func restartEnvironmentByID(id string) error {
+func stopEnvironmentByID(id string) error {
 	client, err := requests.NewClient(os.Stdout)
 	if err != nil {
 		return err
 	}
 
-	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("restart", "environment", id, nil), nil)
+	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("stop", "environment", id, nil), nil)
 	if err != nil {
 		return err
 	}

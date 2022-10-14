@@ -8,19 +8,14 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"shipyard/cmd/cancel"
-	"shipyard/cmd/get"
-	"shipyard/cmd/rebuild"
-	"shipyard/cmd/restart"
-	"shipyard/cmd/revive"
-	"shipyard/cmd/stop"
+	"shipyard/cmd/env"
 )
 
 var rootCmd = &cobra.Command{
 	Use:     "shipyard",
 	Short:   "The Shipyard CLI",
 	Long:    `A tool to manage Ephemeral Environments on the Shipyard platform`,
-	Version: "0.1",
+	Version: "0.0.1",
 }
 
 func Execute() {
@@ -39,15 +34,22 @@ func init() {
 	versionTemplate := `{{printf "%s: %s - version %s\n" .Name .Short .Version}}`
 	rootCmd.SetVersionTemplate(versionTemplate)
 
-	rootCmd.AddCommand(get.NewGetCmd())
-	rootCmd.AddCommand(cancel.NewCancelCmd())
-	rootCmd.AddCommand(revive.NewReviveCmd())
-	rootCmd.AddCommand(rebuild.NewRebuildCmd())
-	rootCmd.AddCommand(stop.NewStopCmd())
-	rootCmd.AddCommand(restart.NewRestartCmd())
+	setupCommands()
 }
 
 func setupLogging(w io.Writer, prefix string) {
 	log.SetOutput(w)
 	log.SetPrefix(prefix)
+}
+
+func setupCommands() {
+	rootCmd.AddCommand(NewGetCmd())
+	rootCmd.AddCommand(NewSetCmd())
+
+	rootCmd.AddCommand(env.NewCancelCmd())
+	rootCmd.AddCommand(env.NewRebuildCmd())
+	rootCmd.AddCommand(env.NewRestartCmd())
+	rootCmd.AddCommand(env.NewReviveCmd())
+	rootCmd.AddCommand(env.NewStopCmd())
+
 }

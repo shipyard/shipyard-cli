@@ -1,4 +1,4 @@
-package cancel
+package env
 
 import (
 	"errors"
@@ -23,12 +23,12 @@ This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	}
 
-	cmd.AddCommand(newEnvironmentCmd())
+	cmd.AddCommand(newCancelEnvironmentCmd())
 
 	return cmd
 }
 
-func newEnvironmentCmd() *cobra.Command {
+func newCancelEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Aliases: []string{"env"},
 		Use:     "cancel env",
