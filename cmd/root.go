@@ -1,7 +1,12 @@
 package cmd
 
 import (
+	"io"
+	"log"
 	"os"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"shipyard/cmd/cancel"
 	"shipyard/cmd/get"
@@ -9,8 +14,6 @@ import (
 	"shipyard/cmd/restart"
 	"shipyard/cmd/revive"
 	"shipyard/cmd/stop"
-
-	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
@@ -28,26 +31,23 @@ func Execute() {
 }
 
 func init() {
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
+	setupLogging(os.Stderr, "CLI ")
 
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.shipyard.yaml)")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
+	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 
 	versionTemplate := `{{printf "%s: %s - version %s\n" .Name .Short .Version}}`
 	rootCmd.SetVersionTemplate(versionTemplate)
 
-	getCmd := get.NewGetCmd()
-	cancelCmd := cancel.NewCancelCmd()
-	reviveCmd := revive.NewReviveCmd()
-	rebuildCmd := rebuild.NewRebuildCmd()
-	stopCmd := stop.NewStopCmd()
-	restartCmd := restart.NewRestartCmd()
+	rootCmd.AddCommand(get.NewGetCmd())
+	rootCmd.AddCommand(cancel.NewCancelCmd())
+	rootCmd.AddCommand(revive.NewReviveCmd())
+	rootCmd.AddCommand(rebuild.NewRebuildCmd())
+	rootCmd.AddCommand(stop.NewStopCmd())
+	rootCmd.AddCommand(restart.NewRestartCmd())
+}
 
-	rootCmd.AddCommand(cancelCmd)
-	rootCmd.AddCommand(getCmd)
-	rootCmd.AddCommand(reviveCmd)
-	rootCmd.AddCommand(rebuildCmd)
-	rootCmd.AddCommand(stopCmd)
-	rootCmd.AddCommand(restartCmd)
+func setupLogging(w io.Writer, prefix string) {
+	log.SetOutput(w)
+	log.SetPrefix(prefix)
 }

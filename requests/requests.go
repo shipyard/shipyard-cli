@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+
+	"github.com/spf13/viper"
 
 	"shipyard/auth"
 )
@@ -45,6 +48,10 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 	req, err := http.NewRequest(method, uri, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("error creating API request: %w", err)
+	}
+
+	if verbose := viper.GetBool("verbose"); verbose {
+		log.Println("URI", uri)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
