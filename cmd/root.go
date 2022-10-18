@@ -1,14 +1,14 @@
 package cmd
 
 import (
-	"io"
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"shipyard/cmd/env"
+	"shipyard/cmd/k8s"
+	"shipyard/logging"
 )
 
 var rootCmd = &cobra.Command{
@@ -26,7 +26,7 @@ func Execute() {
 }
 
 func init() {
-	setupLogging(os.Stderr, "CLI ")
+	logging.Init(os.Stderr, "SHIPYARD CLI ")
 
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
 	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
@@ -35,11 +35,6 @@ func init() {
 	rootCmd.SetVersionTemplate(versionTemplate)
 
 	setupCommands()
-}
-
-func setupLogging(w io.Writer, prefix string) {
-	log.SetOutput(w)
-	log.SetPrefix(prefix)
 }
 
 func setupCommands() {
@@ -52,4 +47,6 @@ func setupCommands() {
 	rootCmd.AddCommand(env.NewReviveCmd())
 	rootCmd.AddCommand(env.NewStopCmd())
 
+	rootCmd.AddCommand(k8s.NewExecCmd())
+	rootCmd.AddCommand(k8s.NewPortForwardCmd())
 }
