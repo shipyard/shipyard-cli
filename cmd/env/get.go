@@ -1,11 +1,13 @@
 package env
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"strconv"
 
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -26,6 +28,9 @@ func NewGetEnvironmentCmd() *cobra.Command {
 			return fmt.Errorf("missing ID argument")
 		},
 	}
+
+	cmd.Flags().Bool("json", false, "JSON output")
+	viper.BindPFlag("json", cmd.Flags().Lookup("json"))
 
 	return cmd
 }
@@ -65,11 +70,14 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 	cmd.Flags().Int("page_size", 0, "Page size requested")
 	viper.BindPFlag("page_size", cmd.Flags().Lookup("page_size"))
 
+	cmd.Flags().Bool("json", false, "JSON output")
+	viper.BindPFlag("json", cmd.Flags().Lookup("json"))
+
 	return cmd
 }
 
 func getAllEnvironments() error {
-	client, err := requests.NewClient(os.Stdout)
+	client, err := requests.NewHTTPClient(os.Stdout)
 	if err != nil {
 		return err
 	}
@@ -106,11 +114,41 @@ func getAllEnvironments() error {
 		return err
 	}
 
-	return client.Write(body)
+	if viper.GetBool("json") {
+		return client.Write(body)
+	}
+
+	r, err := unmarshalManyEnv(body)
+	if err != nil {
+		return err
+	}
+
+	var data [][]string
+	for _, d := range r.Data {
+		data = append(data, []string{
+			d.ID,
+			d.Attributes.Projects[0].RepoName,
+			d.Attributes.Name,
+			strconv.Itoa(d.Attributes.Projects[0].PullRequestNumber),
+			d.Attributes.URL,
+		})
+	}
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"UUID", "Repo", "AppName", "PR#", "URL"})
+	table.SetBorders(tablewriter.Border{Left: true, Top: false, Right: true, Bottom: false})
+	table.SetCenterSeparator("|")
+
+	for _, v := range data {
+		table.Append(v)
+	}
+	table.Render()
+
+	return nil
 }
 
 func getEnvironmentByID(id string) error {
-	client, err := requests.NewClient(os.Stdout)
+	client, err := requests.NewHTTPClient(os.Stdout)
 	if err != nil {
 		return err
 	}
@@ -120,5 +158,77 @@ func getEnvironmentByID(id string) error {
 		return err
 	}
 
-	return client.Write(body)
+	if viper.GetBool("json") {
+		return client.Write(body)
+	}
+
+	r, err := unmarshalEnv(body)
+	if err != nil {
+		return err
+	}
+
+	env := r.Data
+	data := [][]string{
+		[]string{
+			env.ID,
+			env.Attributes.Projects[0].RepoName,
+			env.Attributes.Name,
+			strconv.Itoa(env.Attributes.Projects[0].PullRequestNumber),
+			env.Attributes.URL,
+		},
+	}
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"UUID", "Repo", "AppName", "PR#", "URL"})
+	table.SetBorders(tablewriter.Border{Left: true, Top: false, Right: true, Bottom: false})
+	table.SetCenterSeparator("|")
+
+	for _, v := range data {
+		table.Append(v)
+	}
+	table.Render()
+
+	return nil
+}
+
+func unmarshalEnv(p []byte) (respOneEnv, error) {
+	var r respOneEnv
+	err := json.Unmarshal(p, &r)
+	return r, err
+}
+
+func unmarshalManyEnv(p []byte) (respManyEnvs, error) {
+	var r respManyEnvs
+	err := json.Unmarshal(p, &r)
+	return r, err
+}
+
+type respOneEnv struct {
+	Data struct {
+		Attributes struct {
+			Name     string `json:"name"`
+			URL      string `json:"url"`
+			Projects []struct {
+				PullRequestNumber int    `json:"pull_request_number"`
+				RepoName          string `json:"repo_name"`
+			} `json:"projects"`
+		} `json:"attributes"`
+
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+type respManyEnvs struct {
+	Data []struct {
+		Attributes struct {
+			Name     string `json:"name"`
+			URL      string `json:"url"`
+			Projects []struct {
+				PullRequestNumber int    `json:"pull_request_number"`
+				RepoName          string `json:"repo_name"`
+			} `json:"projects"`
+		} `json:"attributes"`
+
+		ID string `json:"id"`
+	} `json:"data"`
 }

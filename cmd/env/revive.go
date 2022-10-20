@@ -39,7 +39,7 @@ func newReviveEnvironmentCmd() *cobra.Command {
 }
 
 func reviveEnvironmentByID(id string) error {
-	client, err := requests.NewClient(os.Stdout)
+	client, err := requests.NewHTTPClient(os.Stdout)
 	if err != nil {
 		return err
 	}

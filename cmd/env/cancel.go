@@ -51,7 +51,7 @@ to quickly create a Cobra application.`,
 }
 
 func cancelEnvironmentByID(id string) error {
-	client, err := requests.NewClient(os.Stdout)
+	client, err := requests.NewHTTPClient(os.Stdout)
 	if err != nil {
 		return err
 	}

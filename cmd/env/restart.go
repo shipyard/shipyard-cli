@@ -39,7 +39,7 @@ func newRestartEnvironmentCmd() *cobra.Command {
 }
 
 func restartEnvironmentByID(id string) error {
-	client, err := requests.NewClient(os.Stdout)
+	client, err := requests.NewHTTPClient(os.Stdout)
 	if err != nil {
 		return err
 	}

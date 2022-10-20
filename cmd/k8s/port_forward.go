@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -17,8 +16,8 @@ import (
 	"k8s.io/client-go/transport/spdy"
 	"k8s.io/client-go/util/homedir"
 
+	"shipyard/display"
 	"shipyard/logging"
-	"shipyard/requests"
 )
 
 func NewPortForwardCmd() *cobra.Command {
@@ -73,6 +72,7 @@ func handlePortForwardCmd() error {
 }
 
 // TODO: figure out what exact namespace to use.
+// shipyard-app-build-{UUID of build}
 func portForward(config *rest.Config, ports []string, podName string) error {
 	roundTripper, upgrader, err := spdy.RoundTripperFor(config)
 	host := strings.TrimLeft(config.Host, "https://")
@@ -89,19 +89,16 @@ func portForward(config *rest.Config, ports []string, podName string) error {
 		return err
 	}
 
-	client, err := requests.NewClient(os.Stdout)
-	if err != nil {
-		return err
-	}
+	writer := display.NewSimpleDisplay()
 
 	go func() {
 		for range readyChan {
 		}
 
-		if b := errOut.Bytes(); len(b) != 0 {
-			client.Write(b)
-		} else if b = out.Bytes(); len(b) != 0 {
-			client.Write(b)
+		if s := errOut.String(); len(s) != 0 {
+			writer.Fail(s)
+		} else if s = out.String(); len(s) != 0 {
+			writer.Output(s)
 		}
 	}()
 

@@ -21,7 +21,7 @@ type httpClient struct {
 	token string
 }
 
-func NewClient(w io.Writer) (Client, error) {
+func NewHTTPClient(w io.Writer) (Client, error) {
 	token, err := auth.GetAPIToken()
 	if err != nil {
 		return nil, err

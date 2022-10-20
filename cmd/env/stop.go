@@ -39,7 +39,7 @@ func newStopEnvironmentCmd() *cobra.Command {
 }
 
 func stopEnvironmentByID(id string) error {
-	client, err := requests.NewClient(os.Stdout)
+	client, err := requests.NewHTTPClient(os.Stdout)
 	if err != nil {
 		return err
 	}
