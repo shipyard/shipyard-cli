@@ -24,9 +24,10 @@ func NewReviveCmd() *cobra.Command {
 
 func newReviveEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Aliases: []string{"env"},
-		Use:     "environment",
-		Short:   "Revive a stopped environment",
+		Aliases:      []string{"env"},
+		Use:          "environment",
+		Short:        "Revive a stopped environment",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return reviveEnvironmentByID(args[0])

@@ -24,9 +24,10 @@ func NewRebuildCmd() *cobra.Command {
 
 func newRebuildEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Aliases: []string{"env"},
-		Use:     "environment",
-		Short:   "Rebuild a running environment",
+		Aliases:      []string{"env"},
+		Use:          "environment",
+		Short:        "Rebuild a running environment",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return rebuildEnvironmentByID(args[0])

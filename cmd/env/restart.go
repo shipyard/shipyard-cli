@@ -24,9 +24,10 @@ func NewRestartCmd() *cobra.Command {
 
 func newRestartEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Aliases: []string{"env"},
-		Use:     "environment",
-		Short:   "Restart a running environment",
+		Aliases:      []string{"env"},
+		Use:          "environment",
+		Short:        "Restart a running environment",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return restartEnvironmentByID(args[0])

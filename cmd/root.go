@@ -28,7 +28,7 @@ func Execute() {
 func init() {
 	logging.Init(os.Stderr, "SHIPYARD CLI ")
 
-	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 
 	versionTemplate := `{{printf "%s: %s - version %s\n" .Name .Short .Version}}`

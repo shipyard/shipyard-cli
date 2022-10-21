@@ -3,6 +3,7 @@ package requests
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -62,6 +63,13 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("error reading response body: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if len(b) == 0 {
+			return nil, fmt.Errorf("empty response")
+		}
+		return nil, errors.New(string(b))
 	}
 
 	return b, nil
