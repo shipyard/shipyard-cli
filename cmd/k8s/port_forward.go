@@ -3,6 +3,7 @@ package k8s
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -17,7 +18,6 @@ import (
 	"k8s.io/client-go/util/homedir"
 
 	"shipyard/display"
-	"shipyard/logging"
 )
 
 func NewPortForwardCmd() *cobra.Command {
@@ -47,7 +47,7 @@ func handlePortForwardCmd() error {
 	if kubeconfig == "" {
 		if home := homedir.HomeDir(); home != "" {
 			kubeconfig = filepath.Join(home, ".kube", "config")
-			logging.LogIfVerbose("Using a Kubeconfig found in the default location.")
+			log.Println("Using a Kubeconfig found in the default location.")
 		} else {
 			return fmt.Errorf("no Kubeconfig file path provided")
 		}

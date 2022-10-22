@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 
 	"shipyard/auth"
-	"shipyard/logging"
 )
 
 type Client interface {
@@ -49,7 +49,7 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 		return nil, fmt.Errorf("error creating API request: %w", err)
 	}
 
-	logging.LogIfVerbose("URI", uri)
+	log.Println("URI", uri)
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-token", c.token)

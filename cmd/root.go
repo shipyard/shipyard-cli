@@ -16,6 +16,9 @@ var rootCmd = &cobra.Command{
 	Short:   "The Shipyard CLI",
 	Long:    `A tool to manage Ephemeral Environments on the Shipyard platform`,
 	Version: "0.0.1",
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		logging.Init()
+	},
 }
 
 func Execute() {
@@ -26,8 +29,6 @@ func Execute() {
 }
 
 func init() {
-	logging.Init(os.Stderr, "SHIPYARD CLI ")
-
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 
