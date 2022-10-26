@@ -34,49 +34,65 @@ func NewPortForwardCmd() *cobra.Command {
 	viper.BindPFlag("kubeconfig", cmd.Flags().Lookup("kubeconfig"))
 
 	cmd.Flags().StringSlice("ports", nil, "Ports (for example, 3000:80)")
+	cmd.MarkFlagRequired("ports")
 	viper.BindPFlag("ports", cmd.Flags().Lookup("ports"))
 
 	cmd.Flags().String("pod", "", "Pod name")
+	cmd.MarkFlagRequired("pod")
 	viper.BindPFlag("pod", cmd.Flags().Lookup("pod"))
+
+	cmd.Flags().String("env", "", "env ID")
+	cmd.MarkFlagRequired("env")
+	viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 
 	return cmd
 }
 
 func handlePortForwardCmd() error {
+	if err := SetKubeconfig(viper.GetString("env")); err != nil {
+		return err
+	}
+
 	kubeconfig := viper.GetString("kubeconfig")
 	if kubeconfig == "" {
 		if home := homedir.HomeDir(); home != "" {
-			kubeconfig = filepath.Join(home, ".kube", "config")
-			log.Println("Using a Kubeconfig found in the default location.")
+			kubeconfig = filepath.Join(home, ".shipyard", "kubeconfig")
+			log.Println("Using a kubeconfig found in the default shipyard location.")
 		} else {
-			return fmt.Errorf("no Kubeconfig file path provided")
+			return fmt.Errorf("no kubeconfig file path provided")
 		}
 	}
 
-	ports := viper.GetStringSlice("ports")
-	if len(ports) == 0 {
-		return fmt.Errorf("no ports provided")
-	}
+	cfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig},
+		nil)
 
-	podName := viper.GetString("pod")
-	if podName == "" {
-		return fmt.Errorf("no pod name provided")
-	}
-
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	rawConfig, err := cfg.RawConfig()
 	if err != nil {
 		return err
 	}
 
-	return portForward(config, ports, podName)
+	contexts := rawConfig.Contexts
+	if len(contexts) == 0 {
+		return fmt.Errorf("kubeconfig does not have a context set")
+	}
+	namespace := contexts[rawConfig.CurrentContext].Namespace
+
+	restClientConfig, err := cfg.ClientConfig()
+	if err != nil {
+		return err
+	}
+
+	ports := viper.GetStringSlice("ports")
+	podName := viper.GetString("pod")
+
+	return portForward(restClientConfig, ports, namespace, podName)
 }
 
-// TODO: figure out what exact namespace to use.
-// shipyard-app-build-{UUID of build}
-func portForward(config *rest.Config, ports []string, podName string) error {
+func portForward(config *rest.Config, ports []string, namespace string, podName string) error {
 	roundTripper, upgrader, err := spdy.RoundTripperFor(config)
 	host := strings.TrimLeft(config.Host, "https://")
-	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", "default", podName)
+	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", namespace, podName)
 	serverURL := url.URL{Scheme: "https", Host: host, Path: path}
 
 	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: roundTripper}, http.MethodPost, &serverURL)

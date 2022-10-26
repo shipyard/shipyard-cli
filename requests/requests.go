@@ -31,6 +31,8 @@ func NewHTTPClient(w io.Writer) (Client, error) {
 }
 
 func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
+	log.Println("URI", uri)
+
 	var reqBody io.Reader
 	if body == nil {
 		reqBody = nil
@@ -48,8 +50,6 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error creating API request: %w", err)
 	}
-
-	log.Println("URI", uri)
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-token", c.token)
