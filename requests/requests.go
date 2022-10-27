@@ -14,7 +14,7 @@ import (
 
 type Client interface {
 	Do(method string, uri string, body any) ([]byte, error)
-	Write([]byte) error
+	Write(any) error
 }
 
 type httpClient struct {
@@ -75,7 +75,7 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 	return b, nil
 }
 
-func (c httpClient) Write(p []byte) error {
-	_, err := fmt.Fprintf(c.w, string(p))
+func (c httpClient) Write(data any) error {
+	_, err := fmt.Fprintf(c.w, "%s", data)
 	return err
 }
