@@ -49,5 +49,6 @@ func setupCommands() {
 	rootCmd.AddCommand(env.NewStopCmd())
 
 	rootCmd.AddCommand(k8s.NewExecCmd())
+	rootCmd.AddCommand(k8s.NewLogsCmd())
 	rootCmd.AddCommand(k8s.NewPortForwardCmd())
 }

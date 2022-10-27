@@ -47,6 +47,14 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 		SilenceUsage: true,
 		Short:        "Get all environments",
 		PreRun: func(cmd *cobra.Command, args []string) {
+			viper.BindPFlag("name", cmd.Flags().Lookup("name"))
+			viper.BindPFlag("org-name", cmd.Flags().Lookup("org-name"))
+			viper.BindPFlag("repo-name", cmd.Flags().Lookup("repo-name"))
+			viper.BindPFlag("branch", cmd.Flags().Lookup("branch"))
+			viper.BindPFlag("pull-request-number", cmd.Flags().Lookup("pull-request-number"))
+			viper.BindPFlag("deleted", cmd.Flags().Lookup("deleted"))
+			viper.BindPFlag("page", cmd.Flags().Lookup("page"))
+			viper.BindPFlag("page-size", cmd.Flags().Lookup("page-size"))
 			viper.BindPFlag("json", cmd.Flags().Lookup("json"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -55,29 +63,13 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("name", "", "Filter by name")
-	viper.BindPFlag("name", cmd.Flags().Lookup("name"))
-
 	cmd.Flags().String("org-name", "", "Filter by org name")
-	viper.BindPFlag("org-name", cmd.Flags().Lookup("org-name"))
-
 	cmd.Flags().String("repo-name", "", "Filter by repo name")
-	viper.BindPFlag("repo-name", cmd.Flags().Lookup("repo-name"))
-
 	cmd.Flags().String("branch", "", "Filter by branch")
-	viper.BindPFlag("branch", cmd.Flags().Lookup("branch"))
-
 	cmd.Flags().String("pull-request-number", "", "Filter by pull request number")
-	viper.BindPFlag("pull-request-number", cmd.Flags().Lookup("pull-request-number"))
-
 	cmd.Flags().Bool("deleted", false, "Filter by deleted")
-	viper.BindPFlag("deleted", cmd.Flags().Lookup("deleted"))
-
 	cmd.Flags().Int("page", 0, "Page number requested")
-	viper.BindPFlag("page", cmd.Flags().Lookup("page"))
-
 	cmd.Flags().Int("page-size", 0, "Page size requested")
-	viper.BindPFlag("page-size", cmd.Flags().Lookup("page-size"))
-
 	cmd.Flags().Bool("json", false, "JSON output")
 
 	return cmd
