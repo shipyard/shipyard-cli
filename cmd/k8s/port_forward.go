@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
@@ -20,11 +23,11 @@ func NewPortForwardCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "port-forward",
 		Aliases: []string{"pf"},
-		Short:   "Port-forward to a pod in an environment",
+		Short:   "Port-forward to a service in an environment",
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("kubeconfig", cmd.Flags().Lookup("kubeconfig"))
 			viper.BindPFlag("ports", cmd.Flags().Lookup("ports"))
-			viper.BindPFlag("pod", cmd.Flags().Lookup("pod"))
+			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
 			viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -37,8 +40,8 @@ func NewPortForwardCmd() *cobra.Command {
 	cmd.Flags().StringSlice("ports", nil, "Ports (for example, 3000:80)")
 	cmd.MarkFlagRequired("ports")
 
-	cmd.Flags().String("pod", "", "Pod name")
-	cmd.MarkFlagRequired("pod")
+	cmd.Flags().String("service", "", "Service name")
+	cmd.MarkFlagRequired("service")
 
 	cmd.Flags().String("env", "", "environment ID")
 	cmd.MarkFlagRequired("env")
@@ -57,12 +60,17 @@ func handlePortForwardCmd() error {
 	}
 
 	ports := viper.GetStringSlice("ports")
-	podName := viper.GetString("pod")
+	serviceName := viper.GetString("service")
 
-	return portForward(config, ports, namespace, podName)
+	return portForward(config, ports, namespace, serviceName)
 }
 
-func portForward(config *rest.Config, ports []string, namespace string, podName string) error {
+func portForward(config *rest.Config, ports []string, namespace string, serviceName string) error {
+	podName, err := getPodName(config, namespace, serviceName)
+	if err != nil {
+		return err
+	}
+
 	roundTripper, upgrader, err := spdy.RoundTripperFor(config)
 	host := strings.TrimLeft(config.Host, "https://")
 	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", namespace, podName)
@@ -95,4 +103,26 @@ func portForward(config *rest.Config, ports []string, namespace string, podName 
 		return err
 	}
 	return nil
+}
+
+func getPodName(config *rest.Config, namespace string, deployment string) (string, error) {
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return "", err
+	}
+
+	options := metav1.ListOptions{
+		LabelSelector: "component=" + deployment,
+	}
+
+	pods, err := clientset.CoreV1().Pods(namespace).List(context.TODO(), options)
+	if err != nil {
+		return "", err
+	}
+
+	if len(pods.Items) == 0 {
+		return "", fmt.Errorf("no pod found for service %s", deployment)
+	}
+
+	return pods.Items[0].Name, nil
 }

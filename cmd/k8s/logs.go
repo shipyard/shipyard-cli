@@ -57,7 +57,7 @@ func handleLogsCmd() error {
 
 	pod := viper.GetString("pod")
 	req := clientset.CoreV1().Pods(namespace).GetLogs(pod, &podLogOpts)
-	podLogs, err := req.Stream(context.Background())
+	podLogs, err := req.Stream(context.TODO())
 	if err != nil {
 		return err
 	}
