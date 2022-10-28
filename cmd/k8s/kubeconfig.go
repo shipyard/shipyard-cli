@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
 	"shipyard/requests"
@@ -32,7 +33,13 @@ func getKubeconfig(envID string) ([]byte, error) {
 		return nil, err
 	}
 
-	uri := uri.CreateResourceURI("", "environment", envID, nil)
+	params := make(map[string]string)
+	org := viper.GetString("org")
+	if org != "" {
+		params["org"] = org
+	}
+
+	uri := uri.CreateResourceURI("", "environment", envID, params)
 	body, err := client.Do(http.MethodGet, uri+"/kubeconfig", nil)
 	if err != nil {
 		return nil, err

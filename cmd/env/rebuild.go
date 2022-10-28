@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"shipyard/requests"
 	"shipyard/requests/uri"
@@ -45,7 +46,13 @@ func rebuildEnvironmentByID(id string) error {
 		return err
 	}
 
-	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("rebuild", "environment", id, nil), nil)
+	params := make(map[string]string)
+	org := viper.GetString("org")
+	if org != "" {
+		params["org"] = org
+	}
+
+	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("rebuild", "environment", id, params), nil)
 	if err != nil {
 		return err
 	}
