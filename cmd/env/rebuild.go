@@ -8,14 +8,16 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"shipyard/constants"
 	"shipyard/requests"
 	"shipyard/requests/uri"
 )
 
 func NewRebuildCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "rebuild",
-		Short: "Rebuild an environment",
+		Use:     "rebuild",
+		GroupID: constants.GroupEnvironments,
+		Short:   "Rebuild an environment",
 	}
 
 	cmd.AddCommand(newRebuildEnvironmentCmd())

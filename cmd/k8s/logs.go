@@ -10,13 +10,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"shipyard/constants"
 	"shipyard/display"
 )
 
 func NewLogsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "logs",
-		Short: "Get logs from a pod in an environment",
+		Use:     "logs",
+		Short:   "Get logs from a pod in an environment",
+		GroupID: constants.GroupKubernetes,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("kubeconfig", cmd.Flags().Lookup("kubeconfig"))
 			viper.BindPFlag("pod", cmd.Flags().Lookup("pod"))
@@ -27,7 +29,7 @@ func NewLogsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().String("kubeconfig", "", "Path to Kubeconfig")
+	cmd.Flags().String("kubeconfig", "", "Path to kubeconfig")
 
 	cmd.Flags().String("pod", "", "Pod name")
 	cmd.MarkFlagRequired("pod")

@@ -8,14 +8,16 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"shipyard/constants"
 	"shipyard/requests"
 	"shipyard/requests/uri"
 )
 
 func NewRestartCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "restart",
-		Short: "Restart an environment",
+		Use:     "restart",
+		GroupID: constants.GroupEnvironments,
+		Short:   "Restart an environment",
 	}
 
 	cmd.AddCommand(newRestartEnvironmentCmd())

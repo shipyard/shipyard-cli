@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 
+	"shipyard/constants"
 	"shipyard/display"
 )
 
@@ -24,6 +25,7 @@ func NewPortForwardCmd() *cobra.Command {
 		Use:     "port-forward",
 		Aliases: []string{"pf"},
 		Short:   "Port-forward to a service in an environment",
+		GroupID: constants.GroupKubernetes,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("kubeconfig", cmd.Flags().Lookup("kubeconfig"))
 			viper.BindPFlag("ports", cmd.Flags().Lookup("ports"))
@@ -35,7 +37,7 @@ func NewPortForwardCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().String("kubeconfig", "", "Path to Kubeconfig")
+	cmd.Flags().String("kubeconfig", "", "Path to kubeconfig")
 
 	cmd.Flags().StringSlice("ports", nil, "Ports (for example, 3000:80)")
 	cmd.MarkFlagRequired("ports")

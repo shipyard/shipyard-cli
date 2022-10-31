@@ -8,14 +8,16 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"shipyard/constants"
 	"shipyard/requests"
 	"shipyard/requests/uri"
 )
 
 func NewStopCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "stop",
-		Short: "Stop an environment",
+		Use:     "stop",
+		GroupID: constants.GroupEnvironments,
+		Short:   "Stop an environment",
 	}
 
 	cmd.AddCommand(newStopEnvironmentCmd())

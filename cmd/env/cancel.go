@@ -8,14 +8,16 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"shipyard/constants"
 	"shipyard/requests"
 	"shipyard/requests/uri"
 )
 
 func NewCancelCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "cancel",
-		Short: "Cancel an environment",
+		Use:     "cancel",
+		GroupID: constants.GroupEnvironments,
+		Short:   "Cancel an environment",
 	}
 
 	cmd.AddCommand(newCancelEnvironmentCmd())

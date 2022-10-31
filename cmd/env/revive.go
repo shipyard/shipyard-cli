@@ -8,14 +8,16 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"shipyard/constants"
 	"shipyard/requests"
 	"shipyard/requests/uri"
 )
 
 func NewReviveCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "revive",
-		Short: "Revive an environment",
+		Use:     "revive",
+		GroupID: constants.GroupEnvironments,
+		Short:   "Revive an environment",
 	}
 
 	cmd.AddCommand(newReviveEnvironmentCmd())

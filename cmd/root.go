@@ -8,6 +8,7 @@ import (
 
 	"shipyard/cmd/env"
 	"shipyard/cmd/k8s"
+	"shipyard/constants"
 	"shipyard/logging"
 )
 
@@ -45,12 +46,14 @@ func setupCommands() {
 	rootCmd.AddCommand(NewGetCmd())
 	rootCmd.AddCommand(NewSetCmd())
 
+	rootCmd.AddGroup(&cobra.Group{ID: constants.GroupEnvironments, Title: "Environments"})
 	rootCmd.AddCommand(env.NewCancelCmd())
 	rootCmd.AddCommand(env.NewRebuildCmd())
 	rootCmd.AddCommand(env.NewRestartCmd())
 	rootCmd.AddCommand(env.NewReviveCmd())
 	rootCmd.AddCommand(env.NewStopCmd())
 
+	rootCmd.AddGroup(&cobra.Group{ID: constants.GroupKubernetes, Title: "Kubernetes"})
 	rootCmd.AddCommand(k8s.NewExecCmd())
 	rootCmd.AddCommand(k8s.NewLogsCmd())
 	rootCmd.AddCommand(k8s.NewPortForwardCmd())
