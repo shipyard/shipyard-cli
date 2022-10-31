@@ -5,6 +5,7 @@ import (
 
 	"shipyard/cmd/env"
 	"shipyard/cmd/org"
+	"shipyard/cmd/service"
 )
 
 func NewGetCmd() *cobra.Command {
@@ -17,6 +18,7 @@ func NewGetCmd() *cobra.Command {
 	cmd.AddCommand(env.NewGetEnvironmentCmd())
 	cmd.AddCommand(org.NewGetOrgCmd())
 	cmd.AddCommand(org.NewGetAllOrgsCmd())
+	cmd.AddCommand(service.NewGetServicesCmd())
 
 	return cmd
 }

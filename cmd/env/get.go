@@ -2,6 +2,7 @@ package env
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -29,7 +30,7 @@ func NewGetEnvironmentCmd() *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
-				return getEnvironmentByID(args[0])
+				return handleGetEnvironmentByID(args[0])
 			}
 			return fmt.Errorf("missing ID argument")
 		},
@@ -58,7 +59,7 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 			viper.BindPFlag("json", cmd.Flags().Lookup("json"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return getAllEnvironments()
+			return handleGetAllEnvironments()
 		},
 	}
 
@@ -75,7 +76,9 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 	return cmd
 }
 
-func getAllEnvironments() error {
+var ErrUnmarshalling = errors.New("failed to unmarshal environment(s)")
+
+func handleGetAllEnvironments() error {
 	client, err := requests.NewHTTPClient(os.Stdout)
 	if err != nil {
 		return err
@@ -122,7 +125,7 @@ func getAllEnvironments() error {
 
 	r, err := unmarshalManyEnv(body)
 	if err != nil {
-		return err
+		return ErrUnmarshalling
 	}
 
 	var data [][]string
@@ -149,7 +152,22 @@ func getAllEnvironments() error {
 	return nil
 }
 
-func getEnvironmentByID(id string) error {
+func GetEnvironmentByID(client requests.Client, id string) (*Response, error) {
+	params := make(map[string]string)
+	org := viper.GetString("org")
+	if org != "" {
+		params["org"] = org
+	}
+
+	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, params), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return unmarshalEnv(body)
+}
+
+func handleGetEnvironmentByID(id string) error {
 	client, err := requests.NewHTTPClient(os.Stdout)
 	if err != nil {
 		return err
@@ -199,32 +217,41 @@ func getEnvironmentByID(id string) error {
 	return nil
 }
 
-func unmarshalEnv(p []byte) (respOneEnv, error) {
-	var r respOneEnv
+func unmarshalEnv(p []byte) (*Response, error) {
+	var r Response
 	err := json.Unmarshal(p, &r)
-	return r, err
+	if err != nil {
+		return nil, ErrUnmarshalling
+	}
+	return &r, err
 }
 
-func unmarshalManyEnv(p []byte) (respManyEnvs, error) {
+func unmarshalManyEnv(p []byte) (*respManyEnvs, error) {
 	var r respManyEnvs
 	err := json.Unmarshal(p, &r)
-	return r, err
+	if err != nil {
+		return nil, ErrUnmarshalling
+	}
+	return &r, err
 }
 
 type environment struct {
 	Attributes struct {
-		Name     string `json:"name"`
-		URL      string `json:"url"`
+		Name string `json:"name"`
+		URL  string `json:"url"`
+
 		Projects []struct {
 			PullRequestNumber int    `json:"pull_request_number"`
 			RepoName          string `json:"repo_name"`
 		} `json:"projects"`
+
+		Services map[string]interface{} `json:"services"`
 	} `json:"attributes"`
 
 	ID string `json:"id"`
 }
 
-type respOneEnv struct {
+type Response struct {
 	Data struct {
 		environment
 	} `json:"data"`

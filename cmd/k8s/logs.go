@@ -17,11 +17,11 @@ import (
 func NewLogsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "logs",
-		Short:   "Get logs from a pod in an environment",
+		Short:   "Get logs from a service in an environment",
 		GroupID: constants.GroupKubernetes,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("kubeconfig", cmd.Flags().Lookup("kubeconfig"))
-			viper.BindPFlag("pod", cmd.Flags().Lookup("pod"))
+			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
 			viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -31,8 +31,8 @@ func NewLogsCmd() *cobra.Command {
 
 	cmd.Flags().String("kubeconfig", "", "Path to kubeconfig")
 
-	cmd.Flags().String("pod", "", "Pod name")
-	cmd.MarkFlagRequired("pod")
+	cmd.Flags().String("service", "", "Service name")
+	cmd.MarkFlagRequired("service")
 
 	cmd.Flags().String("env", "", "environment ID")
 	cmd.MarkFlagRequired("env")
@@ -55,10 +55,14 @@ func handleLogsCmd() error {
 		return err
 	}
 
-	podLogOpts := corev1.PodLogOptions{}
+	serviceName := viper.GetString("service")
+	podName, err := getPodName(config, namespace, serviceName)
+	if err != nil {
+		return err
+	}
 
-	pod := viper.GetString("pod")
-	req := clientset.CoreV1().Pods(namespace).GetLogs(pod, &podLogOpts)
+	podLogOpts := corev1.PodLogOptions{}
+	req := clientset.CoreV1().Pods(namespace).GetLogs(podName, &podLogOpts)
 	podLogs, err := req.Stream(context.TODO())
 	if err != nil {
 		return err

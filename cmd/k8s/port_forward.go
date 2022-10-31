@@ -2,7 +2,6 @@ package k8s
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,8 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
@@ -105,26 +102,4 @@ func portForward(config *rest.Config, ports []string, namespace string, serviceN
 		return err
 	}
 	return nil
-}
-
-func getPodName(config *rest.Config, namespace string, deployment string) (string, error) {
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return "", err
-	}
-
-	options := metav1.ListOptions{
-		LabelSelector: "component=" + deployment,
-	}
-
-	pods, err := clientset.CoreV1().Pods(namespace).List(context.TODO(), options)
-	if err != nil {
-		return "", err
-	}
-
-	if len(pods.Items) == 0 {
-		return "", fmt.Errorf("no pod found for service %s", deployment)
-	}
-
-	return pods.Items[0].Name, nil
 }
