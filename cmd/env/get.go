@@ -18,10 +18,9 @@ import (
 
 func NewGetEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "environment",
-		Aliases:      []string{"env"},
-		SilenceUsage: true,
-		Short:        "Get environment by ID",
+		Use:     "environment [environment ID]",
+		Aliases: []string{"env"},
+		Short:   "Get environment by ID",
 		// Due to an issue in viper, bind the 'json' flag in PreRun for each command that uses
 		// a flag name already bound to a sibling command.
 		// See https://github.com/spf13/viper/issues/233#issuecomment-386791444

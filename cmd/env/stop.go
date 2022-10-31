@@ -27,10 +27,9 @@ func NewStopCmd() *cobra.Command {
 
 func newStopEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Aliases:      []string{"env"},
-		Use:          "environment",
-		Short:        "Stop a running environment",
-		SilenceUsage: true,
+		Aliases: []string{"env"},
+		Use:     "environment [environment ID]",
+		Short:   "Stop a running environment",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return stopEnvironmentByID(args[0])
