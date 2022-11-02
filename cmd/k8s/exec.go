@@ -15,8 +15,10 @@ import (
 
 func NewExecCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "exec",
-		Short:   "Execute a command in a pod in an environment",
+		Use:   "exec",
+		Short: "Execute a command in a pod in an environment",
+		Long: `Execute any command with any arguments and flags in a given service.
+You can also run interactive commands, like shells, without passing anything special to exec.`,
 		GroupID: constants.GroupKubernetes,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("kubeconfig", cmd.Flags().Lookup("kubeconfig"))
@@ -37,7 +39,7 @@ func NewExecCmd() *cobra.Command {
 	cmd.Flags().String("env", "", "Environment ID")
 	cmd.MarkFlagRequired("env")
 
-	cmd.Flags().StringSlice("cmd", nil, "Command")
+	cmd.Flags().StringSlice("cmd", nil, "Command (comma-separated, like 'ls,-l,-a')")
 	cmd.MarkFlagRequired("cmd")
 
 	return cmd

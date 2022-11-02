@@ -34,7 +34,7 @@ func NewLogsCmd() *cobra.Command {
 	cmd.Flags().String("service", "", "Service name")
 	cmd.MarkFlagRequired("service")
 
-	cmd.Flags().String("env", "", "environment ID")
+	cmd.Flags().String("env", "", "Environment ID")
 	cmd.MarkFlagRequired("env")
 
 	return cmd
