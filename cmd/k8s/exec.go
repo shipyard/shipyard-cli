@@ -16,7 +16,7 @@ import (
 func NewExecCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec",
-		Short: "Execute a command in a pod in an environment",
+		Short: "Execute a command in a service in an environment",
 		Long: `Execute any command with any arguments and flags in a given service.
 You can also run interactive commands, like shells, without passing anything special to exec.`,
 		GroupID: constants.GroupKubernetes,

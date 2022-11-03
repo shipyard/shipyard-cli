@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+var gitCommit = "undefined"
+
 func Init() {
 	var logWriter io.Writer
 	if viper.GetBool("verbose") {
@@ -17,5 +19,7 @@ func Init() {
 	}
 
 	log.SetOutput(logWriter)
-	log.SetPrefix("SHIPYARD CLI ")
+	log.SetPrefix("SHIPYARD CLI\t")
+	log.SetFlags(0)
+	log.Println("Git commit:", gitCommit)
 }
