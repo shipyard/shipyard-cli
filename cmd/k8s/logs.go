@@ -23,6 +23,7 @@ func NewLogsCmd() *cobra.Command {
 			viper.BindPFlag("kubeconfig", cmd.Flags().Lookup("kubeconfig"))
 			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
 			viper.BindPFlag("env", cmd.Flags().Lookup("env"))
+			viper.BindPFlag("follow", cmd.Flags().Lookup("follow"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return handleLogsCmd()
@@ -36,6 +37,8 @@ func NewLogsCmd() *cobra.Command {
 
 	cmd.Flags().String("env", "", "Environment ID")
 	cmd.MarkFlagRequired("env")
+
+	cmd.Flags().Bool("follow", false, "Follow the log output")
 
 	return cmd
 }
@@ -61,7 +64,10 @@ func handleLogsCmd() error {
 		return err
 	}
 
-	podLogOpts := corev1.PodLogOptions{}
+	follow := viper.GetBool("follow")
+	podLogOpts := corev1.PodLogOptions{
+		Follow: follow,
+	}
 	req := clientset.CoreV1().Pods(namespace).GetLogs(podName, &podLogOpts)
 	podLogs, err := req.Stream(context.TODO())
 	if err != nil {
@@ -69,14 +75,33 @@ func handleLogsCmd() error {
 	}
 	defer podLogs.Close()
 
-	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, podLogs)
-	if err != nil {
-		return err
+	writer := display.NewSimpleDisplay()
+
+	if !follow {
+		var buf bytes.Buffer
+		_, err = io.Copy(&buf, podLogs)
+		if err != nil {
+			return err
+		}
+		writer.Output(buf.String())
+		return nil
 	}
 
-	writer := display.NewSimpleDisplay()
-	writer.Output(buf.String())
+	for {
+		buf := make([]byte, 2000)
+		bytesRead, err := podLogs.Read(buf)
+		if bytesRead == 0 {
+			continue
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		message := string(buf[:bytesRead])
+		writer.Output(message)
+	}
 
 	return nil
 }
