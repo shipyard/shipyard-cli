@@ -6,9 +6,9 @@ import (
 	"os"
 
 	"github.com/spf13/viper"
-)
 
-var gitCommit = "undefined"
+	"shipyard/version"
+)
 
 func Init() {
 	var logWriter io.Writer
@@ -21,5 +21,5 @@ func Init() {
 	log.SetOutput(logWriter)
 	log.SetPrefix("SHIPYARD CLI\t")
 	log.SetFlags(0)
-	log.Println("Git commit:", gitCommit)
+	log.Println("Git commit:", version.GitCommit)
 }

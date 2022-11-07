@@ -10,13 +10,14 @@ import (
 	"shipyard/cmd/k8s"
 	"shipyard/constants"
 	"shipyard/logging"
+	"shipyard/version"
 )
 
 var rootCmd = &cobra.Command{
 	Use:     "shipyard",
 	Short:   "The Shipyard CLI",
 	Long:    `A tool to manage Ephemeral Environments on the Shipyard platform`,
-	Version: "0.0.1",
+	Version: version.Version,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		logging.Init()
 	},
