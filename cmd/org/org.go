@@ -52,7 +52,7 @@ func getAllOrgs() error {
 		return err
 	}
 
-	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "org", "", nil), nil)
+	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "org", "", "", nil), nil)
 	if err != nil {
 		return err
 	}

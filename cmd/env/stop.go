@@ -53,7 +53,7 @@ func stopEnvironmentByID(id string) error {
 		params["org"] = org
 	}
 
-	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("stop", "environment", id, params), nil)
+	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("stop", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}

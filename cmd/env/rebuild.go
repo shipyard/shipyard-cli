@@ -53,7 +53,7 @@ func rebuildEnvironmentByID(id string) error {
 		params["org"] = org
 	}
 
-	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("rebuild", "environment", id, params), nil)
+	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("rebuild", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}

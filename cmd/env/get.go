@@ -107,13 +107,13 @@ func handleGetAllEnvironments() error {
 		params["page"] = strconv.Itoa(page)
 	}
 	if pageSize := viper.GetInt("page-size"); pageSize != 0 {
-		params["pageSize"] = strconv.Itoa(pageSize)
+		params["page_size"] = strconv.Itoa(pageSize)
 	}
 	if org := viper.GetString("org"); org != "" {
 		params["org"] = org
 	}
 
-	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", "", params), nil)
+	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", "", "", params), nil)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func GetEnvironmentByID(client requests.Client, id string) (*Response, error) {
 		params["org"] = org
 	}
 
-	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, params), nil)
+	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func handleGetEnvironmentByID(id string) error {
 		params["org"] = org
 	}
 
-	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, params), nil)
+	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}

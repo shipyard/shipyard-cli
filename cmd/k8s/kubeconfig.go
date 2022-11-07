@@ -39,8 +39,8 @@ func getKubeconfig(envID string) ([]byte, error) {
 		params["org"] = org
 	}
 
-	uri := uri.CreateResourceURI("", "environment", envID, params)
-	body, err := client.Do(http.MethodGet, uri+"/kubeconfig", nil)
+	uri := uri.CreateResourceURI("", "environment", envID, "kubeconfig", params)
+	body, err := client.Do(http.MethodGet, uri, nil)
 	if err != nil {
 		return nil, err
 	}
