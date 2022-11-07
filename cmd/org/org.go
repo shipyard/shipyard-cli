@@ -16,8 +16,9 @@ import (
 
 func NewGetOrgCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "org",
-		Short: "Get current org",
+		Use:     "org",
+		Aliases: []string{"organization"},
+		Short:   "Get current org",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return nil
 		},
@@ -28,8 +29,9 @@ func NewGetOrgCmd() *cobra.Command {
 
 func NewGetAllOrgsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "orgs",
-		Short: "Get all orgs",
+		Use:     "orgs",
+		Aliases: []string{"organizations"},
+		Short:   "Get all orgs",
 		Long: `Lists all orgs, to which the user belongs.
 Note that this command requires a user-level access token.`,
 		SilenceUsage: true,
