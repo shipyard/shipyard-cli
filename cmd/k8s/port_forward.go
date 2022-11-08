@@ -18,9 +18,10 @@ import (
 
 func NewPortForwardCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "port-forward",
-		Aliases: []string{"pf"},
-		Short:   "Port-forward to a service in an environment",
+		Use:          "port-forward",
+		Aliases:      []string{"pf"},
+		Short:        "Port-forward to a service in an environment",
+		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("ports", cmd.Flags().Lookup("ports"))
 			viper.BindPFlag("service", cmd.Flags().Lookup("service"))

@@ -17,6 +17,7 @@ func NewExecCmd() *cobra.Command {
 		Short: "Execute a command in a service in an environment",
 		Long: `Execute any command with any arguments and flags in a given service.
 You can also run interactive commands, like shells, without passing anything special to exec.`,
+		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
 			viper.BindPFlag("env", cmd.Flags().Lookup("env"))

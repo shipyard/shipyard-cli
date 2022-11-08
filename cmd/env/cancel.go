@@ -34,7 +34,7 @@ func newCancelEnvironmentCmd() *cobra.Command {
 			if len(args) > 0 {
 				return cancelEnvironmentByID(args[0])
 			}
-			return errors.New("missing environment ID")
+			return errors.New("Environment ID argument not provided")
 		},
 	}
 

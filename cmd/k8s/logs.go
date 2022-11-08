@@ -15,8 +15,9 @@ import (
 
 func NewLogsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "logs",
-		Short: "Get logs from a service in an environment",
+		Use:          "logs",
+		Short:        "Get logs from a service in an environment",
+		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
 			viper.BindPFlag("env", cmd.Flags().Lookup("env"))

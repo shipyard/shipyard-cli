@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -14,10 +15,11 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:     "shipyard",
-	Short:   "The Shipyard CLI",
-	Long:    `A tool to manage Ephemeral Environments on the Shipyard platform`,
-	Version: version.Version,
+	Use:           "shipyard",
+	Short:         "The Shipyard CLI",
+	Long:          `A tool to manage Ephemeral Environments on the Shipyard platform`,
+	Version:       version.Version,
+	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		logging.Init()
 	},
@@ -26,6 +28,8 @@ var rootCmd = &cobra.Command{
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
+		red := color.New(color.FgRed)
+		red.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
 }

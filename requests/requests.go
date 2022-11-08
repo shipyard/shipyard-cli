@@ -69,7 +69,11 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 		if len(b) == 0 {
 			return nil, fmt.Errorf("empty response")
 		}
-		return nil, errors.New(string(b))
+		parsedError := parseError(b)
+		if parsedError == "" {
+			return nil, errors.New(string(b))
+		}
+		return nil, errors.New(parsedError)
 	}
 
 	return b, nil
@@ -78,4 +82,22 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 func (c httpClient) Write(data any) error {
 	_, err := fmt.Fprintf(c.w, "%s", data)
 	return err
+}
+
+func parseError(p []byte) string {
+	var r errorResponse
+	if err := json.Unmarshal(p, &r); err != nil {
+		return ""
+	}
+	if len(r.Errors) == 0 {
+		return ""
+	}
+	return r.Errors[0].Title
+}
+
+type errorResponse struct {
+	Errors []struct {
+		Status int    `json:"status"`
+		Title  string `json:"title"`
+	} `json:"errors"`
 }

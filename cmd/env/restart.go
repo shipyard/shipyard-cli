@@ -15,9 +15,10 @@ import (
 
 func NewRestartCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "restart",
-		GroupID: constants.GroupEnvironments,
-		Short:   "Restart an environment",
+		Use:          "restart",
+		GroupID:      constants.GroupEnvironments,
+		Short:        "Restart an environment",
+		SilenceUsage: true,
 	}
 
 	cmd.AddCommand(newRestartEnvironmentCmd())
@@ -34,7 +35,7 @@ func newRestartEnvironmentCmd() *cobra.Command {
 			if len(args) > 0 {
 				return restartEnvironmentByID(args[0])
 			}
-			return errors.New("missing environment ID")
+			return errors.New("Environment ID argument not provided")
 		},
 	}
 
