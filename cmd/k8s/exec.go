@@ -9,8 +9,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/remotecommand"
-
-	"shipyard/constants"
 )
 
 func NewExecCmd() *cobra.Command {
@@ -19,9 +17,7 @@ func NewExecCmd() *cobra.Command {
 		Short: "Execute a command in a service in an environment",
 		Long: `Execute any command with any arguments and flags in a given service.
 You can also run interactive commands, like shells, without passing anything special to exec.`,
-		GroupID: constants.GroupKubernetes,
 		PreRun: func(cmd *cobra.Command, args []string) {
-			viper.BindPFlag("kubeconfig", cmd.Flags().Lookup("kubeconfig"))
 			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
 			viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 			viper.BindPFlag("cmd", cmd.Flags().Lookup("cmd"))
@@ -30,8 +26,6 @@ You can also run interactive commands, like shells, without passing anything spe
 			return handleExecCmd()
 		},
 	}
-
-	cmd.Flags().String("kubeconfig", "", "Path to kubeconfig")
 
 	cmd.Flags().String("service", "", "Service name")
 	cmd.MarkFlagRequired("service")

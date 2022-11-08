@@ -14,19 +14,6 @@ import (
 	"shipyard/requests/uri"
 )
 
-func NewGetOrgCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "org",
-		Aliases: []string{"organization"},
-		Short:   "Get current org",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return nil
-		},
-	}
-
-	return cmd
-}
-
 func NewGetAllOrgsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "orgs",
