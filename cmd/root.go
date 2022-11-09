@@ -28,7 +28,7 @@ var rootCmd = &cobra.Command{
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		red := color.New(color.FgRed)
+		red := color.New(color.FgHiRed)
 		red.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}

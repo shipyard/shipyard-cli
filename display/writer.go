@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/fatih/color"
 )
 
 type Display interface {
@@ -21,9 +23,10 @@ type simpleDisplay struct {
 }
 
 func (sw *simpleDisplay) Output(a ...any) {
-	fmt.Fprintln(sw.writer, a...)
+	fmt.Fprint(sw.writer, a...)
 }
 
 func (sw *simpleDisplay) Fail(a ...any) {
-	fmt.Fprintln(sw.errorWriter, "Error:", a)
+	red := color.New(color.FgRed)
+	red.Fprint(sw.errorWriter, "Error:", a)
 }

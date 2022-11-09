@@ -71,10 +71,7 @@ func handleExecCmd() error {
 		TTY:     true,
 	}
 
-	req.VersionedParams(
-		option,
-		scheme.ParameterCodec,
-	)
+	req.VersionedParams(option, scheme.ParameterCodec)
 	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
 	if err != nil {
 		return err
