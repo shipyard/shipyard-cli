@@ -130,11 +130,16 @@ func handleGetAllEnvironments() error {
 
 	var data [][]string
 	for _, d := range r.Data {
+		pr := strconv.Itoa(d.Attributes.Projects[0].PullRequestNumber)
+		if pr == "0" {
+			pr = ""
+		}
+
 		data = append(data, []string{
 			d.ID,
 			d.Attributes.Projects[0].RepoName,
 			d.Attributes.Name,
-			strconv.Itoa(d.Attributes.Projects[0].PullRequestNumber),
+			pr,
 			d.Attributes.URL,
 		})
 	}
@@ -194,12 +199,17 @@ func handleGetEnvironmentByID(id string) error {
 	}
 
 	env := r.Data
+	pr := strconv.Itoa(env.Attributes.Projects[0].PullRequestNumber)
+	if pr == "0" {
+		pr = ""
+	}
+
 	data := [][]string{
 		[]string{
 			env.ID,
 			env.Attributes.Projects[0].RepoName,
 			env.Attributes.Name,
-			strconv.Itoa(env.Attributes.Projects[0].PullRequestNumber),
+			pr,
 			env.Attributes.URL,
 		},
 	}
