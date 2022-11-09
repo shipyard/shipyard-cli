@@ -255,7 +255,12 @@ type environment struct {
 			RepoName          string `json:"repo_name"`
 		} `json:"projects"`
 
-		Services map[string]interface{} `json:"services"`
+		Services []struct {
+			Name          string   `json:"name"`
+			Ports         []string `json:"ports"`
+			SanitizedName string   `json:"sanitized_name"`
+			URL           string   `json:"url"`
+		} `json:"services"`
 	} `json:"attributes"`
 
 	ID string `json:"id"`

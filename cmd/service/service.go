@@ -2,6 +2,7 @@ package service
 
 import (
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -39,5 +40,14 @@ func handleGetServicesCmd() error {
 		return err
 	}
 
-	return client.Write(environment.Data.Attributes.Services)
+	services := environment.Data.Attributes.Services
+	if len(services) == 0 {
+		return client.Write("No services found.\n")
+	}
+
+	names := make([]string, len(services))
+	for i, s := range services {
+		names[i] = s.Name
+	}
+	return client.Write(strings.Join(names, "\n") + "\n")
 }
