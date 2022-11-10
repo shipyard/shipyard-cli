@@ -1,9 +1,10 @@
 package services
 
 import (
+	"fmt"
 	"os"
-	"strings"
 
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -45,9 +46,29 @@ func handleGetServicesCmd() error {
 		return client.Write("No services found.\n")
 	}
 
-	names := make([]string, len(services))
-	for i, s := range services {
-		names[i] = s.Name
+	var data [][]string
+	for _, s := range services {
+		var ports string
+		if len(s.Ports) > 0 {
+			ports = fmt.Sprintf("%s", s.Ports)
+		}
+
+		data = append(data, []string{
+			s.Name,
+			ports,
+			s.URL,
+		})
 	}
-	return client.Write(strings.Join(names, "\n") + "\n")
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Name", "Ports", "URL"})
+	table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
+	table.SetCenterSeparator("|")
+
+	for _, v := range data {
+		table.Append(v)
+	}
+	table.Render()
+
+	return nil
 }

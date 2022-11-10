@@ -146,7 +146,7 @@ func handleGetAllEnvironments() error {
 
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"UUID", "Repo", "App Name", "PR#", "URL"})
-	table.SetBorders(tablewriter.Border{Left: true, Top: false, Right: true, Bottom: false})
+	table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
 	table.SetCenterSeparator("|")
 
 	for _, v := range data {
@@ -216,7 +216,7 @@ func handleGetEnvironmentByID(id string) error {
 
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"UUID", "Repo", "App Name", "PR#", "URL"})
-	table.SetBorders(tablewriter.Border{Left: true, Top: false, Right: true, Bottom: false})
+	table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
 	table.SetCenterSeparator("|")
 
 	for _, v := range data {
