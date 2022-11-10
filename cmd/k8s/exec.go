@@ -3,6 +3,7 @@ package k8s
 import (
 	"os"
 
+	"github.com/docker/cli/cli/streams"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
@@ -63,6 +64,7 @@ func handleExecCmd() error {
 
 	req := clientset.CoreV1().RESTClient().Post().Resource("pods").Name(podName).
 		Namespace(namespace).SubResource("exec")
+
 	option := &v1.PodExecOptions{
 		Command: viper.GetStringSlice("cmd"),
 		Stdin:   true,
@@ -77,9 +79,25 @@ func handleExecCmd() error {
 		return err
 	}
 
+	in := streams.NewIn(os.Stdin)
+	if err := in.SetRawTerminal(); err != nil {
+		return err
+	}
+	defer in.RestoreTerminal()
+
 	return exec.Stream(remotecommand.StreamOptions{
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
+		Stdin:             in,
+		Stdout:            os.Stdout,
+		Stderr:            os.Stderr,
+		TerminalSizeQueue: &fixedTerminalSizeQueue{},
 	})
+}
+
+type fixedTerminalSizeQueue struct{}
+
+func (s *fixedTerminalSizeQueue) Next() *remotecommand.TerminalSize {
+	return &remotecommand.TerminalSize{
+		Width:  3000,
+		Height: 8000,
+	}
 }
