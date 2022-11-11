@@ -46,7 +46,7 @@ func handleLogsCmd() error {
 		return err
 	}
 
-	config, namespace, err := getConfig()
+	config, namespace, err := getRESTConfig()
 	if err != nil {
 		return err
 	}

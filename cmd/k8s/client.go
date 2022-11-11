@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 
-	"github.com/spf13/viper"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -14,19 +14,39 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
-func getConfig() (*rest.Config, string, error) {
-	kubeconfig := viper.GetString("kubeconfig")
-	if kubeconfig == "" {
-		if home := homedir.HomeDir(); home != "" {
-			kubeconfig = filepath.Join(home, ".shipyard", "kubeconfig")
+// getKubeconfigPath tries to find a kubeconfig on the file system.
+// It first looks in the home directory of the user. If it fails to find
+// a file named "kubeconfig", it tries to find in the current directory.
+func getKubeconfigPath() (string, error) {
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfigPath := filepath.Join(home, ".shipyard", "kubeconfig")
+		if _, err := os.Stat(kubeconfigPath); err == nil {
 			log.Println("Using a kubeconfig found in the default shipyard location.")
-		} else {
-			return nil, "", fmt.Errorf("no kubeconfig file path provided")
+			return kubeconfigPath, nil
 		}
 	}
 
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	kubeconfigPath := filepath.Join(wd, "kubeconfig")
+	if _, err := os.Stat(kubeconfigPath); err != nil {
+		return "", err
+	}
+	log.Println("Using a kubeconfig found in the current directory.")
+	return kubeconfigPath, nil
+}
+
+func getRESTConfig() (*rest.Config, string, error) {
+	kubeconfigPath, err := getKubeconfigPath()
+	if err != nil {
+		return nil, "", err
+	}
+
 	cfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig},
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
 		nil)
 
 	rawConfig, err := cfg.RawConfig()

@@ -60,10 +60,11 @@ func saveKubeconfig(body []byte) error {
 	}
 
 	if p == "" {
-		p, err = os.Getwd()
+		cwd, err := os.Getwd()
 		if err != nil {
 			return err
 		}
+		p = filepath.Join(cwd, "kubeconfig")
 	}
 
 	return os.WriteFile(p, body, 0644)

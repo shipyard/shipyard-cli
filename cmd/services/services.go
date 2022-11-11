@@ -14,8 +14,9 @@ import (
 
 func NewGetServicesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "services",
-		Short: "Get services in an environment",
+		Use:          "services",
+		Short:        "Get services in an environment",
+		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 		},
