@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"errors"
 	"os"
 
 	"github.com/docker/cli/cli/streams"
@@ -17,15 +18,19 @@ func NewExecCmd() *cobra.Command {
 		Use:   "exec",
 		Short: "Execute a command in a service in an environment",
 		Long: `Execute any command with any arguments and flags in a given service.
-You can also run interactive commands, like shells, without passing anything special to exec.`,
+You can also run interactive commands, like shells, without passing anything special to exec.
+
+Pass any command arguments after a double slash.
+
+shipyard exec --env 123 --service web -- ls -l -a
+shipyard exec --env 123 --service web -- bash`,
 		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
 			viper.BindPFlag("env", cmd.Flags().Lookup("env"))
-			viper.BindPFlag("cmd", cmd.Flags().Lookup("cmd"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleExecCmd()
+			return handleExecCmd(args)
 		},
 	}
 
@@ -35,13 +40,14 @@ You can also run interactive commands, like shells, without passing anything spe
 	cmd.Flags().String("env", "", "Environment ID")
 	cmd.MarkFlagRequired("env")
 
-	cmd.Flags().StringSlice("cmd", nil, "Command (comma-separated, like 'ls,-l,-a')")
-	cmd.MarkFlagRequired("cmd")
-
 	return cmd
 }
 
-func handleExecCmd() error {
+func handleExecCmd(args []string) error {
+	if len(args) == 0 {
+		return errors.New("no arguments provided")
+	}
+
 	if err := SetKubeconfig(viper.GetString("env")); err != nil {
 		return err
 	}
@@ -66,7 +72,7 @@ func handleExecCmd() error {
 		Namespace(namespace).SubResource("exec")
 
 	option := &v1.PodExecOptions{
-		Command: viper.GetStringSlice("cmd"),
+		Command: args,
 		Stdin:   true,
 		Stdout:  true,
 		Stderr:  true,
