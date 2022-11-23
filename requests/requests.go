@@ -8,8 +8,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"runtime"
 
 	"shipyard/auth"
+	"shipyard/version"
 )
 
 type Client interface {
@@ -52,6 +54,7 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", fmt.Sprintf("%s-%s-%s-%s", "shipyard-cli", version.Version, runtime.GOOS, runtime.GOARCH))
 	req.Header.Set("x-api-token", c.token)
 
 	resp, err := http.DefaultClient.Do(req)
