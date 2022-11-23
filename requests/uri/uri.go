@@ -3,12 +3,17 @@ package uri
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"sort"
 )
 
-const baseURL = "https://shipyard.build/api/v1"
+var baseURL = "https://shipyard.build/api/v1"
 
 func CreateResourceURI(action string, resource string, id string, subresource string, params map[string]string) string {
+	if u := os.Getenv("SHIPYARD_BUILD_URL"); u != "" {
+		baseURL = u
+	}
+
 	var uri string
 
 	if id == "" {
