@@ -22,7 +22,7 @@ func NewLogsCmd() *cobra.Command {
 			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
 			viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 			viper.BindPFlag("follow", cmd.Flags().Lookup("follow"))
-			viper.BindPFlag("lines", cmd.Flags().Lookup("lines"))
+			viper.BindPFlag("tail", cmd.Flags().Lookup("tail"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return handleLogsCmd()
@@ -36,7 +36,7 @@ func NewLogsCmd() *cobra.Command {
 	cmd.MarkFlagRequired("env")
 
 	cmd.Flags().Bool("follow", false, "Follow the log output")
-	cmd.Flags().Int64("lines", 3000, "Number of lines from the end of the logs to show")
+	cmd.Flags().Int64("tail", 3000, "Number of lines from the end of the logs to show")
 
 	return cmd
 }
@@ -63,7 +63,7 @@ func handleLogsCmd() error {
 	}
 
 	follow := viper.GetBool("follow")
-	lines := viper.GetInt64("lines")
+	lines := viper.GetInt64("tail")
 
 	podLogOpts := corev1.PodLogOptions{
 		Follow:    follow,
