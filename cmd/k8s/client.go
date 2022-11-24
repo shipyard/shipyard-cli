@@ -68,12 +68,7 @@ func getRESTConfig() (*rest.Config, string, error) {
 	return restClientConfig, namespace, nil
 }
 
-func getPodName(config *rest.Config, namespace string, deployment string) (string, error) {
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return "", err
-	}
-
+func getPodName(clientset *kubernetes.Clientset, namespace string, deployment string) (string, error) {
 	options := metav1.ListOptions{
 		LabelSelector: "component=" + deployment,
 	}

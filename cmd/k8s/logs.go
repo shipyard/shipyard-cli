@@ -57,7 +57,7 @@ func handleLogsCmd() error {
 	}
 
 	serviceName := viper.GetString("service")
-	podName, err := getPodName(config, namespace, serviceName)
+	podName, err := getPodName(clientset, namespace, serviceName)
 	if err != nil {
 		return err
 	}
