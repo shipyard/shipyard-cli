@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
@@ -61,21 +62,25 @@ func handlePortForwardCmd() error {
 		return err
 	}
 
-	ports := viper.GetStringSlice("ports")
-	serviceName := viper.GetString("service")
-
-	return portForward(config, ports, namespace, serviceName)
-}
-
-func portForward(config *rest.Config, ports []string, namespace string, serviceName string) error {
-	podName, err := getPodName(config, namespace, serviceName)
+	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return err
 	}
 
+	serviceName := viper.GetString("service")
+	podName, err := getPodName(clientset, namespace, serviceName)
+	if err != nil {
+		return err
+	}
+
+	ports := viper.GetStringSlice("ports")
+	return portForward(config, namespace, podName, ports)
+}
+
+func portForward(config *rest.Config, namespace string, pod string, ports []string) error {
 	roundTripper, upgrader, err := spdy.RoundTripperFor(config)
 	host := strings.TrimLeft(config.Host, "https://")
-	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", namespace, podName)
+	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", namespace, pod)
 	serverURL := url.URL{Scheme: "https", Host: host, Path: path}
 
 	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: roundTripper}, http.MethodPost, &serverURL)

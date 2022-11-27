@@ -10,6 +10,8 @@ import (
 	"shipyard/version"
 )
 
+// Init registers a log writer that writes either to stdout or nowhere,
+// depending on whether verbose flag is set.
 func Init() {
 	var logWriter io.Writer
 	if viper.GetBool("verbose") {

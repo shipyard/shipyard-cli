@@ -140,7 +140,7 @@ func handleGetAllEnvironments() error {
 		return client.Write(body)
 	}
 
-	r, err := unmarshalManyEnv(body)
+	r, err := unmarshalManyEnvs(body)
 	if err != nil {
 		return ErrUnmarshalling
 	}
@@ -154,6 +154,7 @@ func handleGetAllEnvironments() error {
 
 		data = append(data, []string{
 			d.ID,
+			fmt.Sprintf("%t", d.Attributes.Ready),
 			d.Attributes.Projects[0].RepoName,
 			d.Attributes.Name,
 			pr,
@@ -162,7 +163,7 @@ func handleGetAllEnvironments() error {
 	}
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"UUID", "Repo", "App Name", "PR#", "URL"})
+	table.SetHeader([]string{"UUID", "Ready", "Repo", "App Name", "PR#", "URL"})
 	table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
 	table.SetCenterSeparator("|")
 
@@ -224,6 +225,7 @@ func handleGetEnvironmentByID(id string) error {
 	data := [][]string{
 		[]string{
 			env.ID,
+			fmt.Sprintf("%t", env.Attributes.Ready),
 			env.Attributes.Projects[0].RepoName,
 			env.Attributes.Name,
 			pr,
@@ -232,7 +234,7 @@ func handleGetEnvironmentByID(id string) error {
 	}
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"UUID", "Repo", "App Name", "PR#", "URL"})
+	table.SetHeader([]string{"UUID", "Ready", "Repo", "App Name", "PR#", "URL"})
 	table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
 	table.SetCenterSeparator("|")
 
@@ -253,7 +255,7 @@ func unmarshalEnv(p []byte) (*Response, error) {
 	return &r, err
 }
 
-func unmarshalManyEnv(p []byte) (*respManyEnvs, error) {
+func unmarshalManyEnvs(p []byte) (*respManyEnvs, error) {
 	var r respManyEnvs
 	err := json.Unmarshal(p, &r)
 	if err != nil {
@@ -264,8 +266,9 @@ func unmarshalManyEnv(p []byte) (*respManyEnvs, error) {
 
 type environment struct {
 	Attributes struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
+		Name  string `json:"name"`
+		URL   string `json:"url"`
+		Ready bool   `json:"ready"`
 
 		Projects []struct {
 			PullRequestNumber int    `json:"pull_request_number"`

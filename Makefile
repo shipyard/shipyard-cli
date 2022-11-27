@@ -21,6 +21,7 @@ build-release-all:
 
 clean:
 	rm -rf bin
+	rm $(NAME)
 
 test:
 	go test ./...
