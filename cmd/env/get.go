@@ -20,8 +20,8 @@ func NewGetEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "environment [environment ID]",
 		Aliases: []string{"env"},
-		Short:   "Get an environment's detail by ID",
-		Example: `  # Get relevant information for environment ID 12345
+		Short:   "Get an environment's details by ID",
+		Example: `  # Get all the details for environment ID 12345:
   shipyard environment get 12345
   
   # Get all the details for environment ID 12345 in JSON format:
@@ -52,7 +52,7 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 		Aliases:      []string{"envs"},
 		SilenceUsage: true,
 		Short:        "Get details for all environments in an org",
-		Example: `  # Get relevant information for all environments in your default org
+		Example: `  # Get details on all environments in your default org:
   shipyard environments get
   
   # Get all the details in JSON format:

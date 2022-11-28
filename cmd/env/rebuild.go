@@ -18,7 +18,7 @@ func NewRebuildCmd() *cobra.Command {
 		Use:     "rebuild",
 		GroupID: constants.GroupEnvironments,
 		Short:   "Rebuild an environment",
-		Long: `This command lets you to rebuild an environment. You can only rebuild a non-deleted environment.
+		Long: `This command rebuilds an environment. You can only rebuild a non-deleted environment.
 Rebuild will automatically fetch the latest commit for the branch/PR.`,
 		Example: `  # Rebuild environment ID 12345
   shipyard rebuild environment 12345`,
@@ -34,7 +34,7 @@ func newRebuildEnvironmentCmd() *cobra.Command {
 		Aliases: []string{"env"},
 		Use:     "environment [environment ID]",
 		Short:   "Rebuild an environment",
-		Long: `This command lets you to rebuild an environment. You can only rebuild a non-deleted environment.
+		Long: `This command rebuilds an environment. You can only rebuild a non-deleted environment.
 Rebuild will automatically fetch the latest commit for the branch/PR.`,
 		Example: `  # Rebuild environment ID 12345
   shipyard rebuild environment 12345`,

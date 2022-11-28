@@ -23,10 +23,10 @@ func NewLogsCmd() *cobra.Command {
 		Example: `  # Get logs for service flask-backend:
   shipyard logs --env 12345 --service flask-backend
   
-  # Follow logs for service flask-backend:
+  # Follow logs for the flask-backend service:
   shipyard logs --env 12345 --service flask-backend --follow
 
-  # Get last 100 logs for service flask-backend:
+  # Get last 100 lines of logs for the flask-backend service:
   shipyard logs --env 12345 --service flask-backend --tail 100`,
 		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {

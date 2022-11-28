@@ -1,15 +1,17 @@
 # The Shipyard CLI
+
 A tool to manage Ephemeral Environments on the Shipyard platform.
 
 #### Installation:
 
 TODO
 
-#### Before you Begin:
-You will need to set up your API token as an environment variable `SHIPYARD_API_TOKEN`
+#### Before you begin:
+
+Set the environment variable `SHIPYARD_API_TOKEN` to your Shipyard API token.
 You can get your token by going to [your profile page](https://shipyard.build/profile). Get in touch with us if you would like to enable API access for your org.
 
-#### Basic Usage:
+#### Basic usage:
 - **List all environments:**
     ```bash
     shipyard get environments
@@ -26,9 +28,9 @@ You can get your token by going to [your profile page](https://shipyard.build/pr
     | `page-size` | Page size requested | int | `20` |
     | `pull-request-number` | Filter by pull request number | string |  |
     | `repo-name` | Filter by repo name | string |  |
-    
+
     **Examples:**
-    - List all environments for a specific repo `flask-backend` and branch `main`:
+    - List all environments running the repo `flask-backend` on branch `main`:
         ```bash
         shipyard get environments --repo-name flask-backend --branch main
         ```
@@ -36,8 +38,8 @@ You can get your token by going to [your profile page](https://shipyard.build/pr
         ```bash
         shipyard get environments --deleted
         ```
-    
-- **Get details for a specifc environment by it's UUID:**
+
+- **Get details for a specifc environment by its UUID:**
     ```bash
     shipyard get environment {environment_uuid}
     ```
@@ -46,12 +48,12 @@ You can get your token by going to [your profile page](https://shipyard.build/pr
     | -| - | - | - |
     | `json` | Print the *complete* JSON output  | boolean | `false` |
     | `org-name` | Filter by org name, if you are part of multiple orgs | string | `your default org` |
- 
+
 - **Get all services and exposed ports for an environment:**
     ```bash
-    shipyard get services --env {environment_uuid} 
+    shipyard get services --env {environment_uuid}
     ```
-- **Get all orgs you are part of:**
+- **Get all orgs you are a member of:**
     ```bash
     shipyard get orgs
     ```
@@ -63,7 +65,7 @@ You can get your token by going to [your profile page](https://shipyard.build/pr
     ```bash
     shipyard restart environment {environment_uuid}
     ```
-- **Cancel *on-going build* for an environment:**
+- **Cancel *ongoing build* for an environment:**
     ```bash
     shipyard cancel environment {environment_uuid}
     ```
@@ -93,11 +95,15 @@ You can get your token by going to [your profile page](https://shipyard.build/pr
     | -| - | - | - |
     | `follow` | Follow the logs output | boolean | `false`|
     | `tail`| # of recent log lines to show | int | `3000` |
-#### Building executable from code:
-You can make an executable by running the make command:
+
+
+#### Build executable from code:
+
+You can make an executable by running the following command:
 ```bash
 make build
 ```
+
 To run this new executable:
 ```bash
 ./shipyard

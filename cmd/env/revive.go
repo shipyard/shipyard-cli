@@ -18,7 +18,7 @@ func NewReviveCmd() *cobra.Command {
 		Use:     "revive",
 		GroupID: constants.GroupEnvironments,
 		Short:   "Revive a deleted environment",
-		Long: `This command lets you to revive a deleted environment.
+		Long: `This command revives a deleted environment.
 To get the UUID of a deleted environment, you can use:
   shipyard get environments --deleted`,
 		Example: `  # Revive environment ID 12345
