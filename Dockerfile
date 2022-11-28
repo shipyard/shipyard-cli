@@ -9,7 +9,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 go build -o /shipyard
+RUN CGO_ENABLED=0 go build -buildvcs=false -o /shipyard
 
 FROM alpine:3.17
 COPY --from=build /shipyard .
