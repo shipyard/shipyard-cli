@@ -18,9 +18,14 @@ import (
 
 func NewGetEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "environment [environment ID]",
-		Aliases:      []string{"env"},
-		Short:        "Get environment by ID",
+		Use:     "environment [environment ID]",
+		Aliases: []string{"env"},
+		Short:   "Get an environment's details by ID",
+		Example: `  # Get all the details for environment ID 12345:
+  shipyard environment get 12345
+  
+  # Get all the details for environment ID 12345 in JSON format:
+  shipyard environment get 12345 --json`,
 		SilenceUsage: true,
 		// Due to an issue in viper, bind the 'json' flag in PreRun for each command that uses
 		// a flag name already bound to a sibling command.
@@ -46,7 +51,19 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 		Use:          "environments",
 		Aliases:      []string{"envs"},
 		SilenceUsage: true,
-		Short:        "Get all environments",
+		Short:        "Get details for all environments in an org",
+		Example: `  # Get details on all environments in your default org:
+  shipyard environments get
+  
+  # Get all the details in JSON format:
+  shipyard environments get --json
+  
+  # Get all the environments for a specific repo and branch:
+  shipyard environments get --repo-name flask-backend --branch main
+  
+  # Get all the environments based on specific PR:
+  shipyard environments get --pull-request-number 1
+  `,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("name", cmd.Flags().Lookup("name"))
 			viper.BindPFlag("org-name", cmd.Flags().Lookup("org-name"))
@@ -63,14 +80,14 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().String("name", "", "Filter by name")
+	cmd.Flags().String("name", "", "Filter by name of the application")
 	cmd.Flags().String("org-name", "", "Filter by org name")
 	cmd.Flags().String("repo-name", "", "Filter by repo name")
-	cmd.Flags().String("branch", "", "Filter by branch")
+	cmd.Flags().String("branch", "", "Filter by branch name")
 	cmd.Flags().String("pull-request-number", "", "Filter by pull request number")
-	cmd.Flags().Bool("deleted", false, "Filter by deleted")
-	cmd.Flags().Int("page", 0, "Page number requested")
-	cmd.Flags().Int("page-size", 0, "Page size requested")
+	cmd.Flags().Bool("deleted", false, "Filter by deleted status (default false)")
+	cmd.Flags().Int("page", 1, "Page number requested")
+	cmd.Flags().Int("page-size", 20, "Page size requested")
 	cmd.Flags().Bool("json", false, "JSON output")
 
 	return cmd

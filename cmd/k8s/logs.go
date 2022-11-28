@@ -10,13 +10,24 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"shipyard/constants"
 	"shipyard/display"
 )
 
 func NewLogsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "logs",
-		Short:        "Get logs from a service in an environment",
+		Use:     "logs",
+		GroupID: constants.GroupEnvironments,
+		Aliases: []string{"log"},
+		Short:   "Get logs from a service in an environment",
+		Example: `  # Get logs for service flask-backend:
+  shipyard logs --env 12345 --service flask-backend
+  
+  # Follow logs for the flask-backend service:
+  shipyard logs --env 12345 --service flask-backend --follow
+
+  # Get last 100 lines of logs for the flask-backend service:
+  shipyard logs --env 12345 --service flask-backend --tail 100`,
 		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
@@ -63,11 +74,11 @@ func handleLogsCmd() error {
 	}
 
 	follow := viper.GetBool("follow")
-	lines := viper.GetInt64("tail")
+	tail := viper.GetInt64("tail")
 
 	podLogOpts := corev1.PodLogOptions{
 		Follow:    follow,
-		TailLines: &lines,
+		TailLines: &tail,
 	}
 	req := clientset.CoreV1().Pods(namespace).GetLogs(podName, &podLogOpts)
 	podLogs, err := req.Stream(context.TODO())

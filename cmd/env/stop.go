@@ -17,7 +17,10 @@ func NewStopCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "stop",
 		GroupID: constants.GroupEnvironments,
-		Short:   "Stop an environment",
+		Short:   "Stop a running environment",
+		Long:    `This command stops a running environment. You can ONLY stop an environment if it is currently running.`,
+		Example: `  # Stop environment ID 12345
+  shipyard stop environment 12345`,
 	}
 
 	cmd.AddCommand(newStopEnvironmentCmd())
@@ -27,9 +30,12 @@ func NewStopCmd() *cobra.Command {
 
 func newStopEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Aliases:      []string{"env"},
-		Use:          "environment [environment ID]",
-		Short:        "Stop a running environment",
+		Aliases: []string{"env"},
+		Use:     "environment [environment ID]",
+		Short:   "Stop a running environment",
+		Long:    `This command stops a running environment. You can ONLY stop an environment if it is currently running.`,
+		Example: `  # Stop environment ID 12345
+  shipyard stop environment 12345`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {

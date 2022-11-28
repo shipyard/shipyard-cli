@@ -14,14 +14,21 @@ import (
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 
+	"shipyard/constants"
 	"shipyard/display"
 )
 
 func NewPortForwardCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "port-forward",
-		Aliases:      []string{"pf"},
-		Short:        "Port-forward to a service in an environment",
+		Use:     "port-forward",
+		GroupID: constants.GroupEnvironments,
+		Aliases: []string{"pf"},
+		Short:   "Port-forward to a service in an environment",
+		Example: `  # Get an environment's services and exposed ports:
+  shipyard get services --env 12345
+
+  # port-forward "web" service's port 80:
+  shipyard port-forward --env 12345 --service web --ports 80:80`,
 		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("ports", cmd.Flags().Lookup("ports"))
