@@ -95,32 +95,23 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 
 var ErrUnmarshalling = errors.New("failed to unmarshal environment(s)")
 
-// Converts the `environment` object to [][]string which is used during printign environments as table
+// Converts the `environment` object to [][]string which is used during printing environments as table
 func convertObjToArray(env struct{ environment }) [][]string {
 	var data [][]string
 
-	// We only want to print the common cell values for the first project in MRA
-	printFirstProject := func(x string, idx int) string {
-		if idx == 0 {
-			return x
-		} else {
-			return ""
-		}
-	}
-
-	for idx, p := range env.Attributes.Projects {
+	for _, p := range env.Attributes.Projects {
 		pr := strconv.Itoa(p.PullRequestNumber)
 		if pr == "0" {
 			pr = ""
 		}
 
 		data = append(data, []string{
-			printFirstProject(env.ID, idx),
-			printFirstProject(fmt.Sprintf("%t", env.Attributes.Ready), idx),
-			printFirstProject(env.Attributes.Name, idx),
+			env.Attributes.Name,
+			env.ID,
+			fmt.Sprintf("%t", env.Attributes.Ready),
 			p.RepoName,
 			pr,
-			printFirstProject(env.Attributes.URL, idx),
+			env.Attributes.URL,
 		})
 	}
 
@@ -130,9 +121,9 @@ func convertObjToArray(env struct{ environment }) [][]string {
 // Render the environment data in tabular form
 func renderTable(data [][]string) {
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"UUID", "Ready", "App Name", "Repo", "PR#", "URL"})
-	table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
-	table.SetCenterSeparator("|")
+	table.SetHeader([]string{"App Name", "UUID", "Ready", "Repo", "PR#", "URL"})
+	table.SetAutoMergeCellsByColumnIndex([]int{0, 1, 5})
+	table.SetRowLine(true)
 
 	for _, v := range data {
 		table.Append(v)
