@@ -17,7 +17,10 @@ func NewCancelCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "cancel",
 		GroupID: constants.GroupEnvironments,
-		Short:   "Cancel an environment",
+		Short:   "Cancel an environment's latest build",
+		Long:    `This command cancels the environment's latest build. You can ONLY cancel a build if it is currently in the building phase.`,
+		Example: `  # Cancel the current build for environment ID 12345
+  shipyard cancel environment 12345`,
 	}
 
 	cmd.AddCommand(newCancelEnvironmentCmd())
@@ -29,7 +32,10 @@ func newCancelEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Aliases: []string{"env"},
 		Use:     "environment [environment ID]",
-		Short:   "Cancel a running environment",
+		Short:   "Cancel an environment's latest build",
+		Long:    `This command cancels the environment's latest build. You can ONLY cancel a build if it is currently in the building phase.`,
+		Example: `  # Cancel the current build for environment ID 12345
+  shipyard cancel environment 12345`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return cancelEnvironmentByID(args[0])

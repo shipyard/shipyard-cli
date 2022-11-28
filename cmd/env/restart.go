@@ -15,9 +15,11 @@ import (
 
 func NewRestartCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "restart",
-		GroupID:      constants.GroupEnvironments,
-		Short:        "Restart an environment",
+		Use:     "restart",
+		GroupID: constants.GroupEnvironments,
+		Short:   "Restart a stopped environment",
+		Example: `  # Restart environment ID 12345
+  shipyard restart environment 12345`,
 		SilenceUsage: true,
 	}
 
@@ -30,7 +32,9 @@ func newRestartEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Aliases: []string{"env"},
 		Use:     "environment [environment ID]",
-		Short:   "Restart a running environment",
+		Short:   "Restart a stopped environment",
+		Example: `  # Restart environment ID 12345
+  shipyard restart environment 12345`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return restartEnvironmentByID(args[0])
