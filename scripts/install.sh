@@ -22,7 +22,7 @@ main() {
 	
     URL="${RELEASES_URL}/download/v${VERSION}/shipyard-$(uname -s)-${ARCH}"
     
-    curl --silent --output "${default_dir}/shipyard"  --fail "$URL"
+    curl --silent -L --output "${default_dir}/shipyard" --fail "$URL"
     chmod +x ${default_dir}/shipyard
 }
 
