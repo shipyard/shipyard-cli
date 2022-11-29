@@ -95,6 +95,51 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 
 var ErrUnmarshalling = errors.New("failed to unmarshal environment(s)")
 
+// Converts the `environment` object to [][]string which is used during printing environments as table
+func extractDataForTableOutput(env environment) [][]string {
+	var data [][]string
+
+	for _, p := range env.Attributes.Projects {
+		pr := strconv.Itoa(p.PullRequestNumber)
+		if pr == "0" {
+			pr = ""
+		}
+
+		data = append(data, []string{
+			env.Attributes.Name,
+			env.ID,
+			fmt.Sprintf("%t", env.Attributes.Ready),
+			p.RepoName,
+			pr,
+			env.Attributes.URL,
+		})
+	}
+
+	return data
+}
+
+// Render the environment data in tabular form
+func renderTable(data [][]string) {
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"App Name", "UUID", "Ready", "Repo", "PR#", "URL"})
+
+	table.SetAutoMergeCellsByColumnIndex([]int{0, 1, 5})
+	table.SetAutoWrapText(false)
+	table.SetAutoFormatHeaders(true)
+	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+	table.SetAlignment(tablewriter.ALIGN_LEFT)
+	table.SetCenterSeparator("")
+	table.SetColumnSeparator("")
+	table.SetBorder(false)
+	table.SetHeaderLine(true)
+	table.SetTablePadding("\t")
+
+	for _, v := range data {
+		table.Append(v)
+	}
+	table.Render()
+}
+
 func handleGetAllEnvironments() error {
 	client, err := requests.NewHTTPClient(os.Stdout)
 	if err != nil {
@@ -146,31 +191,12 @@ func handleGetAllEnvironments() error {
 	}
 
 	var data [][]string
+
 	for _, d := range r.Data {
-		pr := strconv.Itoa(d.Attributes.Projects[0].PullRequestNumber)
-		if pr == "0" {
-			pr = ""
-		}
-
-		data = append(data, []string{
-			d.ID,
-			fmt.Sprintf("%t", d.Attributes.Ready),
-			d.Attributes.Projects[0].RepoName,
-			d.Attributes.Name,
-			pr,
-			d.Attributes.URL,
-		})
+		data = append(data, extractDataForTableOutput(d.environment)...)
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"UUID", "Ready", "Repo", "App Name", "PR#", "URL"})
-	table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
-	table.SetCenterSeparator("|")
-
-	for _, v := range data {
-		table.Append(v)
-	}
-	table.Render()
+	renderTable(data)
 
 	return nil
 }
@@ -216,32 +242,9 @@ func handleGetEnvironmentByID(id string) error {
 		return err
 	}
 
-	env := r.Data
-	pr := strconv.Itoa(env.Attributes.Projects[0].PullRequestNumber)
-	if pr == "0" {
-		pr = ""
-	}
+	data := extractDataForTableOutput(r.Data.environment)
 
-	data := [][]string{
-		[]string{
-			env.ID,
-			fmt.Sprintf("%t", env.Attributes.Ready),
-			env.Attributes.Projects[0].RepoName,
-			env.Attributes.Name,
-			pr,
-			env.Attributes.URL,
-		},
-	}
-
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"UUID", "Ready", "Repo", "App Name", "PR#", "URL"})
-	table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
-	table.SetCenterSeparator("|")
-
-	for _, v := range data {
-		table.Append(v)
-	}
-	table.Render()
+	renderTable(data)
 
 	return nil
 }
