@@ -96,7 +96,7 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 var ErrUnmarshalling = errors.New("failed to unmarshal environment(s)")
 
 // Converts the `environment` object to [][]string which is used during printing environments as table
-func convertObjToArray(env struct{ environment }) [][]string {
+func extractDataForTableOutput(env struct{ environment }) [][]string {
 	var data [][]string
 
 	for _, p := range env.Attributes.Projects {
@@ -122,8 +122,17 @@ func convertObjToArray(env struct{ environment }) [][]string {
 func renderTable(data [][]string) {
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"App Name", "UUID", "Ready", "Repo", "PR#", "URL"})
+
 	table.SetAutoMergeCellsByColumnIndex([]int{0, 1, 5})
-	table.SetRowLine(true)
+	table.SetAutoWrapText(false)
+	table.SetAutoFormatHeaders(true)
+	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+	table.SetAlignment(tablewriter.ALIGN_LEFT)
+	table.SetCenterSeparator("")
+	table.SetColumnSeparator("")
+	table.SetBorder(false)
+	table.SetHeaderLine(true)
+	table.SetTablePadding("\t")
 
 	for _, v := range data {
 		table.Append(v)
@@ -184,7 +193,7 @@ func handleGetAllEnvironments() error {
 	var data [][]string
 
 	for _, d := range r.Data {
-		data = append(data, convertObjToArray(d)...)
+		data = append(data, extractDataForTableOutput(d)...)
 	}
 
 	renderTable(data)
@@ -233,7 +242,7 @@ func handleGetEnvironmentByID(id string) error {
 		return err
 	}
 
-	data := convertObjToArray(r.Data)
+	data := extractDataForTableOutput(r.Data)
 
 	renderTable(data)
 
