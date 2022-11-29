@@ -108,3 +108,59 @@ To run this new executable:
 ```bash
 ./shipyard
 ```
+
+#### Enable Autocompletion
+
+- **Bash**:
+    This script depends on the `bash-completion` package. If it is not installed already, you can install it via your OS's package manager.
+    To load completions in your current shell session:
+    ```
+    source <(shipyard completion bash)
+    ```
+    To load completions for every new session, execute once:
+    *Linux*:
+    ```
+	shipyard completion bash > /etc/bash_completion.d/shipyard
+    ```
+    *macOS*:
+    ```
+	shipyard completion bash > $(brew --prefix)/etc/bash_completion.d/shipyard
+    ```
+- **Zsh**:
+    If shell completion is not already enabled in your environment, you will need to enable it.  You can execute the following once:
+    ```
+    echo "autoload -U compinit; compinit" >> ~/.zshrc
+    ```
+    To load completions in your current shell session:
+    ```
+    source <(shipyard completion zsh); compdef _shipyard shipyard
+    ```
+    To load completions for every new session, execute once:
+    *Linux*:
+    ```
+	shipyard completion zsh > "${fpath[1]}/_shipyard"
+    ```
+    *macOS*:
+    ```
+	shipyard completion zsh > $(brew --prefix)/share/zsh/site-functions/_shipyard
+    ```
+    You will need to start a new shell for this setup to take effect.
+- **fish**:
+    To load completions in your current shell session:
+    ```
+    $ shipyard completion fish | source
+    ```
+    To load completions for each session, execute once:
+    ```
+    shipyard completion fish > ~/.config/fish/completions/shipyard.fish
+    ``` 
+- **PowerShell**:
+    To load completions in your current shell session:
+    ```
+    shipyard completion powershell | Out-String | Invoke-Expression
+    ```
+    To load completions for every new session, run:
+    ```
+    shipyard completion powershell > shipyard.ps1
+    ```
+    and source this file from your PowerShell profile.
