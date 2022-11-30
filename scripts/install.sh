@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 RELEASES_URL="https://github.com/shipyardbuild/shipyard-cli/releases"
@@ -13,9 +13,9 @@ main() {
     default_dir=/usr/local/bin
 
     case $(uname -m) in
-        i386 | i686)    ARCH="386" ;;
-        x86_64)         ARCH="amd64" ;;
-        arm64)          ARCH="arm64" ;;
+        i386 | i686)        ARCH="386" ;;
+        x86_64)             ARCH="amd64" ;;
+        arm64 | aarch64)    ARCH="arm64" ;;
     esac
 
     VERSION="$(last_version)"
