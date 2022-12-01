@@ -18,11 +18,15 @@ main() {
         arm64 | aarch64)    ARCH="arm64" ;;
     esac
 
+    [[ -z "$ARCH" ]] && { echo "Platform not supported. Please contact support." ; exit 1; }
+
     VERSION="$(last_version)"
+    echo "Downloading latest binary..."
     URL="${RELEASES_URL}/download/v${VERSION}/shipyard-$(uname -s)-${ARCH}"
     
     curl --silent -L --output "${default_dir}/shipyard" --fail "$URL"
     chmod +x ${default_dir}/shipyard
+    echo "Installation Complete! Run 'shipyard --help' to get started."
 }
 
 main "$@"
