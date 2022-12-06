@@ -4,7 +4,12 @@ A tool to manage Ephemeral Environments on the Shipyard platform.
 
 ## Installation
 
-Download the latest [release](https://github.com/shipyardbuild/shipyard-cli/releases) from GitHub and put it somewhere accessible from PATH.
+- **Mac / Linux**
+    ```
+    curl https://shipyard.sh/install.sh | bash
+    ```
+- **Windows**
+    - Navigate to [releases page](https://github.com/shipyardbuild/shipyard-cli/releases) and download the executable.
 
 ## Before you begin
 
