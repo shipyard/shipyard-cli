@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"k8s.io/client-go/util/homedir"
 
 	"shipyard/cmd/env"
 	"shipyard/cmd/k8s"
@@ -22,6 +26,7 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		logging.Init()
+		log.Println("Using config file:", viper.ConfigFileUsed())
 	},
 }
 
@@ -35,6 +40,10 @@ func Execute() {
 }
 
 func init() {
+	cobra.OnInitialize(initConfig)
+
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.shipyard/config.yaml)")
+
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 
@@ -60,4 +69,28 @@ func setupCommands() {
 	rootCmd.AddCommand(k8s.NewExecCmd())
 	rootCmd.AddCommand(k8s.NewLogsCmd())
 	rootCmd.AddCommand(k8s.NewPortForwardCmd())
+}
+
+var cfgFile string
+
+func initConfig() {
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		home := homedir.HomeDir()
+		if home == "" {
+			fmt.Fprintln(os.Stderr, "Home directory not found.")
+			os.Exit(1)
+		}
+
+		viper.AddConfigPath(filepath.Join(home, ".shipyard"))
+		viper.SetConfigName("config")
+		viper.SetConfigType("yaml")
+	}
+
+	viper.AutomaticEnv()
+
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "%v", err)
+	}
 }

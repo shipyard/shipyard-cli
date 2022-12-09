@@ -2,11 +2,12 @@ package auth
 
 import (
 	"errors"
-	"os"
+
+	"github.com/spf13/viper"
 )
 
 func GetAPIToken() (string, error) {
-	token := os.Getenv("SHIPYARD_API_TOKEN")
+	token := viper.GetString("SHIPYARD_API_TOKEN")
 	if token == "" {
 		return "", errors.New("token is missing, set the SHIPYARD_API_TOKEN environment variable")
 	}
