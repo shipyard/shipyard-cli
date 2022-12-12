@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -74,23 +75,53 @@ func setupCommands() {
 var cfgFile string
 
 func initConfig() {
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		home := homedir.HomeDir()
-		if home == "" {
-			fmt.Fprintln(os.Stderr, "Home directory not found.")
-			os.Exit(1)
-		}
-
-		viper.AddConfigPath(filepath.Join(home, ".shipyard"))
-		viper.SetConfigName("config")
-		viper.SetConfigType("yaml")
-	}
-
 	viper.AutomaticEnv()
 
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+		if err := viper.ReadInConfig(); err != nil {
+			handleConfigParseError(err)
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	home := homedir.HomeDir()
+	if home == "" {
+		fmt.Fprintln(os.Stderr, "Home directory not found.")
+		os.Exit(1)
+	}
+
+	viper.AddConfigPath(filepath.Join(home, ".shipyard"))
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "%v", err)
+		if errors.As(err, &viper.ConfigFileNotFoundError{}) {
+			// Create an empty config for the user.
+			p := filepath.Join(home, ".shipyard", "config.yaml")
+			if err = os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to create the .shipyard directory in $HOME: %v\n", err)
+				os.Exit(1)
+			}
+			if _, err = os.Create(p); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to create the default config.yaml file in $HOME/.shipyard: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Fprintln(os.Stdout, "Creating a default config.yaml in $HOME/.shipyard")
+			return
+		}
+		handleConfigParseError(err)
+
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func handleConfigParseError(err error) {
+	if errors.As(err, &viper.ConfigParseError{}) {
+		fmt.Fprintln(os.Stderr, "Failed to parse the config.yaml file, check YAML syntax for errors.")
+		os.Exit(1)
 	}
 }
