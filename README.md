@@ -4,7 +4,7 @@ A tool to manage Ephemeral Environments on the Shipyard platform.
 
 ## Installation
 
-- **Mac / Linux**
+- **Linux and macOS**
     ```
     curl https://shipyard.sh/install.sh | bash
     ```
@@ -14,7 +14,22 @@ A tool to manage Ephemeral Environments on the Shipyard platform.
 ## Before you begin
 
 Set the environment variable `SHIPYARD_API_TOKEN` to your Shipyard API token.
-You can get your token by going to [your profile page](https://shipyard.build/profile). Get in touch with us if you would like to enable API access for your org.
+You can get it by going to [your profile page](https://shipyard.build/profile). Get in touch with us if you would like to enable API access for your org.
+
+Alternatively, you can use a configuration file stored in `$HOME/.shipyard/config.yaml` by default.
+When you run the CLI for the first time, it will create a default empty config that you can then edit.
+
+You can also specify a non-default config path with the `--config {path}` flag added to any command.
+
+Add any configuration values in your config and ensure the file follows YAML syntax.
+For example:
+
+```yaml
+SHIPYARD_API_TOKEN: <your-token>
+ORG: <your-non-default-org>
+```
+
+The values of your environment variables override their corresponding values in the config.
 
 ## Basic usage
 
