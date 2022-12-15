@@ -27,14 +27,15 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		logging.Init()
-		log.Println("Using config file:", viper.ConfigFileUsed())
+		log.Println("Current config file:", viper.ConfigFileUsed())
 	},
 }
+
+var red = color.New(color.FgHiRed)
 
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		red := color.New(color.FgHiRed)
 		red.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
@@ -77,11 +78,13 @@ var cfgFile string
 func initConfig() {
 	viper.AutomaticEnv()
 
+	red := color.New(color.FgHiRed)
+
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 		if err := viper.ReadInConfig(); err != nil {
 			handleConfigParseError(err)
-			fmt.Fprintln(os.Stderr, err)
+			red.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 		return
@@ -89,7 +92,7 @@ func initConfig() {
 
 	home := homedir.HomeDir()
 	if home == "" {
-		fmt.Fprintln(os.Stderr, "Home directory not found.")
+		red.Fprintln(os.Stderr, "Home directory not found.")
 		os.Exit(1)
 	}
 
@@ -102,11 +105,11 @@ func initConfig() {
 			// Create an empty config for the user.
 			p := filepath.Join(home, ".shipyard", "config.yaml")
 			if err = os.MkdirAll(filepath.Dir(p), 0755); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to create the .shipyard directory in $HOME: %v\n", err)
+				red.Fprintf(os.Stderr, "Failed to create the .shipyard directory in $HOME: %v\n", err)
 				os.Exit(1)
 			}
 			if _, err = os.Create(p); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to create the default config.yaml file in $HOME/.shipyard: %v\n", err)
+				red.Fprintf(os.Stderr, "Failed to create the default config.yaml file in $HOME/.shipyard: %v\n", err)
 				os.Exit(1)
 			}
 			fmt.Fprintln(os.Stdout, "Creating a default config.yaml in $HOME/.shipyard")
@@ -114,14 +117,14 @@ func initConfig() {
 		}
 		handleConfigParseError(err)
 
-		fmt.Fprintln(os.Stderr, err)
+		red.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
 func handleConfigParseError(err error) {
 	if errors.As(err, &viper.ConfigParseError{}) {
-		fmt.Fprintln(os.Stderr, "Failed to parse the config.yaml file, check YAML syntax for errors.")
+		red.Fprintln(os.Stderr, "Failed to parse the config file, check YAML for syntax errors.")
 		os.Exit(1)
 	}
 }
