@@ -14,6 +14,7 @@ import (
 
 	"shipyard/cmd/env"
 	"shipyard/cmd/k8s"
+	"shipyard/config"
 	"shipyard/constants"
 	"shipyard/logging"
 	"shipyard/version"
@@ -31,7 +32,10 @@ var rootCmd = &cobra.Command{
 	},
 }
 
-var red = color.New(color.FgHiRed)
+var (
+	cfgFile string
+	red     = color.New(color.FgHiRed)
+)
 
 func Execute() {
 	err := rootCmd.Execute()
@@ -73,12 +77,8 @@ func setupCommands() {
 	rootCmd.AddCommand(k8s.NewPortForwardCmd())
 }
 
-var cfgFile string
-
 func initConfig() {
 	viper.AutomaticEnv()
-
-	red := color.New(color.FgHiRed)
 
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
@@ -103,13 +103,8 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err != nil {
 		if errors.As(err, &viper.ConfigFileNotFoundError{}) {
 			// Create an empty config for the user.
-			p := filepath.Join(home, ".shipyard", "config.yaml")
-			if err = os.MkdirAll(filepath.Dir(p), 0755); err != nil {
-				red.Fprintf(os.Stderr, "Failed to create the .shipyard directory in $HOME: %v\n", err)
-				os.Exit(1)
-			}
-			if _, err = os.Create(p); err != nil {
-				red.Fprintf(os.Stderr, "Failed to create the default config.yaml file in $HOME/.shipyard: %v\n", err)
+			if err := config.CreateDefaultConfig(); err != nil {
+				red.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
 			fmt.Fprintln(os.Stdout, "Creating a default config.yaml in $HOME/.shipyard")
