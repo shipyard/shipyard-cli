@@ -64,6 +64,7 @@ func init() {
 
 func setupCommands() {
 	rootCmd.AddCommand(NewGetCmd())
+	rootCmd.AddCommand(NewSetCmd())
 
 	rootCmd.AddGroup(&cobra.Group{ID: constants.GroupEnvironments, Title: "Environments"})
 	rootCmd.AddCommand(env.NewCancelCmd())
