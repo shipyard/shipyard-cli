@@ -25,6 +25,7 @@ func NewSetOrgCmd() *cobra.Command {
 		Aliases:      []string{"organization"},
 		Short:        "Set the org in the config",
 		SilenceUsage: true,
+		Example:      `  shipyard set org myorg`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return fmt.Errorf("org not provided")
@@ -41,6 +42,7 @@ func NewSetTokenCmd() *cobra.Command {
 		Use:          "token",
 		Short:        "Set the API token in the config",
 		SilenceUsage: true,
+		Example:      `  shipyard set token <token>`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return fmt.Errorf("token not provided")

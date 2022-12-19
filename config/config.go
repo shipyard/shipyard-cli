@@ -9,8 +9,9 @@ import (
 )
 
 type Config struct {
-	Token string `yaml:"shipyard_api_token"`
-	Org   string `yaml:"org"`
+	Token   string `yaml:"shipyard_api_token"`
+	Org     string `yaml:"org"`
+	Verbose bool   `yaml:"verbose"`
 }
 
 // CreateDefaultConfig tries to create a config.yaml file in the default
