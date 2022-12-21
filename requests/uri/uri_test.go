@@ -1,6 +1,7 @@
 package uri_test
 
 import (
+	"os"
 	"testing"
 
 	"shipyard/requests/uri"
@@ -8,6 +9,7 @@ import (
 
 func TestCreateResourceURI(t *testing.T) {
 	t.Parallel()
+	os.Unsetenv("SHIPYARD_BUILD_URL")
 
 	testCases := []struct {
 		action      string
