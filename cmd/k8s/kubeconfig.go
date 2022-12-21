@@ -2,7 +2,6 @@ package k8s
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -55,7 +54,7 @@ func saveKubeconfig(body []byte) error {
 	if home != "" {
 		p = filepath.Join(home, ".shipyard", "kubeconfig")
 		if err = os.MkdirAll(filepath.Dir(p), 0755); err != nil {
-			log.Printf("Failed to create the .shipyard directory in $HOME: %v", err)
+			return fmt.Errorf("failed to create the .shipyard directory in $HOME: %v", err)
 		}
 	}
 

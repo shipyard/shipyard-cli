@@ -14,29 +14,18 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
-// getKubeconfigPath tries to find a kubeconfig on the file system.
-// It first looks in the home directory of the user. If it fails to find
-// a file named "kubeconfig", it tries to find in the current directory.
+// getKubeconfigPath tries to find a kubeconfig in the HOME directory of the user.
 func getKubeconfigPath() (string, error) {
 	if home := homedir.HomeDir(); home != "" {
 		kubeconfigPath := filepath.Join(home, ".shipyard", "kubeconfig")
-		if _, err := os.Stat(kubeconfigPath); err == nil {
-			log.Println("Using a kubeconfig found in the default shipyard location.")
-			return kubeconfigPath, nil
+		if _, err := os.Stat(kubeconfigPath); err != nil {
+			return "", err
 		}
+		log.Println("Using a kubeconfig found in the default .shipyard directory.")
+		return kubeconfigPath, nil
 	}
 
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-
-	kubeconfigPath := filepath.Join(wd, "kubeconfig")
-	if _, err := os.Stat(kubeconfigPath); err != nil {
-		return "", err
-	}
-	log.Println("Using a kubeconfig found in the current directory.")
-	return kubeconfigPath, nil
+	return "", fmt.Errorf("user's $HOME directory not found")
 }
 
 func getRESTConfig() (*rest.Config, string, error) {
