@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"shipyard/cmd/env"
+	"shipyard/display"
 	"shipyard/requests"
 )
 
@@ -63,15 +63,8 @@ func handleGetServicesCmd() error {
 		})
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Name", "Ports", "URL"})
-	table.SetBorders(tablewriter.Border{Left: false, Top: false, Right: false, Bottom: false})
-	table.SetCenterSeparator("|")
-
-	for _, v := range data {
-		table.Append(v)
-	}
-	table.Render()
+	columns := []string{"Name", "Ports", "URL"}
+	display.RenderTable(os.Stdout, columns, data)
 
 	return nil
 }

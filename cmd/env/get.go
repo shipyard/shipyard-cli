@@ -8,10 +8,10 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"shipyard/display"
 	"shipyard/requests"
 	"shipyard/requests/uri"
 )
@@ -118,28 +118,6 @@ func extractDataForTableOutput(env environment) [][]string {
 	return data
 }
 
-// Render the environment data in tabular form
-func renderTable(data [][]string) {
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"App Name", "UUID", "Ready", "Repo", "PR#", "URL"})
-
-	table.SetAutoMergeCellsByColumnIndex([]int{0, 1, 5})
-	table.SetAutoWrapText(false)
-	table.SetAutoFormatHeaders(true)
-	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
-	table.SetCenterSeparator("")
-	table.SetColumnSeparator("")
-	table.SetBorder(false)
-	table.SetHeaderLine(true)
-	table.SetTablePadding("\t")
-
-	for _, v := range data {
-		table.Append(v)
-	}
-	table.Render()
-}
-
 func handleGetAllEnvironments() error {
 	client, err := requests.NewHTTPClient(os.Stdout)
 	if err != nil {
@@ -196,7 +174,8 @@ func handleGetAllEnvironments() error {
 		data = append(data, extractDataForTableOutput(d.environment)...)
 	}
 
-	renderTable(data)
+	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
+	display.RenderTable(os.Stdout, columns, data)
 
 	return nil
 }
@@ -243,9 +222,9 @@ func handleGetEnvironmentByID(id string) error {
 	}
 
 	data := extractDataForTableOutput(r.Data.environment)
+	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 
-	renderTable(data)
-
+	display.RenderTable(os.Stdout, columns, data)
 	return nil
 }
 
