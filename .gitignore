@@ -2,3 +2,4 @@
 shipyard
 bin
 .envrc
+dist/

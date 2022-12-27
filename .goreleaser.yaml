@@ -1,0 +1,28 @@
+env:
+  - GITHUB_TOKEN={{ if index .Env "GITHUB_TOKEN" }}{{ .Env.GITHUB_TOKEN }}{{else}}''{{end}}
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    binary:
+      shipyard
+    ldflags:
+      - -s -w
+      - -X shipyard/version.GitCommit={{.Version}}
+      - -X shipyard/version.Version={{.ShortCommit}}
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
