@@ -1,5 +1,7 @@
 env:
   - GITHUB_TOKEN={{ if index .Env "GITHUB_TOKEN" }}{{ .Env.GITHUB_TOKEN }}{{else}}''{{end}}
+archives:
+  - format: binary
 builds:
   - env:
       - CGO_ENABLED=0
@@ -26,3 +28,25 @@ changelog:
     exclude:
       - '^docs:'
       - '^test:'
+brews:
+  -
+    tap:
+      owner: shipyard
+      name: homebrew-tap
+      branch: main
+
+    url_template: "https://github.com/shipyardbuild/shipyard-cli/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+
+    download_strategy: CurlDownloadStrategy
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    folder: Formula
+
+    homepage: "https://shipyard.build/"
+    description: "A tool to manage Ephemeral Environments on the Shipyard platform"
+    license: "Apache2"
+
+    skip_upload: true
