@@ -8,12 +8,7 @@ import (
 	"github.com/fatih/color"
 )
 
-type Display interface {
-	Output(...any)
-	Fail(...any)
-}
-
-func NewSimpleDisplay() Display {
+func NewSimpleDisplay() *simpleDisplay {
 	return &simpleDisplay{writer: os.Stdout, errorWriter: os.Stderr}
 }
 
@@ -22,8 +17,12 @@ type simpleDisplay struct {
 	errorWriter io.Writer
 }
 
-func (sw *simpleDisplay) Output(a ...any) {
+func (sw *simpleDisplay) Print(a ...any) {
 	fmt.Fprint(sw.writer, a...)
+}
+
+func (sw *simpleDisplay) Println(a ...any) {
+	fmt.Fprintln(sw.writer, a...)
 }
 
 func (sw *simpleDisplay) Fail(a ...any) {

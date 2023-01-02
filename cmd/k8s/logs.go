@@ -95,7 +95,7 @@ func handleLogsCmd() error {
 		if err != nil {
 			return err
 		}
-		writer.Output(buf.String())
+		writer.Print(buf.String())
 		return nil
 	}
 
@@ -112,7 +112,7 @@ func handleLogsCmd() error {
 			return err
 		}
 		message := string(buf[:bytesRead])
-		writer.Output(message)
+		writer.Print(message)
 	}
 
 	return nil

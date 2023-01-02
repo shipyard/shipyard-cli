@@ -84,6 +84,11 @@ shipyard get services --env {environment_uuid}
 shipyard get orgs
 ```
 
+### Get the currently configured org
+```bash
+shipyard get org
+```
+
 ### Stop a running environment
 ```bash
 shipyard stop environment {environment_uuid}

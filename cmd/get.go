@@ -29,6 +29,7 @@ func NewGetCmd() *cobra.Command {
 
 	cmd.AddCommand(env.NewGetAllEnvironmentsCmd())
 	cmd.AddCommand(env.NewGetEnvironmentCmd())
+	cmd.AddCommand(org.NewGetCurrentOrgCmd())
 	cmd.AddCommand(org.NewGetAllOrgsCmd())
 	cmd.AddCommand(services.NewGetServicesCmd())
 

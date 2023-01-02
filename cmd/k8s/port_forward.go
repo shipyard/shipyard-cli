@@ -102,7 +102,7 @@ func portForward(config *rest.Config, namespace string, pod string, ports []stri
 		if s := errOut.String(); len(s) != 0 {
 			writer.Fail(s)
 		} else if s = out.String(); len(s) != 0 {
-			writer.Output(s)
+			writer.Print(s)
 		}
 	}()
 

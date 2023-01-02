@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"shipyard/display"
 	"shipyard/requests"
 	"shipyard/requests/uri"
 )
@@ -33,6 +34,31 @@ Note that this command requires a user-level access token.`,
 	cmd.Flags().Bool("json", false, "JSON output")
 
 	return cmd
+}
+
+func NewGetCurrentOrgCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:          "org",
+		Aliases:      []string{"organization"},
+		Short:        "Get the currently configured org",
+		Long:         "Gets the org that is currently set in the default or custom config",
+		SilenceUsage: true,
+		Run: func(cmd *cobra.Command, args []string) {
+			getCurrentOrg()
+		},
+	}
+
+	return cmd
+}
+
+func getCurrentOrg() {
+	writer := display.NewSimpleDisplay()
+	org := viper.GetString("org")
+	msg := org
+	if msg == "" {
+		msg = "no org is found in the config"
+	}
+	writer.Println(msg)
 }
 
 func getAllOrgs() error {
