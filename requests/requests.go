@@ -8,7 +8,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"runtime"
+	"time"
 
 	"shipyard/auth"
 	"shipyard/version"
@@ -57,8 +59,14 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-%s-%s-%s", "shipyard-cli", version.Version, runtime.GOOS, runtime.GOARCH))
 	req.Header.Set("x-api-token", c.token)
 
-	resp, err := http.DefaultClient.Do(req)
+	netClient := &http.Client{
+		Timeout: time.Second * 10,
+	}
+	resp, err := netClient.Do(req)
 	if err != nil {
+		if os.IsTimeout(err) {
+			return nil, fmt.Errorf("timeout - server took too long to respond")
+		}
 		return nil, fmt.Errorf("error sending API request: %w", err)
 	}
 	defer resp.Body.Close()
