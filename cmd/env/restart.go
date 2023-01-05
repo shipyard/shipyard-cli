@@ -39,7 +39,7 @@ func newRestartEnvironmentCmd() *cobra.Command {
 			if len(args) > 0 {
 				return restartEnvironmentByID(args[0])
 			}
-			return errors.New("Environment ID argument not provided")
+			return errors.New("environment ID argument not provided")
 		},
 	}
 

@@ -43,7 +43,7 @@ Rebuild will automatically fetch the latest commit for the branch/PR.`,
 			if len(args) > 0 {
 				return rebuildEnvironmentByID(args[0])
 			}
-			return errors.New("Environment ID argument not provided")
+			return errors.New("environment ID argument not provided")
 		},
 	}
 

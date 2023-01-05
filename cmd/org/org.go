@@ -42,6 +42,7 @@ func NewGetCurrentOrgCmd() *cobra.Command {
 		Aliases:      []string{"organization"},
 		Short:        "Get the currently configured org",
 		Long:         "Gets the org that is currently set in the default or custom config",
+		Example:      `  shipyard get org`,
 		SilenceUsage: true,
 		Run: func(cmd *cobra.Command, args []string) {
 			getCurrentOrg()

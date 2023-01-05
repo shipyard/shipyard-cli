@@ -37,7 +37,7 @@ func NewGetEnvironmentCmd() *cobra.Command {
 			if len(args) > 0 {
 				return handleGetEnvironmentByID(args[0])
 			}
-			return fmt.Errorf("Environment ID argument not provided")
+			return fmt.Errorf("environment ID argument not provided")
 		},
 	}
 
