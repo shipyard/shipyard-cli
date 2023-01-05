@@ -2,9 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"shipyard/display"
 )
 
 func NewSetCmd() *cobra.Command {
@@ -41,11 +45,12 @@ func NewSetTokenCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "token",
 		Short:        "Set the API token in the config",
+		Long:         `Set the API token in the config by providing an argument, or interactively by running the command without arguments`,
 		SilenceUsage: true,
 		Example:      `  shipyard set token <token>`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return fmt.Errorf("token not provided")
+				return setTokenInteractively(os.Stdin)
 			}
 			return setToken(args[0])
 		},
@@ -61,6 +66,19 @@ func setOrg(name string) error {
 		return err
 	}
 	return viper.WriteConfig()
+}
+
+func setTokenInteractively(r io.Reader) error {
+	out := display.NewSimpleDisplay()
+	out.Print("Your API token: ")
+
+	var token string
+	_, err := fmt.Fscanln(r, &token)
+	if err != nil {
+		return err
+	}
+
+	return setToken(token)
 }
 
 func setToken(token string) error {
