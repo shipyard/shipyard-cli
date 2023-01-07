@@ -35,6 +35,10 @@ func NewHTTPClient(w io.Writer) (Client, error) {
 }
 
 func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
+	start := time.Now()
+	defer func() {
+		log.Println("Network request took", time.Since(start))
+	}()
 	log.Println("URI", uri)
 
 	var reqBody io.Reader
@@ -60,7 +64,7 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 	req.Header.Set("x-api-token", c.token)
 
 	netClient := &http.Client{
-		Timeout: time.Second * 10,
+		Timeout: time.Second * 20,
 	}
 	resp, err := netClient.Do(req)
 	if err != nil {

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -46,7 +47,7 @@ func handleGetServicesCmd() error {
 
 	services := environment.Data.Attributes.Services
 	if len(services) == 0 {
-		return client.Write("No services found.\n")
+		return errors.New("no services found")
 	}
 
 	var data [][]string
