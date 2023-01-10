@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"shipyard/auth"
@@ -84,11 +85,13 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 		if len(b) == 0 {
 			return nil, fmt.Errorf("empty response")
 		}
-		parsedError := parseError(b)
-		if parsedError == "" {
+		errString := parseError(b)
+		if errString == "" {
 			return nil, errors.New(string(b))
 		}
-		return nil, errors.New(parsedError)
+		// Force the first character of the error string from the API to be lower-case.
+		errString = string(strings.ToLower(errString[:1])) + errString[1:]
+		return nil, errors.New(errString)
 	}
 
 	return b, nil
@@ -104,7 +107,7 @@ func parseError(p []byte) string {
 	if err := json.Unmarshal(p, &r); err != nil {
 		return ""
 	}
-	if len(r.Errors) == 0 {
+	if len(r.Errors) == 0 || r.Errors[0].Title == "" {
 		return ""
 	}
 	return r.Errors[0].Title

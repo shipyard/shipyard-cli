@@ -26,6 +26,7 @@ func SetKubeconfig(envID string) error {
 	return nil
 }
 
+// getKubeconfig tries to fetch the kubeconfig from the backend API.
 func getKubeconfig(envID string) ([]byte, error) {
 	client, err := requests.NewHTTPClient(os.Stdout)
 	if err != nil {

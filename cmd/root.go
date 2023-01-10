@@ -33,14 +33,15 @@ var rootCmd = &cobra.Command{
 }
 
 var (
-	cfgFile string
-	red     = color.New(color.FgHiRed)
+	cfgFile        string
+	red            = color.New(color.FgHiRed)
+	errConfigParse = errors.New("failed to parse the config file, check YAML for syntax errors")
 )
 
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		fail("Error: " + err.Error())
+		red.Fprintln(os.Stderr, "Error:", err.Error())
 	}
 }
 
@@ -84,16 +85,16 @@ func initConfig() {
 		viper.SetConfigFile(cfgFile)
 		if err := viper.ReadInConfig(); err != nil {
 			if errors.As(err, &viper.ConfigParseError{}) {
-				fail("Failed to parse the config file, check YAML for syntax errors.")
+				initFail(errConfigParse)
 			}
-			fail(err.Error())
+			initFail(err)
 		}
 		return
 	}
 
 	home := homedir.HomeDir()
 	if home == "" {
-		fail("Home directory not found.")
+		initFail(errors.New("home directory not found"))
 	}
 
 	viper.AddConfigPath(filepath.Join(home, ".shipyard"))
@@ -104,19 +105,19 @@ func initConfig() {
 		if errors.As(err, &viper.ConfigFileNotFoundError{}) {
 			// Create an empty config for the user.
 			if err := config.CreateDefaultConfig(home); err != nil {
-				fail(err.Error())
+				initFail(err)
 			}
 			fmt.Fprintln(os.Stdout, "Creating a default config.yaml in $HOME/.shipyard")
 			return
 		} else if errors.As(err, &viper.ConfigParseError{}) {
-			fail("Failed to parse the config file, check YAML for syntax errors.")
+			initFail(errConfigParse)
 		} else {
-			fail(err.Error())
+			initFail(err)
 		}
 	}
 }
 
-func fail(message string) {
-	red.Fprintln(os.Stderr, message)
+func initFail(err error) {
+	red.Fprintf(os.Stderr, "Init error: %s\n", err)
 	os.Exit(1)
 }

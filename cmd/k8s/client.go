@@ -28,6 +28,8 @@ func getKubeconfigPath() (string, error) {
 	return "", fmt.Errorf("user's $HOME directory not found")
 }
 
+// getRESTConfig tries to find a kubeconfig, extract a namespace in the current context,
+// and create a rest.Config from the kubeconfig.
 func getRESTConfig() (*rest.Config, string, error) {
 	kubeconfigPath, err := getKubeconfigPath()
 	if err != nil {
@@ -57,6 +59,7 @@ func getRESTConfig() (*rest.Config, string, error) {
 	return restClientConfig, namespace, nil
 }
 
+// getPodName tries to fetch the name of the first pod given a deployment name and a clientset.
 func getPodName(clientset *kubernetes.Clientset, namespace string, deployment string) (string, error) {
 	options := metav1.ListOptions{
 		LabelSelector: "component=" + deployment,

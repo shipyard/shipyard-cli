@@ -100,6 +100,8 @@ func handleExecCmd(args []string) error {
 	})
 }
 
+// fixedTerminalSizeQueue and its Next method ensure the terminal size remains the same
+// after being attached to and detached from a shell in a container.
 type fixedTerminalSizeQueue struct{}
 
 func (s *fixedTerminalSizeQueue) Next() *remotecommand.TerminalSize {
