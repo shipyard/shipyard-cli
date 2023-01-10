@@ -21,7 +21,7 @@ func getKubeconfigPath() (string, error) {
 		if _, err := os.Stat(kubeconfigPath); err != nil {
 			return "", err
 		}
-		log.Println("Using a kubeconfig found in the default .shipyard directory.")
+		log.Println("Using a kubeconfig found in the default .shipyard directory")
 		return kubeconfigPath, nil
 	}
 

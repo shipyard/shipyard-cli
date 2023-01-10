@@ -1,8 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"os"
+
+	"github.com/fatih/color"
 
 	"shipyard/cmd"
 )
@@ -11,7 +12,8 @@ func main() {
 	// Handle a panic.
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Fprint(os.Stderr, err)
+			red := color.New(color.FgHiRed)
+			red.Fprintf(os.Stderr, "Runtime error: %v\n", err)
 			os.Exit(1)
 		}
 

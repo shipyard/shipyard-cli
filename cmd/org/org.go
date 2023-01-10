@@ -2,6 +2,7 @@ package org
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -44,22 +45,22 @@ func NewGetCurrentOrgCmd() *cobra.Command {
 		Long:         "Gets the org that is currently set in the default or custom config",
 		Example:      `  shipyard get org`,
 		SilenceUsage: true,
-		Run: func(cmd *cobra.Command, args []string) {
-			getCurrentOrg()
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return getCurrentOrg()
 		},
 	}
 
 	return cmd
 }
 
-func getCurrentOrg() {
+func getCurrentOrg() error {
 	writer := display.NewSimpleDisplay()
 	org := viper.GetString("org")
-	msg := org
-	if msg == "" {
-		msg = "no org is found in the config"
+	if org == "" {
+		return errors.New("no org is found in the config")
 	}
-	writer.Println(msg)
+	writer.Println(org)
+	return nil
 }
 
 func getAllOrgs() error {

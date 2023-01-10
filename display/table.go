@@ -26,4 +26,5 @@ func RenderTable(out io.Writer, columns []string, data [][]string) {
 		table.Append(v)
 	}
 	table.Render()
+	io.WriteString(out, "\n")
 }
