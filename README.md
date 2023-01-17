@@ -11,6 +11,12 @@ A tool to manage Ephemeral Environments on the Shipyard platform.
 - **Windows**
     - Navigate to [releases page](https://github.com/shipyardbuild/shipyard-cli/releases) and download the executable.
 
+### Homebrew
+```
+brew tap shipyard/tap
+brew install shipyard
+```
+
 ## Before you begin
 
 Set the environment variable `SHIPYARD_API_TOKEN` to your Shipyard API token.
