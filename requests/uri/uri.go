@@ -7,11 +7,10 @@ import (
 	"sort"
 )
 
-var baseURL = "https://shipyard.build/api/v1"
-
-func CreateResourceURI(action string, resource string, id string, subresource string, params map[string]string) string {
-	if u := os.Getenv("SHIPYARD_BUILD_URL"); u != "" {
-		baseURL = u
+func CreateResourceURI(action, resource, id, subresource string, params map[string]string) string {
+	baseURL := "https://shipyard.build/api/v1"
+	if value := os.Getenv("SHIPYARD_BUILD_URL"); value != "" {
+		baseURL = value
 	}
 
 	var uri string
@@ -48,12 +47,12 @@ func buildQueryString(params map[string]string) string {
 	for _, k := range keys {
 		if first {
 			first = false
-			query = query + "?"
+			query += "?"
 		} else {
-			query = query + "&"
+			query += "&"
 		}
 		val := url.QueryEscape(params[k])
-		query = query + fmt.Sprintf("%s=%s", k, val)
+		query += fmt.Sprintf("%s=%s", k, val)
 	}
 	return query
 }

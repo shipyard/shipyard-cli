@@ -60,7 +60,7 @@ func getRESTConfig() (*rest.Config, string, error) {
 }
 
 // getPodName tries to fetch the name of the first pod given a deployment name and a clientset.
-func getPodName(clientset *kubernetes.Clientset, namespace string, deployment string) (string, error) {
+func getPodName(clientset *kubernetes.Clientset, namespace, deployment string) (string, error) {
 	options := metav1.ListOptions{
 		LabelSelector: "component=" + deployment,
 	}

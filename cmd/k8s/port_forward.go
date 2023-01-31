@@ -77,9 +77,13 @@ func handlePortForwardCmd() error {
 	return portForward(config, namespace, podName, ports)
 }
 
-func portForward(config *rest.Config, namespace string, pod string, ports []string) error {
+func portForward(config *rest.Config, namespace, pod string, ports []string) error {
 	roundTripper, upgrader, err := spdy.RoundTripperFor(config)
-	host := strings.TrimLeft(config.Host, "https://")
+	if err != nil {
+		return err
+	}
+
+	host := strings.TrimPrefix(config.Host, "https://")
 	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", namespace, pod)
 	serverURL := url.URL{Scheme: "https", Host: host, Path: path}
 
@@ -99,14 +103,14 @@ func portForward(config *rest.Config, namespace string, pod string, ports []stri
 		for range readyChan {
 		}
 
-		if s := errOut.String(); len(s) != 0 {
+		if s := errOut.String(); s != "" {
 			writer.Fail(s)
-		} else if s = out.String(); len(s) != 0 {
+		} else if s = out.String(); s != "" {
 			writer.Print(s)
 		}
 	}()
 
-	if err = forwarder.ForwardPorts(); err != nil {
+	if err := forwarder.ForwardPorts(); err != nil {
 		return err
 	}
 	return nil

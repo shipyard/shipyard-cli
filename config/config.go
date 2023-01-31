@@ -21,8 +21,8 @@ type Config struct {
 func CreateDefaultConfig(homedir string) error {
 	p := filepath.Join(homedir, ".shipyard", "config.yaml")
 
-	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
-		return fmt.Errorf("failed to create the .shipyard directory in $HOME: %v\n", err)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return fmt.Errorf("failed to create the .shipyard directory in $HOME: %v", err)
 	}
 
 	var cfg Config
@@ -31,5 +31,5 @@ func CreateDefaultConfig(homedir string) error {
 		return err
 	}
 
-	return os.WriteFile(p, b, 0644)
+	return os.WriteFile(p, b, 0o600)
 }

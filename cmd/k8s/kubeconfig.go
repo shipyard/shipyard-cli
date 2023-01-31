@@ -39,8 +39,8 @@ func getKubeconfig(envID string) ([]byte, error) {
 		params["org"] = org
 	}
 
-	uri := uri.CreateResourceURI("", "environment", envID, "kubeconfig", params)
-	body, err := client.Do(http.MethodGet, uri, nil)
+	requestURI := uri.CreateResourceURI("", "environment", envID, "kubeconfig", params)
+	body, err := client.Do(http.MethodGet, requestURI, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -54,10 +54,10 @@ func saveKubeconfig(body []byte) error {
 	home := homedir.HomeDir()
 	if home != "" {
 		p = filepath.Join(home, ".shipyard", "kubeconfig")
-		if err = os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		if err = os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return fmt.Errorf("failed to create the .shipyard directory in $HOME: %v", err)
 		}
 	}
 
-	return os.WriteFile(p, body, 0644)
+	return os.WriteFile(p, body, 0o600)
 }

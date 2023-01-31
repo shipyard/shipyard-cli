@@ -16,7 +16,6 @@ func main() {
 			red.Fprintf(os.Stderr, "Runtime error: %v\n", err)
 			os.Exit(1)
 		}
-
 	}()
 	cmd.Execute()
 }

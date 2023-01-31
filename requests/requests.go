@@ -2,6 +2,7 @@ package requests
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,7 +36,7 @@ func NewHTTPClient(w io.Writer) (Client, error) {
 	return &httpClient{token: token, w: w}, nil
 }
 
-func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
+func (c httpClient) Do(method, uri string, body any) ([]byte, error) {
 	start := time.Now()
 	defer func() {
 		log.Println("Network request took", time.Since(start))
@@ -55,7 +56,9 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 		reqBody = bytes.NewReader(serialized)
 	}
 
-	req, err := http.NewRequest(method, uri, reqBody)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, method, uri, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("error creating API request: %w", err)
 	}
@@ -64,9 +67,7 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-%s-%s-%s", "shipyard-cli", version.Version, runtime.GOOS, runtime.GOARCH))
 	req.Header.Set("x-api-token", c.token)
 
-	netClient := &http.Client{
-		Timeout: time.Second * 20,
-	}
+	var netClient http.Client
 	resp, err := netClient.Do(req)
 	if err != nil {
 		if os.IsTimeout(err) {
@@ -90,7 +91,7 @@ func (c httpClient) Do(method string, uri string, body any) ([]byte, error) {
 			return nil, errors.New(string(b))
 		}
 		// Force the first character of the error string from the API to be lower-case.
-		errString = string(strings.ToLower(errString[:1])) + errString[1:]
+		errString = strings.ToLower(errString[:1]) + errString[1:]
 		return nil, errors.New(errString)
 	}
 

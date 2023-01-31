@@ -96,7 +96,7 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 var ErrUnmarshalling = errors.New("failed to unmarshal environment(s)")
 
 // Converts the `environment` object to [][]string which is used during printing environments as table
-func extractDataForTableOutput(env environment) [][]string {
+func extractDataForTableOutput(env *environment) [][]string {
 	var data [][]string
 
 	for _, p := range env.Attributes.Projects {
@@ -171,7 +171,7 @@ func handleGetAllEnvironments() error {
 	var data [][]string
 
 	for _, d := range r.Data {
-		data = append(data, extractDataForTableOutput(d.environment)...)
+		data = append(data, extractDataForTableOutput(&d.environment)...)
 	}
 
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
@@ -221,7 +221,7 @@ func handleGetEnvironmentByID(id string) error {
 		return err
 	}
 
-	data := extractDataForTableOutput(r.Data.environment)
+	data := extractDataForTableOutput(&r.Data.environment)
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 
 	display.RenderTable(os.Stdout, columns, data)
