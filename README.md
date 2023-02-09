@@ -11,11 +11,11 @@ A tool to manage Ephemeral Environments on the Shipyard platform.
 - **Windows**
     - Navigate to [releases page](https://github.com/shipyardbuild/shipyard-cli/releases) and download the executable.
 
-### Homebrew
-```
-brew tap shipyard/tap
-brew install shipyard
-```
+- **Homebrew**
+    ```
+    brew tap shipyard/tap
+    brew install shipyard
+    ```
 
 ## Before you begin
 
@@ -38,6 +38,16 @@ ORG: <your-non-default-org>
 The values of your environment variables override their corresponding values in the config.
 
 ## Basic usage
+
+### Get all orgs you are a member of
+```bash
+shipyard get orgs
+```
+
+### Get the currently configured org
+```bash
+shipyard get org
+```
 
 ### List all environments
 ```bash
@@ -80,21 +90,6 @@ Available flags:
 | json | Print the complete JSON output  | boolean | false |
 | org-name | Filter by org name, if you are part of multiple orgs | string | your default org |
 
-### Get all services and exposed ports for an environment
-```bash
-shipyard get services --env {environment_uuid}
-```
-
-### Get all orgs you are a member of
-```bash
-shipyard get orgs
-```
-
-### Get the currently configured org
-```bash
-shipyard get org
-```
-
 ### Stop a running environment
 ```bash
 shipyard stop environment {environment_uuid}
@@ -120,6 +115,11 @@ shipyard rebuild environment {environment_uuid}
 shipyard revive environment {environment_uuid}
 ```
 
+### Get all services and exposed ports for an environment
+```bash
+shipyard get services --env {environment_uuid}
+```
+
 ### Exec into a running environment's service
    Execute any command with any arguments and flags in a given service for a **running** environment. Pass any command arguments after a double slash.
 ```bash
@@ -128,7 +128,7 @@ shipyard exec --env {environment_uuid} --service {service_name} -- bash
 
 ### Port forward a running environment's service's port
 ```bash
-shipyard port-forward --env {environment_uuid} --service {service_name} --ports 80:80
+shipyard port-forward --env {environment_uuid} --service {service_name} --ports {host_port}:{service_port}
 ```
 
 ### Get logs for a running environment's service
