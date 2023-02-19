@@ -44,6 +44,11 @@ The values of your environment variables override their corresponding values in 
 shipyard get orgs
 ```
 
+### Set the global default org
+```bash
+shipyard set org {org-name}
+```
+
 ### Get the currently configured org
 ```bash
 shipyard get org
