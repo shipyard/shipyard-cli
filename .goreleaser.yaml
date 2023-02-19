@@ -31,7 +31,7 @@ brews:
       name: homebrew-tap
       branch: main
 
-    url_template: "https://github.com/shipyardbuild/shipyard-cli/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    url_template: "https://github.com/shipyard/shipyard-cli/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
 
     commit_author:
       name: shipyard

@@ -9,7 +9,7 @@ A tool to manage Ephemeral Environments on the Shipyard platform.
     curl https://shipyard.sh/install.sh | bash
     ```
 - **Windows**
-    - Navigate to [releases page](https://github.com/shipyardbuild/shipyard-cli/releases) and download the executable.
+    - Navigate to [releases page](https://github.com/shipyard/shipyard-cli/releases) and download the executable.
 
 - **Homebrew**
     ```
