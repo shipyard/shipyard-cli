@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-RELEASES_URL="https://github.com/shipyardbuild/shipyard-cli/releases"
+RELEASES_URL="https://github.com/shipyard/shipyard-cli/releases"
 
 last_version() {
     curl --silent --location --fail \

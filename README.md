@@ -9,7 +9,7 @@ A tool to manage Ephemeral Environments on the Shipyard platform.
     curl https://shipyard.sh/install.sh | bash
     ```
 - **Windows**
-    - Navigate to [releases page](https://github.com/shipyardbuild/shipyard-cli/releases) and download the executable.
+    - Navigate to [releases page](https://github.com/shipyard/shipyard-cli/releases) and download the executable.
 
 - **Homebrew**
     ```
@@ -42,6 +42,11 @@ The values of your environment variables override their corresponding values in 
 ### Get all orgs you are a member of
 ```bash
 shipyard get orgs
+```
+
+### Set the global default org
+```bash
+shipyard set org {org-name}
 ```
 
 ### Get the currently configured org
