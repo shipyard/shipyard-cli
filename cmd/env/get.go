@@ -22,10 +22,10 @@ func NewGetEnvironmentCmd() *cobra.Command {
 		Aliases: []string{"env"},
 		Short:   "Get an environment's details by ID",
 		Example: `  # Get all the details for environment ID 12345:
-  shipyard environment get 12345
+  shipyard get environment 12345
   
   # Get all the details for environment ID 12345 in JSON format:
-  shipyard environment get 12345 --json`,
+  shipyard get environment 12345 --json`,
 		SilenceUsage: true,
 		// Due to an issue in viper, bind the 'json' flag in PreRun for each command that uses
 		// a flag name already bound to a sibling command.
@@ -53,16 +53,16 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 		SilenceUsage: true,
 		Short:        "Get details for all environments in an org",
 		Example: `  # Get details on all environments in your default org:
-  shipyard environments get
+  shipyard get environments
   
   # Get all the details in JSON format:
-  shipyard environments get --json
+  shipyard get environments --json
   
   # Get all the environments for a specific repo and branch:
-  shipyard environments get --repo-name flask-backend --branch main
+  shipyard get environments --repo-name flask-backend --branch main
   
   # Get all the environments based on specific PR:
-  shipyard environments get --pull-request-number 1
+  shipyard get environments --pull-request-number 1
   `,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			viper.BindPFlag("name", cmd.Flags().Lookup("name"))
