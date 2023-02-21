@@ -54,6 +54,11 @@ shipyard set org {org-name}
 shipyard get org
 ```
 
+### Set a Shipyard token
+```bash
+shipyard set token
+```
+
 ### List all environments
 ```bash
 shipyard get environments
