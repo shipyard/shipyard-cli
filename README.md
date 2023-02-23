@@ -6,7 +6,7 @@ A tool to manage Ephemeral Environments on the Shipyard platform.
 
 - **Linux and macOS**
     ```
-    curl https://shipyard.sh/install.sh | bash
+    curl https://www.shipyard.sh/install.sh | bash
     ```
 - **Windows**
     - Navigate to [releases page](https://github.com/shipyard/shipyard-cli/releases) and download the executable.
@@ -17,10 +17,15 @@ A tool to manage Ephemeral Environments on the Shipyard platform.
     brew install shipyard
     ```
 
-## Before you begin
+## Get Your Token
 
 Set the environment variable `SHIPYARD_API_TOKEN` to your Shipyard API token.
-You can get it by going to [your profile page](https://shipyard.build/profile). 
+You can get it by going to [your profile page](https://shipyard.build/profile).
+
+### Set a Shipyard token
+```bash
+shipyard set token
+```
 
 You can get in touch with us at support@shipyard.build if you would like to enable API access for your org. If you have
  any other questions feel free to join our [community slack](https://join.slack.com/t/shipyardcommunity/shared_invite/zt-x830cx39-BuiQKZwvhG7zGRTXAvojVQ).
@@ -56,11 +61,6 @@ shipyard set org {org-name}
 ### Get the currently configured org
 ```bash
 shipyard get org
-```
-
-### Set a Shipyard token
-```bash
-shipyard set token
 ```
 
 ### List all environments
