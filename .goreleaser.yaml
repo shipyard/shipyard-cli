@@ -17,8 +17,8 @@ builds:
       shipyard-{{.Os}}-{{.Arch}}
     ldflags:
       - -s -w
-      - -X shipyard/version.GitCommit={{.Version}}
-      - -X shipyard/version.Version={{.ShortCommit}}
+      - -X shipyard/version.GitCommit={{.ShortCommit}}
+      - -X shipyard/version.Version={{.Version}}
 checksum:
   name_template: 'checksums.txt'
 changelog:
