@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -46,6 +47,10 @@ func Execute() {
 }
 
 func init() {
+	replacer := strings.NewReplacer("-", "_")
+	viper.SetEnvKeyReplacer(replacer)
+	viper.SetEnvPrefix("shipyard")
+	viper.AutomaticEnv()
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.shipyard/config.yaml)")
@@ -79,8 +84,6 @@ func setupCommands() {
 }
 
 func initConfig() {
-	viper.AutomaticEnv()
-
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 		if err := viper.ReadInConfig(); err != nil {
