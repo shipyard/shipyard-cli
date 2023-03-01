@@ -1,4 +1,4 @@
-module shipyard
+module github.com/shipyard/shipyard-cli
 
 go 1.20
 

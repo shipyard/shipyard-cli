@@ -11,7 +11,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/remotecommand"
 
-	"shipyard/constants"
+	"github.com/shipyard/shipyard-cli/constants"
 )
 
 func NewExecCmd() *cobra.Command {

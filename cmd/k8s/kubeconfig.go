@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
-	"shipyard/requests"
-	"shipyard/requests/uri"
+	"github.com/shipyard/shipyard-cli/requests"
+	"github.com/shipyard/shipyard-cli/requests/uri"
 )
 
 // SetKubeconfig tries to fetch a kubeconfig for a given environment and

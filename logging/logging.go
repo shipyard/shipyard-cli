@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/viper"
 
-	"shipyard/version"
+	"github.com/shipyard/shipyard-cli/version"
 )
 
 // Init registers a log writer that writes either to stdout or nowhere,

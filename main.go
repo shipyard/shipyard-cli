@@ -5,7 +5,7 @@ import (
 
 	"github.com/fatih/color"
 
-	"shipyard/cmd"
+	"github.com/shipyard/shipyard-cli/cmd"
 )
 
 func main() {

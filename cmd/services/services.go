@@ -8,9 +8,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"shipyard/cmd/env"
-	"shipyard/display"
-	"shipyard/requests"
+	"github.com/shipyard/shipyard-cli/cmd/env"
+	"github.com/shipyard/shipyard-cli/display"
+	"github.com/shipyard/shipyard-cli/requests"
 )
 
 func NewGetServicesCmd() *cobra.Command {
