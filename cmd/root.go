@@ -13,12 +13,12 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
-	"shipyard/cmd/env"
-	"shipyard/cmd/k8s"
-	"shipyard/config"
-	"shipyard/constants"
-	"shipyard/logging"
-	"shipyard/version"
+	"github.com/shipyard/shipyard-cli/cmd/env"
+	"github.com/shipyard/shipyard-cli/cmd/k8s"
+	"github.com/shipyard/shipyard-cli/config"
+	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/logging"
+	"github.com/shipyard/shipyard-cli/version"
 )
 
 var rootCmd = &cobra.Command{

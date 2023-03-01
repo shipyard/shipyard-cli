@@ -3,10 +3,10 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	"shipyard/cmd/env"
-	"shipyard/cmd/org"
-	"shipyard/cmd/services"
-	"shipyard/constants"
+	"github.com/shipyard/shipyard-cli/cmd/env"
+	"github.com/shipyard/shipyard-cli/cmd/org"
+	"github.com/shipyard/shipyard-cli/cmd/services"
+	"github.com/shipyard/shipyard-cli/constants"
 )
 
 func NewGetCmd() *cobra.Command {

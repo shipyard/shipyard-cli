@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"shipyard/display"
-	"shipyard/requests"
-	"shipyard/requests/uri"
+	"github.com/shipyard/shipyard-cli/display"
+	"github.com/shipyard/shipyard-cli/requests"
+	"github.com/shipyard/shipyard-cli/requests/uri"
 )
 
 func NewGetAllOrgsCmd() *cobra.Command {

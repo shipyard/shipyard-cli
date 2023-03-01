@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"shipyard/requests/uri"
+	"github.com/shipyard/shipyard-cli/requests/uri"
 )
 
 func TestCreateResourceURI(t *testing.T) {

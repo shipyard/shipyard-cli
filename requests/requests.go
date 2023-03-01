@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"shipyard/auth"
-	"shipyard/version"
+	"github.com/shipyard/shipyard-cli/auth"
+	"github.com/shipyard/shipyard-cli/version"
 )
 
 type Client interface {

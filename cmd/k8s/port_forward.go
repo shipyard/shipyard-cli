@@ -14,8 +14,8 @@ import (
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 
-	"shipyard/constants"
-	"shipyard/display"
+	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/display"
 )
 
 func NewPortForwardCmd() *cobra.Command {

@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"shipyard/display"
+	"github.com/shipyard/shipyard-cli/display"
 )
 
 func NewSetCmd() *cobra.Command {
