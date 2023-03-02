@@ -23,9 +23,9 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:           "shipyard",
-	Short:         "The Shipyard CLI",
+	Short:         "the CLI",
 	Long:          `A tool to manage Ephemeral Environments on the Shipyard platform`,
-	Version:       version.Version,
+	Version:       fmt.Sprintf("%s (Git Commit %s)", version.Version, version.GitCommit),
 	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		logging.Init()
@@ -60,9 +60,6 @@ func init() {
 
 	rootCmd.PersistentFlags().String("org", "", "Org of environment (default org if unspecified)")
 	viper.BindPFlag("org", rootCmd.PersistentFlags().Lookup("org"))
-
-	versionTemplate := `{{printf "%s: %s - version %s\n" .Name .Short .Version}}`
-	rootCmd.SetVersionTemplate(versionTemplate)
 
 	setupCommands()
 }
