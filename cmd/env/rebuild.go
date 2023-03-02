@@ -8,9 +8,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"shipyard/constants"
-	"shipyard/requests"
-	"shipyard/requests/uri"
+	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/requests"
+	"github.com/shipyard/shipyard-cli/requests/uri"
 )
 
 func NewRebuildCmd() *cobra.Command {
