@@ -16,6 +16,8 @@ import (
 	"shipyard/requests/uri"
 )
 
+var errNoEnvironment = errors.New("environment ID argument not provided")
+
 func NewGetEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "environment [environment ID]",
@@ -37,7 +39,7 @@ func NewGetEnvironmentCmd() *cobra.Command {
 			if len(args) > 0 {
 				return handleGetEnvironmentByID(args[0])
 			}
-			return fmt.Errorf("environment ID argument not provided")
+			return errNoEnvironment
 		},
 	}
 

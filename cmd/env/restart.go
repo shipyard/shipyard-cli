@@ -1,7 +1,6 @@
 package env
 
 import (
-	"errors"
 	"net/http"
 	"os"
 
@@ -9,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 
 	"shipyard/constants"
+	"shipyard/display"
 	"shipyard/requests"
 	"shipyard/requests/uri"
 )
@@ -30,16 +30,17 @@ func NewRestartCmd() *cobra.Command {
 
 func newRestartEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Aliases: []string{"env"},
-		Use:     "environment [environment ID]",
-		Short:   "Restart a stopped environment",
+		Aliases:      []string{"env"},
+		Use:          "environment [environment ID]",
+		SilenceUsage: true,
+		Short:        "Restart a stopped environment",
 		Example: `  # Restart environment ID 12345
   shipyard restart environment 12345`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return restartEnvironmentByID(args[0])
 			}
-			return errors.New("environment ID argument not provided")
+			return errNoEnvironment
 		},
 	}
 
@@ -58,10 +59,12 @@ func restartEnvironmentByID(id string) error {
 		params["org"] = org
 	}
 
-	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("restart", "environment", id, "", params), nil)
+	_, err = client.Do(http.MethodPost, uri.CreateResourceURI("restart", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}
 
-	return client.Write(body)
+	out := display.NewSimpleDisplay()
+	out.Println("Environment restarted.")
+	return nil
 }

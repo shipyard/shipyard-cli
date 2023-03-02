@@ -1,7 +1,6 @@
 package env
 
 import (
-	"errors"
 	"net/http"
 	"os"
 
@@ -9,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 
 	"shipyard/constants"
+	"shipyard/display"
 	"shipyard/requests"
 	"shipyard/requests/uri"
 )
@@ -41,7 +41,7 @@ func newStopEnvironmentCmd() *cobra.Command {
 			if len(args) > 0 {
 				return stopEnvironmentByID(args[0])
 			}
-			return errors.New("environment ID argument not provided")
+			return errNoEnvironment
 		},
 	}
 
@@ -60,10 +60,12 @@ func stopEnvironmentByID(id string) error {
 		params["org"] = org
 	}
 
-	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("stop", "environment", id, "", params), nil)
+	_, err = client.Do(http.MethodPost, uri.CreateResourceURI("stop", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}
 
-	return client.Write(body)
+	out := display.NewSimpleDisplay()
+	out.Println("Environment stopped.")
+	return nil
 }
