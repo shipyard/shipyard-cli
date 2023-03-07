@@ -142,7 +142,7 @@ shipyard exec --env {environment_uuid} --service {service_name} -- bash
 
 ### Port forward a running environment's service's port
 ```bash
-shipyard port-forward --env {environment_uuid} --service {service_name} --ports {host_port}:{service_port}
+shipyard port-forward --env {environment_uuid} --service {service_name} --ports {local_port}:{service_container_port}
 ```
 
 ### Get logs for a running environment's service
