@@ -46,7 +46,7 @@ func NewLogsCmd() *cobra.Command {
 	cmd.Flags().String("env", "", "Environment ID")
 	cmd.MarkFlagRequired("env")
 
-	cmd.Flags().Bool("follow", false, "Follow the log output")
+	cmd.Flags().BoolP("follow", "f", false, "Follow the log output")
 	cmd.Flags().Int64("tail", 3000, "Number of lines from the end of the logs to show")
 
 	return cmd

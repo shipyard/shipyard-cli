@@ -1,7 +1,6 @@
 package env
 
 import (
-	"errors"
 	"net/http"
 	"os"
 
@@ -9,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/display"
 	"github.com/shipyard/shipyard-cli/requests"
 	"github.com/shipyard/shipyard-cli/requests/uri"
 )
@@ -42,7 +42,7 @@ func newReviveEnvironmentCmd() *cobra.Command {
 			if len(args) > 0 {
 				return reviveEnvironmentByID(args[0])
 			}
-			return errors.New("environment ID argument not provided")
+			return errNoEnvironment
 		},
 	}
 
@@ -61,10 +61,12 @@ func reviveEnvironmentByID(id string) error {
 		params["org"] = org
 	}
 
-	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("revive", "environment", id, "", params), nil)
+	_, err = client.Do(http.MethodPost, uri.CreateResourceURI("revive", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}
 
-	return client.Write(body)
+	out := display.NewSimpleDisplay()
+	out.Println("Environment revived.")
+	return nil
 }

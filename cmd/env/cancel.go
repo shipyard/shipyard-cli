@@ -1,7 +1,6 @@
 package env
 
 import (
-	"errors"
 	"net/http"
 	"os"
 
@@ -9,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/display"
 	"github.com/shipyard/shipyard-cli/requests"
 	"github.com/shipyard/shipyard-cli/requests/uri"
 )
@@ -30,17 +30,18 @@ func NewCancelCmd() *cobra.Command {
 
 func newCancelEnvironmentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Aliases: []string{"env"},
-		Use:     "environment [environment ID]",
-		Short:   "Cancel an environment's latest build",
-		Long:    `This command cancels the environment's latest build. You can ONLY cancel a build if it is currently in the building phase.`,
+		Aliases:      []string{"env"},
+		Use:          "environment [environment ID]",
+		SilenceUsage: true,
+		Short:        "Cancel an environment's latest build",
+		Long:         `This command cancels the environment's latest build. You can ONLY cancel a build if it is currently in the building phase.`,
 		Example: `  # Cancel the current build for environment ID 12345
   shipyard cancel environment 12345`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return cancelEnvironmentByID(args[0])
 			}
-			return errors.New("environment ID argument not provided")
+			return errNoEnvironment
 		},
 	}
 
@@ -59,10 +60,12 @@ func cancelEnvironmentByID(id string) error {
 		params["org"] = org
 	}
 
-	body, err := client.Do(http.MethodPost, uri.CreateResourceURI("cancel", "environment", id, "", params), nil)
+	_, err = client.Do(http.MethodPost, uri.CreateResourceURI("cancel", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}
 
-	return client.Write(body)
+	out := display.NewSimpleDisplay()
+	out.Println("Environment canceled.")
+	return nil
 }
