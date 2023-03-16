@@ -9,7 +9,7 @@ import (
 )
 
 type Config struct {
-	Token   string `yaml:"shipyard_api_token"`
+	Token   string `yaml:"api_token"`
 	Org     string `yaml:"org"`
 	Verbose bool   `yaml:"verbose"`
 }

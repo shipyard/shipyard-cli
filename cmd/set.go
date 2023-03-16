@@ -82,7 +82,7 @@ func setTokenInteractively(r io.Reader) error {
 }
 
 func setToken(token string) error {
-	viper.Set("shipyard_api_token", token)
+	viper.Set("api_token", token)
 	err := viper.MergeInConfig()
 	if err != nil {
 		return err
