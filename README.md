@@ -19,7 +19,9 @@ A tool to manage Ephemeral Environments on the Shipyard platform.
 
 ## Get Your Token
 
-Set the environment variable `SHIPYARD_API_TOKEN` to your Shipyard API token.
+Set your Shipyard API token as the value of the `SHIPYARD_API_TOKEN` environment variable.
+Or set it as the value for the `api_token` config key.
+
 You can get it by going to [your profile page](https://shipyard.build/profile).
 
 ### Set a Shipyard token
