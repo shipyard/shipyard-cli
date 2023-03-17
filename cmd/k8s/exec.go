@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"errors"
 	"os"
 
 	"github.com/docker/cli/cli/streams"
@@ -46,6 +47,10 @@ shipyard exec --env 123 --service web -- bash`,
 }
 
 func handleExecCmd(args []string) error {
+	if len(args) == 0 {
+		return errors.New("no command arguments provided")
+	}
+
 	if err := SetKubeconfig(viper.GetString("env")); err != nil {
 		return err
 	}
@@ -69,9 +74,6 @@ func handleExecCmd(args []string) error {
 	req := clientset.CoreV1().RESTClient().Post().Resource("pods").Name(podName).
 		Namespace(namespace).SubResource("exec")
 
-	if len(args) == 0 {
-		args = []string{"sh"}
-	}
 	option := &v1.PodExecOptions{
 		Command: args,
 		Stdin:   true,
