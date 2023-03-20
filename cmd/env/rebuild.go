@@ -1,8 +1,8 @@
 package env
 
 import (
+	"io"
 	"net/http"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -51,7 +51,7 @@ Rebuild will automatically fetch the latest commit for the branch/PR.`,
 }
 
 func rebuildEnvironmentByID(id string) error {
-	client, err := requests.NewHTTPClient(os.Stdout)
+	client, err := requests.NewHTTPClient(io.Discard)
 	if err != nil {
 		return err
 	}
