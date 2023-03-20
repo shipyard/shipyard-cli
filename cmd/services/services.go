@@ -47,7 +47,7 @@ func handleGetServicesCmd() error {
 
 	services := environment.Data.Attributes.Services
 	if len(services) == 0 {
-		return errors.New("no services found")
+		return errors.New("no services found, check if the environment is running")
 	}
 
 	var data [][]string
