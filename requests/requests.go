@@ -29,6 +29,9 @@ type httpClient struct {
 }
 
 func NewHTTPClient(w io.Writer) (Client, error) {
+	if w == nil {
+		w = io.Discard
+	}
 	token, err := auth.GetAPIToken()
 	if err != nil {
 		return nil, err

@@ -1,8 +1,8 @@
 package env
 
 import (
+	"io"
 	"net/http"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -49,7 +49,7 @@ func newStopEnvironmentCmd() *cobra.Command {
 }
 
 func stopEnvironmentByID(id string) error {
-	client, err := requests.NewHTTPClient(os.Stdout)
+	client, err := requests.NewHTTPClient(io.Discard)
 	if err != nil {
 		return err
 	}

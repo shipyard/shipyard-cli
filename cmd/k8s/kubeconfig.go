@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,7 +29,7 @@ func SetKubeconfig(envID string) error {
 
 // getKubeconfig tries to fetch the kubeconfig from the backend API.
 func getKubeconfig(envID string) ([]byte, error) {
-	client, err := requests.NewHTTPClient(os.Stdout)
+	client, err := requests.NewHTTPClient(io.Discard)
 	if err != nil {
 		return nil, err
 	}
