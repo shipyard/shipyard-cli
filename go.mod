@@ -3,16 +3,16 @@ module github.com/shipyard/shipyard-cli
 go 1.20
 
 require (
-	github.com/docker/cli v20.10.21+incompatible
-	github.com/fatih/color v1.13.0
+	github.com/docker/cli v20.10.23+incompatible
+	github.com/fatih/color v1.15.0
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8
 	github.com/spf13/cobra v1.6.1
 	github.com/spf13/viper v1.15.0
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/api v0.22.15
-	k8s.io/apimachinery v0.22.15
-	k8s.io/client-go v0.22.15
+	k8s.io/api v0.22.17
+	k8s.io/apimachinery v0.22.17
+	k8s.io/client-go v0.22.17
 )
 
 require (
@@ -30,8 +30,8 @@ require (
 	github.com/inconshreveable/mousetrap v1.0.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
-	github.com/mattn/go-colorable v0.1.12 // indirect
-	github.com/mattn/go-isatty v0.0.14 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/mattn/go-runewidth v0.0.9 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/moby/spdystream v0.2.0 // indirect
@@ -47,7 +47,7 @@ require (
 	github.com/subosito/gotenv v1.4.2 // indirect
 	golang.org/x/net v0.7.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20221014153046-6fdb5e3db783 // indirect
-	golang.org/x/sys v0.5.0 // indirect
+	golang.org/x/sys v0.6.0 // indirect
 	golang.org/x/term v0.5.0 // indirect
 	golang.org/x/text v0.7.0 // indirect
 	golang.org/x/time v0.1.0 // indirect
