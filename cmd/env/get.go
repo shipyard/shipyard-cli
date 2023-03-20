@@ -182,7 +182,13 @@ func handleGetAllEnvironments() error {
 	return nil
 }
 
+// GetEnvironmentByID is a helper function that tries to fetch an environment,
+// given a client and environment ID.
 func GetEnvironmentByID(client requests.Client, id string) (*Response, error) {
+	if id == "" {
+		return nil, errors.New("environment ID is an empty string")
+	}
+
 	params := make(map[string]string)
 	org := viper.GetString("org")
 	if org != "" {
