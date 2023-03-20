@@ -15,13 +15,14 @@ func CreateResourceURI(action, resource, id, subresource string, params map[stri
 
 	var uri string
 
-	if id == "" {
+	switch {
+	case id == "":
 		uri = fmt.Sprintf("%s/%s", baseURL, resource)
-	} else if subresource != "" {
+	case subresource != "":
 		uri = fmt.Sprintf("%s/%s/%s/%s", baseURL, resource, id, subresource)
-	} else if action == "" {
+	case action == "":
 		uri = fmt.Sprintf("%s/%s/%s", baseURL, resource, id)
-	} else {
+	default:
 		uri = fmt.Sprintf("%s/%s/%s/%s", baseURL, resource, id, action)
 	}
 
