@@ -74,6 +74,7 @@ func setupCommands() {
 	rootCmd.AddCommand(env.NewRestartCmd())
 	rootCmd.AddCommand(env.NewReviveCmd())
 	rootCmd.AddCommand(env.NewStopCmd())
+	rootCmd.AddCommand(env.NewVisitCmd())
 
 	rootCmd.AddCommand(k8s.NewExecCmd())
 	rootCmd.AddCommand(k8s.NewLogsCmd())
