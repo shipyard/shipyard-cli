@@ -152,6 +152,11 @@ shipyard port-forward --env {environment_uuid} --service {service_name} --ports 
 shipyard logs --env {environment_uuid} --service {service_name}
 ```
 
+### Visit an environment
+```bash
+shipyard visit {environment_uuid}
+```
+
 Available flags:
 
 | Name | Description | Type | Default Value |
