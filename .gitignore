@@ -1,5 +1,5 @@
 .DS_Store
-shipyard-cli
+shipyard
 bin
 .envrc
 dist/
