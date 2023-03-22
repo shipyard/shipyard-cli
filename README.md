@@ -42,8 +42,8 @@ Add any configuration values in your config and ensure the file follows YAML syn
 For example:
 
 ```yaml
-SHIPYARD_API_TOKEN: <your-token>
-ORG: <your-non-default-org>
+api_token: <your-token>
+org: <your-non-default-org>
 ```
 
 The values of your environment variables override their corresponding values in the config.
