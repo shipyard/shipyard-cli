@@ -43,7 +43,7 @@ var (
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		red.Fprintln(os.Stderr, "Error:", err.Error())
+		_, _ = red.Fprintln(os.Stderr, "Error:", err.Error())
 	}
 }
 
@@ -57,10 +57,10 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.shipyard/config.yaml)")
 
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
-	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
+	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 
 	rootCmd.PersistentFlags().String("org", "", "Org of environment (default org if unspecified)")
-	viper.BindPFlag("org", rootCmd.PersistentFlags().Lookup("org"))
+	_ = viper.BindPFlag("org", rootCmd.PersistentFlags().Lookup("org"))
 
 	setupCommands()
 }
@@ -109,7 +109,7 @@ func initConfig() {
 			if err := config.CreateDefaultConfig(home); err != nil {
 				initFail(err)
 			}
-			fmt.Fprintln(os.Stdout, "Creating a default config.yaml in $HOME/.shipyard")
+			_, _ = fmt.Fprintln(os.Stdout, "Creating a default config.yaml in $HOME/.shipyard")
 			return
 		} else if errors.As(err, &viper.ConfigParseError{}) {
 			initFail(errConfigParse)
@@ -120,6 +120,6 @@ func initConfig() {
 }
 
 func initFail(err error) {
-	red.Fprintf(os.Stderr, "Init error: %s\n", err)
+	_, _ = red.Fprintf(os.Stderr, "Init error: %s\n", err)
 	os.Exit(1)
 }

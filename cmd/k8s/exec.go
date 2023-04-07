@@ -29,8 +29,8 @@ shipyard exec --env 123 --service web -- ls -l -a
 shipyard exec --env 123 --service web -- bash`,
 		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
-			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
-			viper.BindPFlag("env", cmd.Flags().Lookup("env"))
+			_ = viper.BindPFlag("service", cmd.Flags().Lookup("service"))
+			_ = viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return handleExecCmd(args)
@@ -38,10 +38,10 @@ shipyard exec --env 123 --service web -- bash`,
 	}
 
 	cmd.Flags().String("service", "", "Service name")
-	cmd.MarkFlagRequired("service")
+	_ = cmd.MarkFlagRequired("service")
 
 	cmd.Flags().String("env", "", "Environment ID")
-	cmd.MarkFlagRequired("env")
+	_ = cmd.MarkFlagRequired("env")
 
 	return cmd
 }

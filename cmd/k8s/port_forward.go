@@ -31,9 +31,9 @@ func NewPortForwardCmd() *cobra.Command {
   shipyard port-forward --env 12345 --service web --ports 80:80`,
 		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
-			viper.BindPFlag("ports", cmd.Flags().Lookup("ports"))
-			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
-			viper.BindPFlag("env", cmd.Flags().Lookup("env"))
+			_ = viper.BindPFlag("ports", cmd.Flags().Lookup("ports"))
+			_ = viper.BindPFlag("service", cmd.Flags().Lookup("service"))
+			_ = viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return handlePortForwardCmd()
@@ -41,13 +41,13 @@ func NewPortForwardCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringSlice("ports", nil, "Ports (for example, 3000:80)")
-	cmd.MarkFlagRequired("ports")
+	_ = cmd.MarkFlagRequired("ports")
 
 	cmd.Flags().String("service", "", "Service name")
-	cmd.MarkFlagRequired("service")
+	_ = cmd.MarkFlagRequired("service")
 
 	cmd.Flags().String("env", "", "Environment ID")
-	cmd.MarkFlagRequired("env")
+	_ = cmd.MarkFlagRequired("env")
 
 	return cmd
 }

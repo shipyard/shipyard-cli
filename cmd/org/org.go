@@ -25,7 +25,7 @@ func NewGetAllOrgsCmd() *cobra.Command {
 Note that this command requires a user-level access token.`,
 		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
-			viper.BindPFlag("json", cmd.Flags().Lookup("json"))
+			_ = viper.BindPFlag("json", cmd.Flags().Lookup("json"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return getAllOrgs()

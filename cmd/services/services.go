@@ -21,7 +21,7 @@ func NewGetServicesCmd() *cobra.Command {
   shipyard get services --env 12345`,
 		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
-			viper.BindPFlag("env", cmd.Flags().Lookup("env"))
+			_ = viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return handleGetServicesCmd()
@@ -29,7 +29,7 @@ func NewGetServicesCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("env", "", "environment ID")
-	cmd.MarkFlagRequired("env")
+	_ = cmd.MarkFlagRequired("env")
 
 	return cmd
 }
