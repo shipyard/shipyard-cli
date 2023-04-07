@@ -33,7 +33,7 @@ func NewGetEnvironmentCmd() *cobra.Command {
 		// a flag name already bound to a sibling command.
 		// See https://github.com/spf13/viper/issues/233#issuecomment-386791444
 		PreRun: func(cmd *cobra.Command, args []string) {
-			viper.BindPFlag("json", cmd.Flags().Lookup("json"))
+			_ = viper.BindPFlag("json", cmd.Flags().Lookup("json"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
@@ -67,15 +67,15 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
   shipyard get environments --pull-request-number 1
   `,
 		PreRun: func(cmd *cobra.Command, args []string) {
-			viper.BindPFlag("name", cmd.Flags().Lookup("name"))
-			viper.BindPFlag("org-name", cmd.Flags().Lookup("org-name"))
-			viper.BindPFlag("repo-name", cmd.Flags().Lookup("repo-name"))
-			viper.BindPFlag("branch", cmd.Flags().Lookup("branch"))
-			viper.BindPFlag("pull-request-number", cmd.Flags().Lookup("pull-request-number"))
-			viper.BindPFlag("deleted", cmd.Flags().Lookup("deleted"))
-			viper.BindPFlag("page", cmd.Flags().Lookup("page"))
-			viper.BindPFlag("page-size", cmd.Flags().Lookup("page-size"))
-			viper.BindPFlag("json", cmd.Flags().Lookup("json"))
+			_ = viper.BindPFlag("name", cmd.Flags().Lookup("name"))
+			_ = viper.BindPFlag("org-name", cmd.Flags().Lookup("org-name"))
+			_ = viper.BindPFlag("repo-name", cmd.Flags().Lookup("repo-name"))
+			_ = viper.BindPFlag("branch", cmd.Flags().Lookup("branch"))
+			_ = viper.BindPFlag("pull-request-number", cmd.Flags().Lookup("pull-request-number"))
+			_ = viper.BindPFlag("deleted", cmd.Flags().Lookup("deleted"))
+			_ = viper.BindPFlag("page", cmd.Flags().Lookup("page"))
+			_ = viper.BindPFlag("page-size", cmd.Flags().Lookup("page-size"))
+			_ = viper.BindPFlag("json", cmd.Flags().Lookup("json"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return handleGetAllEnvironments()

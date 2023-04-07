@@ -30,10 +30,10 @@ func NewLogsCmd() *cobra.Command {
   shipyard logs --env 12345 --service flask-backend --tail 100`,
 		SilenceUsage: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
-			viper.BindPFlag("service", cmd.Flags().Lookup("service"))
-			viper.BindPFlag("env", cmd.Flags().Lookup("env"))
-			viper.BindPFlag("follow", cmd.Flags().Lookup("follow"))
-			viper.BindPFlag("tail", cmd.Flags().Lookup("tail"))
+			_ = viper.BindPFlag("service", cmd.Flags().Lookup("service"))
+			_ = viper.BindPFlag("env", cmd.Flags().Lookup("env"))
+			_ = viper.BindPFlag("follow", cmd.Flags().Lookup("follow"))
+			_ = viper.BindPFlag("tail", cmd.Flags().Lookup("tail"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return handleLogsCmd()
@@ -41,10 +41,10 @@ func NewLogsCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("service", "", "Service name")
-	cmd.MarkFlagRequired("service")
+	_ = cmd.MarkFlagRequired("service")
 
 	cmd.Flags().String("env", "", "Environment ID")
-	cmd.MarkFlagRequired("env")
+	_ = cmd.MarkFlagRequired("env")
 
 	cmd.Flags().BoolP("follow", "f", false, "Follow the log output")
 	cmd.Flags().Int64("tail", 3000, "Number of lines from the end of the logs to show")
