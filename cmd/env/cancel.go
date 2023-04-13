@@ -49,7 +49,7 @@ func newCancelEnvironmentCmd() *cobra.Command {
 }
 
 func cancelEnvironmentByID(id string) error {
-	client, err := requests.NewHTTPClient(io.Discard)
+	client, err := requests.NewClient(io.Discard)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func cancelEnvironmentByID(id string) error {
 		return err
 	}
 
-	out := display.NewSimpleDisplay()
+	out := display.New()
 	out.Println("Environment canceled.")
 	return nil
 }

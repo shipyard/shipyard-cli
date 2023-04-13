@@ -87,7 +87,7 @@ func handleLogsCmd() error {
 	}
 	defer podLogs.Close()
 
-	writer := display.NewSimpleDisplay()
+	writer := display.New()
 
 	if !follow {
 		var buf bytes.Buffer

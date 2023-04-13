@@ -29,6 +29,7 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		logging.Init()
+		log.Println("Git commit:", version.GitCommit)
 		log.Println("Current config file:", viper.ConfigFileUsed())
 	},
 }

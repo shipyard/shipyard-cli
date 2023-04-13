@@ -35,7 +35,7 @@ func NewGetServicesCmd() *cobra.Command {
 }
 
 func handleGetServicesCmd() error {
-	client, err := requests.NewHTTPClient(os.Stdout)
+	client, err := requests.NewClient(os.Stdout)
 	if err != nil {
 		return err
 	}

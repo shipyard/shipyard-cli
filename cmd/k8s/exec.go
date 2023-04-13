@@ -60,18 +60,18 @@ func handleExecCmd(args []string) error {
 		return err
 	}
 
-	clientset, err := kubernetes.NewForConfig(config)
+	clientSet, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return err
 	}
 
 	serviceName := viper.GetString("service")
-	podName, err := getPodName(clientset, namespace, serviceName)
+	podName, err := getPodName(clientSet, namespace, serviceName)
 	if err != nil {
 		return err
 	}
 
-	req := clientset.CoreV1().RESTClient().Post().Resource("pods").Name(podName).
+	req := clientSet.CoreV1().RESTClient().Post().Resource("pods").Name(podName).
 		Namespace(namespace).SubResource("exec")
 
 	option := &v1.PodExecOptions{

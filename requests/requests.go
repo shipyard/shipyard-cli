@@ -28,7 +28,7 @@ type httpClient struct {
 	token string
 }
 
-func NewHTTPClient(w io.Writer) (Client, error) {
+func NewClient(w io.Writer) (Client, error) {
 	if w == nil {
 		w = io.Discard
 	}

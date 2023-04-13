@@ -97,7 +97,7 @@ func portForward(config *rest.Config, namespace, pod string, ports []string) err
 		return err
 	}
 
-	writer := display.NewSimpleDisplay()
+	writer := display.New()
 
 	go func() {
 		for range readyChan {
