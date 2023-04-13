@@ -32,7 +32,7 @@ func NewVisitCmd() *cobra.Command {
 }
 
 func visitEnvironment(id string) error {
-	client, err := requests.NewHTTPClient(io.Discard)
+	client, err := requests.NewClient(io.Discard)
 	if err != nil {
 		return err
 	}

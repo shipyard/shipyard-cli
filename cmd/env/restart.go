@@ -48,7 +48,7 @@ func newRestartEnvironmentCmd() *cobra.Command {
 }
 
 func restartEnvironmentByID(id string) error {
-	client, err := requests.NewHTTPClient(io.Discard)
+	client, err := requests.NewClient(io.Discard)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func restartEnvironmentByID(id string) error {
 		return err
 	}
 
-	out := display.NewSimpleDisplay()
+	out := display.New()
 	out.Println("Environment restarted.")
 	return nil
 }

@@ -54,7 +54,7 @@ func NewGetCurrentOrgCmd() *cobra.Command {
 }
 
 func getCurrentOrg() error {
-	writer := display.NewSimpleDisplay()
+	writer := display.New()
 	org := viper.GetString("org")
 	if org == "" {
 		return errors.New("no org is found in the config")
@@ -64,7 +64,7 @@ func getCurrentOrg() error {
 }
 
 func getAllOrgs() error {
-	client, err := requests.NewHTTPClient(os.Stdout)
+	client, err := requests.NewClient(os.Stdout)
 	if err != nil {
 		return err
 	}

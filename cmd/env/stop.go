@@ -49,7 +49,7 @@ func newStopEnvironmentCmd() *cobra.Command {
 }
 
 func stopEnvironmentByID(id string) error {
-	client, err := requests.NewHTTPClient(io.Discard)
+	client, err := requests.NewClient(io.Discard)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func stopEnvironmentByID(id string) error {
 		return err
 	}
 
-	out := display.NewSimpleDisplay()
+	out := display.New()
 	out.Println("Environment stopped.")
 	return nil
 }

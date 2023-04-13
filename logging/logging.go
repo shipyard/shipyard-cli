@@ -6,8 +6,6 @@ import (
 	"os"
 
 	"github.com/spf13/viper"
-
-	"github.com/shipyard/shipyard-cli/version"
 )
 
 // Init registers a log writer that writes either to stdout or nowhere,
@@ -23,5 +21,4 @@ func Init() {
 	log.SetOutput(logWriter)
 	log.SetPrefix("SHIPYARD CLI\t")
 	log.SetFlags(0)
-	log.Println("Git commit:", version.GitCommit)
 }

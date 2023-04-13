@@ -8,7 +8,7 @@ import (
 	"github.com/fatih/color"
 )
 
-func NewSimpleDisplay() *simpleDisplay {
+func New() *simpleDisplay {
 	return &simpleDisplay{writer: os.Stdout, errorWriter: os.Stderr}
 }
 

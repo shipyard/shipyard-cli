@@ -121,7 +121,7 @@ func extractDataForTableOutput(env *environment) [][]string {
 }
 
 func handleGetAllEnvironments() error {
-	client, err := requests.NewHTTPClient(os.Stdout)
+	client, err := requests.NewClient(os.Stdout)
 	if err != nil {
 		return err
 	}
@@ -204,7 +204,7 @@ func GetEnvironmentByID(client requests.Client, id string) (*Response, error) {
 }
 
 func handleGetEnvironmentByID(id string) error {
-	client, err := requests.NewHTTPClient(os.Stdout)
+	client, err := requests.NewClient(os.Stdout)
 	if err != nil {
 		return err
 	}

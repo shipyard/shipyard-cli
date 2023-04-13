@@ -51,7 +51,7 @@ Rebuild will automatically fetch the latest commit for the branch/PR.`,
 }
 
 func rebuildEnvironmentByID(id string) error {
-	client, err := requests.NewHTTPClient(io.Discard)
+	client, err := requests.NewClient(io.Discard)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func rebuildEnvironmentByID(id string) error {
 		return err
 	}
 
-	out := display.NewSimpleDisplay()
+	out := display.New()
 	out.Println("Environment rebuilt.")
 	return nil
 }
