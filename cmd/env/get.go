@@ -14,6 +14,7 @@ import (
 	"github.com/shipyard/shipyard-cli/display"
 	"github.com/shipyard/shipyard-cli/requests"
 	"github.com/shipyard/shipyard-cli/requests/uri"
+	"github.com/shipyard/shipyard-cli/types"
 )
 
 var errNoEnvironment = errors.New("environment ID argument not provided")
@@ -98,7 +99,7 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 var ErrUnmarshalling = errors.New("failed to unmarshal environment(s)")
 
 // Converts the `environment` object to [][]string which is used during printing environments as table
-func extractDataForTableOutput(env *environment) [][]string {
+func extractDataForTableOutput(env *types.Environment) [][]string {
 	var data [][]string
 
 	for _, p := range env.Attributes.Projects {
@@ -173,7 +174,7 @@ func handleGetAllEnvironments() error {
 	var data [][]string
 
 	for _, d := range r.Data {
-		data = append(data, extractDataForTableOutput(&d.environment)...)
+		data = append(data, extractDataForTableOutput(&d.Environment)...)
 	}
 
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
@@ -229,7 +230,7 @@ func handleGetEnvironmentByID(id string) error {
 		return err
 	}
 
-	data := extractDataForTableOutput(&r.Data.environment)
+	data := extractDataForTableOutput(&r.Data.Environment)
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 
 	display.RenderTable(os.Stdout, columns, data)
@@ -254,36 +255,14 @@ func unmarshalManyEnvs(p []byte) (*respManyEnvs, error) {
 	return &r, err
 }
 
-type environment struct {
-	Attributes struct {
-		Name  string `json:"name"`
-		URL   string `json:"url"`
-		Ready bool   `json:"ready"`
-
-		Projects []struct {
-			PullRequestNumber int    `json:"pull_request_number"`
-			RepoName          string `json:"repo_name"`
-		} `json:"projects"`
-
-		Services []struct {
-			Name          string   `json:"name"`
-			Ports         []string `json:"ports"`
-			SanitizedName string   `json:"sanitized_name"`
-			URL           string   `json:"url"`
-		} `json:"services"`
-	} `json:"attributes"`
-
-	ID string `json:"id"`
-}
-
 type Response struct {
 	Data struct {
-		environment
+		types.Environment
 	} `json:"data"`
 }
 
 type respManyEnvs struct {
 	Data []struct {
-		environment
+		types.Environment
 	} `json:"data"`
 }
