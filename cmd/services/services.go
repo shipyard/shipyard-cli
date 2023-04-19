@@ -1,8 +1,8 @@
 package services
 
 import (
-	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -11,6 +11,7 @@ import (
 	"github.com/shipyard/shipyard-cli/cmd/env"
 	"github.com/shipyard/shipyard-cli/display"
 	"github.com/shipyard/shipyard-cli/requests"
+	"github.com/shipyard/shipyard-cli/types"
 )
 
 func NewGetServicesCmd() *cobra.Command {
@@ -34,20 +35,32 @@ func NewGetServicesCmd() *cobra.Command {
 	return cmd
 }
 
-func handleGetServicesCmd() error {
-	client, err := requests.NewClient(os.Stdout)
+func GetAllByEnvironment(id string) ([]types.Service, error) {
+	if id == "" {
+		return nil, fmt.Errorf("environment ID is missing")
+	}
+	client, err := requests.NewClient(io.Discard)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	environment, err := env.GetEnvironmentByID(client, viper.GetString("env"))
+	environment, err := env.GetEnvironmentByID(client, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	services := environment.Data.Attributes.Services
 	if len(services) == 0 {
-		return errors.New("no services found, check if the environment is running")
+		return nil, fmt.Errorf("no services found for environment, check if it's running")
+	}
+	return services, nil
+}
+
+func handleGetServicesCmd() error {
+	id := viper.GetString("env")
+	services, err := GetAllByEnvironment(id)
+	if err != nil {
+		return fmt.Errorf("failed to get services for environment %s: %w", id, err)
 	}
 
 	var data [][]string

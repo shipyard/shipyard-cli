@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/shipyard/shipyard-cli/cmd/services"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	corev1 "k8s.io/api/core/v1"
@@ -53,7 +54,14 @@ func NewLogsCmd() *cobra.Command {
 }
 
 func handleLogsCmd() error {
-	if err := SetKubeconfig(viper.GetString("env")); err != nil {
+	id := viper.GetString("env")
+	serviceName := viper.GetString("service")
+	s, err := services.GetByName(serviceName)
+	if err != nil {
+		return err
+	}
+
+	if err := SetKubeconfig(id); err != nil {
 		return err
 	}
 
@@ -62,13 +70,12 @@ func handleLogsCmd() error {
 		return err
 	}
 
-	clientset, err := kubernetes.NewForConfig(config)
+	clientSet, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return err
 	}
 
-	serviceName := viper.GetString("service")
-	podName, err := getPodName(clientset, namespace, serviceName)
+	podName, err := getPodName(clientSet, namespace, s)
 	if err != nil {
 		return err
 	}
@@ -80,7 +87,7 @@ func handleLogsCmd() error {
 		Follow:    follow,
 		TailLines: &tail,
 	}
-	req := clientset.CoreV1().Pods(namespace).GetLogs(podName, &podLogOpts)
+	req := clientSet.CoreV1().Pods(namespace).GetLogs(podName, &podLogOpts)
 	podLogs, err := req.Stream(context.TODO())
 	if err != nil {
 		return err

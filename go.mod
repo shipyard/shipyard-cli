@@ -3,6 +3,7 @@ module github.com/shipyard/shipyard-cli
 go 1.20
 
 require (
+	github.com/agnivade/levenshtein v1.1.1
 	github.com/docker/cli v20.10.23+incompatible
 	github.com/fatih/color v1.15.0
 	github.com/olekukonko/tablewriter v0.0.5
