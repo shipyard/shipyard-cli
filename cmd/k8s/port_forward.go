@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/shipyard/shipyard-cli/cmd/services"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/kubernetes"
@@ -53,7 +54,14 @@ func NewPortForwardCmd() *cobra.Command {
 }
 
 func handlePortForwardCmd() error {
-	if err := SetKubeconfig(viper.GetString("env")); err != nil {
+	id := viper.GetString("env")
+	serviceName := viper.GetString("service")
+	s, err := services.GetByName(serviceName)
+	if err != nil {
+		return err
+	}
+
+	if err := SetKubeconfig(id); err != nil {
 		return err
 	}
 
@@ -67,8 +75,7 @@ func handlePortForwardCmd() error {
 		return err
 	}
 
-	serviceName := viper.GetString("service")
-	podName, err := getPodName(clientset, namespace, serviceName)
+	podName, err := getPodName(clientset, namespace, s)
 	if err != nil {
 		return err
 	}

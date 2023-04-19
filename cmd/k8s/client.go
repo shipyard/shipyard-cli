@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/shipyard/shipyard-cli/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -59,19 +60,19 @@ func getRESTConfig() (*rest.Config, string, error) {
 	return restClientConfig, namespace, nil
 }
 
-// getPodName tries to fetch the name of the first pod given a deployment name and a clientset.
-func getPodName(clientset *kubernetes.Clientset, namespace, deployment string) (string, error) {
+// getPodName uses the service's sanitized name to find the pod in a given namespace.
+func getPodName(clientSet *kubernetes.Clientset, namespace string, svc *types.Service) (string, error) {
 	options := metav1.ListOptions{
-		LabelSelector: "component=" + deployment,
+		LabelSelector: "component=" + svc.SanitizedName,
 	}
 
-	pods, err := clientset.CoreV1().Pods(namespace).List(context.TODO(), options)
+	pods, err := clientSet.CoreV1().Pods(namespace).List(context.TODO(), options)
 	if err != nil {
 		return "", err
 	}
 
 	if len(pods.Items) == 0 {
-		return "", fmt.Errorf("no pod found for service %s", deployment)
+		return "", fmt.Errorf("no pod found for service %s", svc.Name)
 	}
 
 	return pods.Items[0].Name, nil

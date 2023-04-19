@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/docker/cli/cli/streams"
+	"github.com/shipyard/shipyard-cli/cmd/services"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
@@ -51,7 +52,14 @@ func handleExecCmd(args []string) error {
 		return errors.New("no command arguments provided")
 	}
 
-	if err := SetKubeconfig(viper.GetString("env")); err != nil {
+	id := viper.GetString("env")
+	serviceName := viper.GetString("service")
+	s, err := services.GetByName(serviceName)
+	if err != nil {
+		return err
+	}
+
+	if err := SetKubeconfig(id); err != nil {
 		return err
 	}
 
@@ -65,8 +73,7 @@ func handleExecCmd(args []string) error {
 		return err
 	}
 
-	serviceName := viper.GetString("service")
-	podName, err := getPodName(clientSet, namespace, serviceName)
+	podName, err := getPodName(clientSet, namespace, s)
 	if err != nil {
 		return err
 	}
