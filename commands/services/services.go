@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/shipyard/shipyard-cli/cmd/env"
+	"github.com/shipyard/shipyard-cli/commands/env"
 	"github.com/shipyard/shipyard-cli/display"
 	"github.com/shipyard/shipyard-cli/requests"
 	"github.com/shipyard/shipyard-cli/types"
