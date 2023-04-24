@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/shipyard/shipyard-cli/cmd/services"
+	"github.com/shipyard/shipyard-cli/commands/services"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/kubernetes"

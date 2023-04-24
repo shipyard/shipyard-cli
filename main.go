@@ -5,7 +5,7 @@ import (
 
 	"github.com/fatih/color"
 
-	"github.com/shipyard/shipyard-cli/cmd"
+	"github.com/shipyard/shipyard-cli/commands"
 )
 
 func main() {
@@ -17,5 +17,5 @@ func main() {
 			os.Exit(1)
 		}
 	}()
-	cmd.Execute()
+	commands.Execute()
 }

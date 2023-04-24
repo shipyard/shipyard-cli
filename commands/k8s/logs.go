@@ -5,7 +5,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/shipyard/shipyard-cli/cmd/services"
+	"github.com/shipyard/shipyard-cli/commands/services"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	corev1 "k8s.io/api/core/v1"

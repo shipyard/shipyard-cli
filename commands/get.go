@@ -1,11 +1,11 @@
-package cmd
+package commands
 
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/shipyard/shipyard-cli/cmd/env"
-	"github.com/shipyard/shipyard-cli/cmd/org"
-	"github.com/shipyard/shipyard-cli/cmd/services"
+	"github.com/shipyard/shipyard-cli/commands/env"
+	"github.com/shipyard/shipyard-cli/commands/org"
+	"github.com/shipyard/shipyard-cli/commands/services"
 	"github.com/shipyard/shipyard-cli/constants"
 )
 

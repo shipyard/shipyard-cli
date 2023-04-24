@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"errors"
@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
-	"github.com/shipyard/shipyard-cli/cmd/env"
-	"github.com/shipyard/shipyard-cli/cmd/k8s"
+	"github.com/shipyard/shipyard-cli/commands/env"
+	"github.com/shipyard/shipyard-cli/commands/k8s"
 	"github.com/shipyard/shipyard-cli/config"
 	"github.com/shipyard/shipyard-cli/constants"
 	"github.com/shipyard/shipyard-cli/logging"
