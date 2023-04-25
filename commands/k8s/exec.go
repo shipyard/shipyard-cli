@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/docker/cli/cli/streams"
-	"github.com/shipyard/shipyard-cli/commands/services"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
@@ -14,6 +13,8 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 
 	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/pkg/client/services"
+	"github.com/shipyard/shipyard-cli/pkg/k8s"
 )
 
 func NewExecCmd() *cobra.Command {
@@ -52,18 +53,19 @@ func handleExecCmd(args []string) error {
 		return errors.New("no command arguments provided")
 	}
 
-	id := viper.GetString("env")
 	serviceName := viper.GetString("service")
-	s, err := services.GetByName(serviceName)
+	id := viper.GetString("env")
+	org := viper.GetString("org")
+	s, err := services.GetByName(serviceName, id, org)
 	if err != nil {
 		return err
 	}
 
-	if err := SetKubeconfig(id); err != nil {
+	if err := k8s.SetupKubeconfig(id, org); err != nil {
 		return err
 	}
 
-	config, namespace, err := getRESTConfig()
+	config, namespace, err := k8s.RESTConfig()
 	if err != nil {
 		return err
 	}
@@ -73,7 +75,7 @@ func handleExecCmd(args []string) error {
 		return err
 	}
 
-	podName, err := getPodName(clientSet, namespace, s)
+	podName, err := k8s.PodName(clientSet, namespace, s)
 	if err != nil {
 		return err
 	}

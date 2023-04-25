@@ -2,13 +2,13 @@ package env
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/shipyard/shipyard-cli/constants"
-	"github.com/shipyard/shipyard-cli/requests"
+	"github.com/shipyard/shipyard-cli/pkg/client/env"
 )
 
 func NewVisitCmd() *cobra.Command {
@@ -32,17 +32,13 @@ func NewVisitCmd() *cobra.Command {
 }
 
 func visitEnvironment(id string) error {
-	client, err := requests.NewClient(io.Discard)
+	org := viper.GetString("org")
+	e, err := env.GetByID(id, org)
 	if err != nil {
 		return err
 	}
 
-	env, err := GetEnvironmentByID(client, id)
-	if err != nil {
-		return err
-	}
-
-	url := env.Data.Attributes.URL
+	url := e.Data.Attributes.URL
 	if url == "" {
 		return fmt.Errorf("no URL found for environment %s", id)
 	}
@@ -50,6 +46,5 @@ func visitEnvironment(id string) error {
 	if err := browser.OpenURL(url); err != nil {
 		return fmt.Errorf("unable to open a web browser, visit the environment at %s", url)
 	}
-
 	return nil
 }

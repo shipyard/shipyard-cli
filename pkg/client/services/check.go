@@ -1,35 +1,11 @@
 package services
 
 import (
-	"fmt"
 	"sort"
 
 	"github.com/agnivade/levenshtein"
-	"github.com/spf13/viper"
-
-	"github.com/shipyard/shipyard-cli/types"
+	"github.com/shipyard/shipyard-cli/pkg/types"
 )
-
-func GetByName(serviceName string) (*types.Service, error) {
-	if serviceName == "" {
-		return nil, fmt.Errorf("service name not provided")
-	}
-	envID := viper.GetString("env")
-	if envID == "" {
-		return nil, fmt.Errorf("environment ID not provided")
-	}
-
-	svcs, err := GetAllByEnvironment(envID)
-	if err != nil {
-		return nil, err
-	}
-	s := findService(svcs, serviceName)
-	if s == nil {
-		return nil, fmt.Errorf("service %s is not found, but there is a service named %s",
-			serviceName, similarServiceName(svcs, serviceName))
-	}
-	return s, nil
-}
 
 func findService(coll []types.Service, unsanitizedName string) *types.Service {
 	for i := range coll {

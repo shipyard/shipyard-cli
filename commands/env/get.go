@@ -1,20 +1,18 @@
 package env
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"strconv"
 
+	"github.com/shipyard/shipyard-cli/pkg/display"
+	"github.com/shipyard/shipyard-cli/pkg/requests"
+	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
+	"github.com/shipyard/shipyard-cli/pkg/types"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-
-	"github.com/shipyard/shipyard-cli/display"
-	"github.com/shipyard/shipyard-cli/requests"
-	"github.com/shipyard/shipyard-cli/requests/uri"
-	"github.com/shipyard/shipyard-cli/types"
 )
 
 var errNoEnvironment = errors.New("environment ID argument not provided")
@@ -96,33 +94,8 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 	return cmd
 }
 
-var ErrUnmarshalling = errors.New("failed to unmarshal environment(s)")
-
-// Converts the `environment` object to [][]string which is used during printing environments as table
-func extractDataForTableOutput(env *types.Environment) [][]string {
-	var data [][]string
-
-	for _, p := range env.Attributes.Projects {
-		pr := strconv.Itoa(p.PullRequestNumber)
-		if pr == "0" {
-			pr = ""
-		}
-
-		data = append(data, []string{
-			env.Attributes.Name,
-			env.ID,
-			fmt.Sprintf("%t", env.Attributes.Ready),
-			p.RepoName,
-			pr,
-			env.Attributes.URL,
-		})
-	}
-
-	return data
-}
-
 func handleGetAllEnvironments() error {
-	client, err := requests.NewClient(os.Stdout)
+	client, err := requests.New(os.Stdout)
 	if err != nil {
 		return err
 	}
@@ -166,46 +139,22 @@ func handleGetAllEnvironments() error {
 		return client.Write(body)
 	}
 
-	r, err := unmarshalManyEnvs(body)
+	r, err := types.UnmarshalManyEnvs(body)
 	if err != nil {
-		return ErrUnmarshalling
+		return err
 	}
 
 	var data [][]string
-
 	for _, d := range r.Data {
-		data = append(data, extractDataForTableOutput(&d.Environment)...)
+		data = append(data, display.FormattedEnvironment(&d.Environment)...)
 	}
-
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
-
 	return nil
 }
 
-// GetEnvironmentByID is a helper function that tries to fetch an environment,
-// given a client and environment ID.
-func GetEnvironmentByID(client requests.Client, id string) (*Response, error) {
-	if id == "" {
-		return nil, errors.New("environment ID is an empty string")
-	}
-
-	params := make(map[string]string)
-	org := viper.GetString("org")
-	if org != "" {
-		params["org"] = org
-	}
-
-	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return unmarshalEnv(body)
-}
-
 func handleGetEnvironmentByID(id string) error {
-	client, err := requests.NewClient(os.Stdout)
+	requester, err := requests.New(os.Stdout)
 	if err != nil {
 		return err
 	}
@@ -216,53 +165,22 @@ func handleGetEnvironmentByID(id string) error {
 		params["org"] = org
 	}
 
-	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), nil)
+	body, err := requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}
 
 	if viper.GetBool("json") {
-		return client.Write(body)
+		return requester.Write(body)
 	}
 
-	r, err := unmarshalEnv(body)
+	r, err := types.UnmarshalEnv(body)
 	if err != nil {
 		return err
 	}
 
-	data := extractDataForTableOutput(&r.Data.Environment)
+	data := display.FormattedEnvironment(&r.Data.Environment)
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
-
 	display.RenderTable(os.Stdout, columns, data)
 	return nil
-}
-
-func unmarshalEnv(p []byte) (*Response, error) {
-	var r Response
-	err := json.Unmarshal(p, &r)
-	if err != nil {
-		return nil, ErrUnmarshalling
-	}
-	return &r, err
-}
-
-func unmarshalManyEnvs(p []byte) (*respManyEnvs, error) {
-	var r respManyEnvs
-	err := json.Unmarshal(p, &r)
-	if err != nil {
-		return nil, ErrUnmarshalling
-	}
-	return &r, err
-}
-
-type Response struct {
-	Data struct {
-		types.Environment
-	} `json:"data"`
-}
-
-type respManyEnvs struct {
-	Data []struct {
-		types.Environment
-	} `json:"data"`
 }

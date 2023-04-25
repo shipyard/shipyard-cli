@@ -18,7 +18,7 @@ import (
 	"github.com/shipyard/shipyard-cli/version"
 )
 
-type Client interface {
+type Requester interface {
 	Do(method string, uri string, body any) ([]byte, error)
 	Write(any) error
 }
@@ -28,7 +28,7 @@ type httpClient struct {
 	token string
 }
 
-func NewClient(w io.Writer) (Client, error) {
+func New(w io.Writer) (Requester, error) {
 	if w == nil {
 		w = io.Discard
 	}
