@@ -4,13 +4,13 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/shipyard/shipyard-cli/pkg/display"
+	"github.com/shipyard/shipyard-cli/pkg/requests"
+	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/shipyard/shipyard-cli/constants"
-	"github.com/shipyard/shipyard-cli/display"
-	"github.com/shipyard/shipyard-cli/requests"
-	"github.com/shipyard/shipyard-cli/requests/uri"
 )
 
 func NewRebuildCmd() *cobra.Command {
@@ -51,7 +51,7 @@ Rebuild will automatically fetch the latest commit for the branch/PR.`,
 }
 
 func rebuildEnvironmentByID(id string) error {
-	client, err := requests.NewClient(io.Discard)
+	requester, err := requests.New(io.Discard)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func rebuildEnvironmentByID(id string) error {
 		params["org"] = org
 	}
 
-	_, err = client.Do(http.MethodPost, uri.CreateResourceURI("rebuild", "environment", id, "", params), nil)
+	_, err = requester.Do(http.MethodPost, uri.CreateResourceURI("rebuild", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}

@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/shipyard/shipyard-cli/commands/services"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/kubernetes"
@@ -16,7 +15,9 @@ import (
 	"k8s.io/client-go/transport/spdy"
 
 	"github.com/shipyard/shipyard-cli/constants"
-	"github.com/shipyard/shipyard-cli/display"
+	"github.com/shipyard/shipyard-cli/pkg/client/services"
+	"github.com/shipyard/shipyard-cli/pkg/display"
+	"github.com/shipyard/shipyard-cli/pkg/k8s"
 )
 
 func NewPortForwardCmd() *cobra.Command {
@@ -54,28 +55,29 @@ func NewPortForwardCmd() *cobra.Command {
 }
 
 func handlePortForwardCmd() error {
-	id := viper.GetString("env")
 	serviceName := viper.GetString("service")
-	s, err := services.GetByName(serviceName)
+	id := viper.GetString("env")
+	org := viper.GetString("org")
+	s, err := services.GetByName(serviceName, id, org)
 	if err != nil {
 		return err
 	}
 
-	if err := SetKubeconfig(id); err != nil {
+	if err := k8s.SetupKubeconfig(id, org); err != nil {
 		return err
 	}
 
-	config, namespace, err := getRESTConfig()
+	config, namespace, err := k8s.RESTConfig()
 	if err != nil {
 		return err
 	}
 
-	clientset, err := kubernetes.NewForConfig(config)
+	clientSet, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return err
 	}
 
-	podName, err := getPodName(clientset, namespace, s)
+	podName, err := k8s.PodName(clientSet, namespace, s)
 	if err != nil {
 		return err
 	}

@@ -3,21 +3,21 @@ package k8s
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 
-	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
-	"github.com/shipyard/shipyard-cli/requests"
-	"github.com/shipyard/shipyard-cli/requests/uri"
+	"github.com/shipyard/shipyard-cli/pkg/requests"
+	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 )
 
-// SetKubeconfig tries to fetch a kubeconfig for a given environment and
+// SetupKubeconfig tries to fetch a kubeconfig for a given environment and
 // save it in the default store directory.
-func SetKubeconfig(envID string) error {
-	cfg, err := getKubeconfig(envID)
+func SetupKubeconfig(envID, org string) error {
+	cfg, err := fetchKubeconfig(envID, org)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve kubeconfig: %w", err)
 	}
@@ -27,15 +27,14 @@ func SetKubeconfig(envID string) error {
 	return nil
 }
 
-// getKubeconfig tries to fetch the kubeconfig from the backend API.
-func getKubeconfig(envID string) ([]byte, error) {
-	client, err := requests.NewClient(io.Discard)
+// fetchKubeconfig tries to fetch the Kubeconfig from the backend API.
+func fetchKubeconfig(envID, org string) ([]byte, error) {
+	client, err := requests.New(io.Discard)
 	if err != nil {
 		return nil, err
 	}
 
 	params := make(map[string]string)
-	org := viper.GetString("org")
 	if org != "" {
 		params["org"] = org
 	}
@@ -59,6 +58,18 @@ func saveKubeconfig(body []byte) error {
 			return fmt.Errorf("failed to create the .shipyard directory in $HOME: %v", err)
 		}
 	}
-
 	return os.WriteFile(p, body, 0o600)
+}
+
+// kubeconfigPath tries to find a Kubeconfig in the HOME directory of the user.
+func kubeconfigPath() (string, error) {
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfigPath := filepath.Join(home, ".shipyard", "kubeconfig")
+		if _, err := os.Stat(kubeconfigPath); err != nil {
+			return "", err
+		}
+		log.Println("Using a kubeconfig found in the default .shipyard directory")
+		return kubeconfigPath, nil
+	}
+	return "", fmt.Errorf("user's $HOME directory not found")
 }

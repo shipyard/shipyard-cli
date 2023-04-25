@@ -28,7 +28,7 @@ var rootCmd = &cobra.Command{
 	Version:       fmt.Sprintf("%s (Git Commit %s)", version.Version, version.GitCommit),
 	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		logging.Init()
+		logging.Register()
 		log.Println("Git commit:", version.GitCommit)
 		log.Println("Current config file:", viper.ConfigFileUsed())
 	},

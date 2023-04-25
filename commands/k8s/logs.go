@@ -5,14 +5,15 @@ import (
 	"context"
 	"io"
 
-	"github.com/shipyard/shipyard-cli/commands/services"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/shipyard/shipyard-cli/constants"
-	"github.com/shipyard/shipyard-cli/display"
+	"github.com/shipyard/shipyard-cli/pkg/client/services"
+	"github.com/shipyard/shipyard-cli/pkg/display"
+	"github.com/shipyard/shipyard-cli/pkg/k8s"
 )
 
 func NewLogsCmd() *cobra.Command {
@@ -54,18 +55,20 @@ func NewLogsCmd() *cobra.Command {
 }
 
 func handleLogsCmd() error {
-	id := viper.GetString("env")
 	serviceName := viper.GetString("service")
-	s, err := services.GetByName(serviceName)
+	id := viper.GetString("env")
+	org := viper.GetString("org")
+
+	s, err := services.GetByName(serviceName, id, org)
 	if err != nil {
 		return err
 	}
 
-	if err := SetKubeconfig(id); err != nil {
+	if err := k8s.SetupKubeconfig(id, org); err != nil {
 		return err
 	}
 
-	config, namespace, err := getRESTConfig()
+	config, namespace, err := k8s.RESTConfig()
 	if err != nil {
 		return err
 	}
@@ -75,7 +78,7 @@ func handleLogsCmd() error {
 		return err
 	}
 
-	podName, err := getPodName(clientSet, namespace, s)
+	podName, err := k8s.PodName(clientSet, namespace, s)
 	if err != nil {
 		return err
 	}
@@ -95,7 +98,6 @@ func handleLogsCmd() error {
 	defer podLogs.Close()
 
 	writer := display.New()
-
 	if !follow {
 		var buf bytes.Buffer
 		_, err = io.Copy(&buf, podLogs)

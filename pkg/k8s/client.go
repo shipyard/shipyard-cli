@@ -3,36 +3,19 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"log"
-	"os"
-	"path/filepath"
 
-	"github.com/shipyard/shipyard-cli/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
+
+	"github.com/shipyard/shipyard-cli/pkg/types"
 )
 
-// getKubeconfigPath tries to find a kubeconfig in the HOME directory of the user.
-func getKubeconfigPath() (string, error) {
-	if home := homedir.HomeDir(); home != "" {
-		kubeconfigPath := filepath.Join(home, ".shipyard", "kubeconfig")
-		if _, err := os.Stat(kubeconfigPath); err != nil {
-			return "", err
-		}
-		log.Println("Using a kubeconfig found in the default .shipyard directory")
-		return kubeconfigPath, nil
-	}
-
-	return "", fmt.Errorf("user's $HOME directory not found")
-}
-
-// getRESTConfig tries to find a kubeconfig, extract a namespace in the current context,
+// RESTConfig tries to find a kubeconfig, extract a namespace in the current context,
 // and create a rest.Config from the kubeconfig.
-func getRESTConfig() (*rest.Config, string, error) {
-	kubeconfigPath, err := getKubeconfigPath()
+func RESTConfig() (*rest.Config, string, error) {
+	kubeconfigPath, err := kubeconfigPath()
 	if err != nil {
 		return nil, "", err
 	}
@@ -56,12 +39,11 @@ func getRESTConfig() (*rest.Config, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-
 	return restClientConfig, namespace, nil
 }
 
-// getPodName uses the service's sanitized name to find the pod in a given namespace.
-func getPodName(clientSet *kubernetes.Clientset, namespace string, svc *types.Service) (string, error) {
+// PodName uses the service's sanitized name to find the pod in a given namespace.
+func PodName(clientSet *kubernetes.Clientset, namespace string, svc *types.Service) (string, error) {
 	options := metav1.ListOptions{
 		LabelSelector: "component=" + svc.SanitizedName,
 	}
@@ -74,6 +56,5 @@ func getPodName(clientSet *kubernetes.Clientset, namespace string, svc *types.Se
 	if len(pods.Items) == 0 {
 		return "", fmt.Errorf("no pod found for service %s", svc.Name)
 	}
-
 	return pods.Items[0].Name, nil
 }

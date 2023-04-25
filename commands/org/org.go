@@ -1,19 +1,18 @@
 package org
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
 
+	"github.com/shipyard/shipyard-cli/pkg/display"
+	"github.com/shipyard/shipyard-cli/pkg/requests"
+	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
+	"github.com/shipyard/shipyard-cli/pkg/types"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-
-	"github.com/shipyard/shipyard-cli/display"
-	"github.com/shipyard/shipyard-cli/requests"
-	"github.com/shipyard/shipyard-cli/requests/uri"
 )
 
 func NewGetAllOrgsCmd() *cobra.Command {
@@ -54,47 +53,39 @@ func NewGetCurrentOrgCmd() *cobra.Command {
 }
 
 func getCurrentOrg() error {
-	writer := display.New()
+	d := display.New()
 	org := viper.GetString("org")
 	if org == "" {
 		return errors.New("no org is found in the config")
 	}
-	writer.Println(org)
+	d.Println(org)
 	return nil
 }
 
 func getAllOrgs() error {
-	client, err := requests.NewClient(os.Stdout)
+	requester, err := requests.New(os.Stdout)
 	if err != nil {
 		return err
 	}
 
-	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "org", "", "", nil), nil)
+	body, err := requester.Do(http.MethodGet, uri.CreateResourceURI("", "org", "", "", nil), nil)
 	if err != nil {
 		return err
 	}
 
 	if viper.GetBool("json") {
-		return client.Write(body)
+		return requester.Write(body)
 	}
 
-	var resp orgsResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("failed to unmarshal orgs response: %w", err)
+	orgs, err := types.UnmarshalOrgs(body)
+	if err != nil {
+		return err
 	}
 
-	var orgs []string
-	for _, item := range resp.Data {
-		orgs = append(orgs, item.Attributes.Name)
+	names := make([]string, 0, len(orgs.Data))
+	for _, item := range orgs.Data {
+		names = append(names, item.Attributes.Name)
 	}
 
-	return client.Write(strings.Join(orgs, "\n") + "\n")
-}
-
-type orgsResponse struct {
-	Data []struct {
-		Attributes struct {
-			Name string `json:"name"`
-		} `json:"attributes"`
-	} `json:"data"`
+	return requester.Write(strings.Join(names, "\n") + "\n")
 }
