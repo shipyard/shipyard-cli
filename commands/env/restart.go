@@ -65,6 +65,6 @@ func restartEnvironmentByID(id string) error {
 	}
 
 	out := display.New()
-	out.Println("Environment restarted.")
+	out.Println("Environment queued for a restart.")
 	return nil
 }
