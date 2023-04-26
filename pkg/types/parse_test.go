@@ -1,8 +1,10 @@
-package requests
+package types
 
 import "testing"
 
 func TestParseErrorResponse(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		resp []byte
 		want string
@@ -56,7 +58,7 @@ func TestParseErrorResponse(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		got := parseError(test.resp)
+		got := ParseErrorResponse(test.resp)
 		if got != test.want {
 			t.Errorf("want %s, but got %s", test.want, got)
 		}

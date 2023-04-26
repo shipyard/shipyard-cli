@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/shipyard/shipyard-cli/auth"
+	"github.com/shipyard/shipyard-cli/pkg/types"
 	"github.com/shipyard/shipyard-cli/version"
 )
 
@@ -23,12 +24,12 @@ type Requester interface {
 	Write(any) error
 }
 
-type httpClient struct {
+type HTTPClient struct {
 	w     io.Writer
 	token string
 }
 
-func New(w io.Writer) (Requester, error) {
+func New(w io.Writer) (*HTTPClient, error) {
 	if w == nil {
 		w = io.Discard
 	}
@@ -36,10 +37,10 @@ func New(w io.Writer) (Requester, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &httpClient{token: token, w: w}, nil
+	return &HTTPClient{token: token, w: w}, nil
 }
 
-func (c httpClient) Do(method, uri string, body any) ([]byte, error) {
+func (c HTTPClient) Do(method, uri string, body any) ([]byte, error) {
 	start := time.Now()
 	defer func() {
 		log.Println("Network request took", time.Since(start))
@@ -89,7 +90,7 @@ func (c httpClient) Do(method, uri string, body any) ([]byte, error) {
 		if len(b) == 0 {
 			return nil, fmt.Errorf("empty response")
 		}
-		errString := parseError(b)
+		errString := types.ParseErrorResponse(b)
 		if errString == "" {
 			return nil, errors.New(string(b))
 		}
@@ -101,25 +102,7 @@ func (c httpClient) Do(method, uri string, body any) ([]byte, error) {
 	return b, nil
 }
 
-func (c httpClient) Write(data any) error {
+func (c HTTPClient) Write(data any) error {
 	_, err := fmt.Fprintf(c.w, "%s", data)
 	return err
-}
-
-func parseError(p []byte) string {
-	var r errorResponse
-	if err := json.Unmarshal(p, &r); err != nil {
-		return ""
-	}
-	if len(r.Errors) == 0 || r.Errors[0].Title == "" {
-		return ""
-	}
-	return r.Errors[0].Title
-}
-
-type errorResponse struct {
-	Errors []struct {
-		Status int    `json:"status"`
-		Title  string `json:"title"`
-	} `json:"errors"`
 }
