@@ -65,7 +65,6 @@ func cancelEnvironmentByID(id string) error {
 		return err
 	}
 
-	out := display.New()
-	out.Println("Environment canceled.")
+	display.Println("Environment canceled.")
 	return nil
 }

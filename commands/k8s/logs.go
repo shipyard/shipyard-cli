@@ -97,14 +97,12 @@ func handleLogsCmd() error {
 	}
 	defer podLogs.Close()
 
-	writer := display.New()
 	if !follow {
 		var buf bytes.Buffer
-		_, err = io.Copy(&buf, podLogs)
-		if err != nil {
+		if _, err = io.Copy(&buf, podLogs); err != nil {
 			return err
 		}
-		writer.Print(buf.String())
+		display.Print(buf.String())
 		return nil
 	}
 
@@ -121,7 +119,7 @@ func handleLogsCmd() error {
 			return err
 		}
 		message := string(buf[:bytesRead])
-		writer.Print(message)
+		display.Print(message)
 	}
 
 	return nil

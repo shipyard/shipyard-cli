@@ -106,16 +106,14 @@ func portForward(config *rest.Config, namespace, pod string, ports []string) err
 		return err
 	}
 
-	writer := display.New()
-
 	go func() {
 		for range readyChan {
 		}
 
 		if s := errOut.String(); s != "" {
-			writer.Fail(s)
+			display.Fail(s)
 		} else if s = out.String(); s != "" {
-			writer.Print(s)
+			display.Print(s)
 		}
 	}()
 
