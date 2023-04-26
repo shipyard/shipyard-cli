@@ -53,12 +53,11 @@ func NewGetCurrentOrgCmd() *cobra.Command {
 }
 
 func getCurrentOrg() error {
-	d := display.New()
 	org := viper.GetString("org")
 	if org == "" {
 		return errors.New("no org is found in the config")
 	}
-	d.Println(org)
+	display.Println(org)
 	return nil
 }
 

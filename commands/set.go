@@ -69,8 +69,7 @@ func setOrg(name string) error {
 }
 
 func setTokenInteractively(r io.Reader) error {
-	out := display.New()
-	out.Print("Your API token: ")
+	display.Print("Your API token: ")
 
 	var token string
 	_, err := fmt.Fscanln(r, &token)

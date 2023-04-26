@@ -66,7 +66,6 @@ func reviveEnvironmentByID(id string) error {
 		return err
 	}
 
-	out := display.New()
-	out.Println("Environment revived.")
+	display.Println("Environment revived.")
 	return nil
 }

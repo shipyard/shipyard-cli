@@ -65,7 +65,6 @@ func stopEnvironmentByID(id string) error {
 		return err
 	}
 
-	out := display.New()
-	out.Println("Environment stopped.")
+	display.Println("Environment stopped.")
 	return nil
 }

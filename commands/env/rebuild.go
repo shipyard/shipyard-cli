@@ -67,7 +67,6 @@ func rebuildEnvironmentByID(id string) error {
 		return err
 	}
 
-	out := display.New()
-	out.Println("Environment queued for a rebuild.")
+	display.Println("Environment queued for a rebuild.")
 	return nil
 }
