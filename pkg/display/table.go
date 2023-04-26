@@ -33,8 +33,10 @@ func RenderTable(out io.Writer, columns []string, data [][]string) {
 	_, _ = io.WriteString(out, "\n")
 }
 
+// FormattedEnvironment takes an environment, extracts data from it, and prepares it
+// to be in tabular format. If the environment value is nil, the program will panic.
 func FormattedEnvironment(env *types.Environment) [][]string {
-	var data [][]string
+	data := make([][]string, 0, len(env.Attributes.Projects))
 
 	for _, p := range env.Attributes.Projects {
 		pr := strconv.Itoa(p.PullRequestNumber)

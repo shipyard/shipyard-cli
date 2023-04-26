@@ -9,7 +9,7 @@ import (
 
 func TestCreateResourceURI(t *testing.T) {
 	t.Parallel()
-	os.Unsetenv("SHIPYARD_BUILD_URL")
+	_ = os.Unsetenv("SHIPYARD_BUILD_URL")
 
 	testCases := []struct {
 		action      string
@@ -36,6 +36,11 @@ func TestCreateResourceURI(t *testing.T) {
 			action: "", resource: "environment", id: "", subresource: "",
 			params: map[string]string{"branch": "newfeature", "repo_name": "shipyard", "page_size": "9"},
 			want:   "https://shipyard.build/api/v1/environment?branch=newfeature&page_size=9&repo_name=shipyard",
+		},
+		{
+			name:   "Get a single environment",
+			action: "", resource: "environment", id: "123abc", subresource: "",
+			want: "https://shipyard.build/api/v1/environment/123abc",
 		},
 		{
 			name:   "Get a single environment in a specific org",

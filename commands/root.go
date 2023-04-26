@@ -36,13 +36,13 @@ var rootCmd = &cobra.Command{
 
 var (
 	cfgFile        string
-	red            = color.New(color.FgHiRed)
 	errConfigParse = errors.New("failed to parse the config file, check YAML for syntax errors")
 )
 
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
+		red := color.New(color.FgHiRed)
 		_, _ = red.Fprintln(os.Stderr, "Error:", err.Error())
 	}
 }
@@ -120,6 +120,7 @@ func initConfig() {
 }
 
 func initFail(err error) {
+	red := color.New(color.FgHiRed)
 	_, _ = red.Fprintf(os.Stderr, "Init error: %s\n", err)
 	os.Exit(1)
 }

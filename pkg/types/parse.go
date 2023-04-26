@@ -10,20 +10,18 @@ var errUnmarshalling = errors.New("failed to unmarshal a value")
 
 func UnmarshalEnv(p []byte) (*Response, error) {
 	var r Response
-	err := json.Unmarshal(p, &r)
-	if err != nil {
+	if err := json.Unmarshal(p, &r); err != nil {
 		return nil, errUnmarshalling
 	}
-	return &r, err
+	return &r, nil
 }
 
 func UnmarshalManyEnvs(p []byte) (*RespManyEnvs, error) {
 	var r RespManyEnvs
-	err := json.Unmarshal(p, &r)
-	if err != nil {
+	if err := json.Unmarshal(p, &r); err != nil {
 		return nil, errUnmarshalling
 	}
-	return &r, err
+	return &r, nil
 }
 
 func UnmarshalOrgs(body []byte) (*OrgsResponse, error) {
@@ -31,7 +29,6 @@ func UnmarshalOrgs(body []byte) (*OrgsResponse, error) {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal orgs response: %w", err)
 	}
-
 	return &resp, nil
 }
 
@@ -53,4 +50,22 @@ type OrgsResponse struct {
 			Name string `json:"name"`
 		} `json:"attributes"`
 	} `json:"data"`
+}
+
+func ParseErrorResponse(p []byte) string {
+	var r errorResponse
+	if err := json.Unmarshal(p, &r); err != nil {
+		return ""
+	}
+	if len(r.Errors) == 0 || r.Errors[0].Title == "" {
+		return ""
+	}
+	return r.Errors[0].Title
+}
+
+type errorResponse struct {
+	Errors []struct {
+		Status int    `json:"status"`
+		Title  string `json:"title"`
+	} `json:"errors"`
 }

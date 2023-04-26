@@ -47,6 +47,8 @@ func fetchKubeconfig(envID, org string) ([]byte, error) {
 	return body, nil
 }
 
+// saveKubeconfig persists a slice of bytes that contains the Kubeconfig file
+// to disk in the HOME directory of the user.
 func saveKubeconfig(body []byte) error {
 	var p string
 	var err error

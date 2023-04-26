@@ -11,7 +11,7 @@ import (
 )
 
 // GetByID tries to fetch an environment given its ID.
-func GetByID(id string, org string) (*types.Response, error) {
+func GetByID(id, org string) (*types.Response, error) {
 	if id == "" {
 		return nil, errors.New("environment ID is an empty string")
 	}
