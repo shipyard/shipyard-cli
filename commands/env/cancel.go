@@ -1,19 +1,16 @@
 package env
 
 import (
-	"io"
 	"net/http"
 
+	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/display"
-	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-
-	"github.com/shipyard/shipyard-cli/constants"
 )
 
-func NewCancelCmd() *cobra.Command {
+func NewCancelCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "cancel",
 		GroupID: constants.GroupEnvironments,
@@ -23,12 +20,12 @@ func NewCancelCmd() *cobra.Command {
   shipyard cancel environment 12345`,
 	}
 
-	cmd.AddCommand(newCancelEnvironmentCmd())
+	cmd.AddCommand(newCancelEnvironmentCmd(c))
 
 	return cmd
 }
 
-func newCancelEnvironmentCmd() *cobra.Command {
+func newCancelEnvironmentCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Aliases:      []string{"env"},
 		Use:          "environment [environment ID]",
@@ -39,7 +36,7 @@ func newCancelEnvironmentCmd() *cobra.Command {
   shipyard cancel environment 12345`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
-				return cancelEnvironmentByID(args[0])
+				return cancelEnvironmentByID(c, args[0])
 			}
 			return errNoEnvironment
 		},
@@ -48,19 +45,12 @@ func newCancelEnvironmentCmd() *cobra.Command {
 	return cmd
 }
 
-func cancelEnvironmentByID(id string) error {
-	requester, err := requests.New(io.Discard)
-	if err != nil {
-		return err
-	}
-
+func cancelEnvironmentByID(c client.Client, id string) error {
 	params := make(map[string]string)
-	org := viper.GetString("org")
-	if org != "" {
-		params["org"] = org
+	if c.Org != "" {
+		params["org"] = c.Org
 	}
-
-	_, err = requester.Do(http.MethodPost, uri.CreateResourceURI("cancel", "environment", id, "", params), nil)
+	_, err := c.Requester.Do(http.MethodPost, uri.CreateResourceURI("cancel", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}

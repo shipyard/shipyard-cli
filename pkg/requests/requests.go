@@ -14,30 +14,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shipyard/shipyard-cli/auth"
 	"github.com/shipyard/shipyard-cli/pkg/types"
 	"github.com/shipyard/shipyard-cli/version"
 )
 
 type Requester interface {
 	Do(method string, uri string, body any) ([]byte, error)
-	Write(any) error
 }
 
 type HTTPClient struct {
-	w     io.Writer
 	token string
 }
 
-func New(w io.Writer) (*HTTPClient, error) {
-	if w == nil {
-		w = io.Discard
-	}
-	token, err := auth.GetAPIToken()
-	if err != nil {
-		return nil, err
-	}
-	return &HTTPClient{token: token, w: w}, nil
+func New(token string) HTTPClient {
+	return HTTPClient{token: token}
 }
 
 func (c HTTPClient) Do(method, uri string, body any) ([]byte, error) {
@@ -100,9 +90,4 @@ func (c HTTPClient) Do(method, uri string, body any) ([]byte, error) {
 	}
 
 	return b, nil
-}
-
-func (c HTTPClient) Write(data any) error {
-	_, err := fmt.Fprintf(c.w, "%s", data)
-	return err
 }

@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/shipyard/shipyard-cli/pkg/client/services"
 	"github.com/shipyard/shipyard-cli/pkg/display"
 )
 
-func NewGetServicesCmd() *cobra.Command {
+func NewGetServicesCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "services",
 		Short: "Get services in an environment",
@@ -22,7 +22,7 @@ func NewGetServicesCmd() *cobra.Command {
 			_ = viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleGetServicesCmd()
+			return handleGetServicesCmd(c)
 		},
 	}
 
@@ -32,10 +32,9 @@ func NewGetServicesCmd() *cobra.Command {
 	return cmd
 }
 
-func handleGetServicesCmd() error {
+func handleGetServicesCmd(c client.Client) error {
 	id := viper.GetString("env")
-	org := viper.GetString("org")
-	svcs, err := services.GetAll(id, org)
+	svcs, err := c.AllServices(id)
 	if err != nil {
 		return fmt.Errorf("failed to get services for environment %s: %w", id, err)
 	}

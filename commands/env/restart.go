@@ -1,19 +1,16 @@
 package env
 
 import (
-	"io"
 	"net/http"
 
+	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/display"
-	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-
-	"github.com/shipyard/shipyard-cli/constants"
 )
 
-func NewRestartCmd() *cobra.Command {
+func NewRestartCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "restart",
 		GroupID: constants.GroupEnvironments,
@@ -23,12 +20,12 @@ func NewRestartCmd() *cobra.Command {
 		SilenceUsage: true,
 	}
 
-	cmd.AddCommand(newRestartEnvironmentCmd())
+	cmd.AddCommand(newRestartEnvironmentCmd(c))
 
 	return cmd
 }
 
-func newRestartEnvironmentCmd() *cobra.Command {
+func newRestartEnvironmentCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Aliases:      []string{"env"},
 		Use:          "environment [environment ID]",
@@ -38,7 +35,7 @@ func newRestartEnvironmentCmd() *cobra.Command {
   shipyard restart environment 12345`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
-				return restartEnvironmentByID(args[0])
+				return restartEnvironmentByID(c, args[0])
 			}
 			return errNoEnvironment
 		},
@@ -47,19 +44,13 @@ func newRestartEnvironmentCmd() *cobra.Command {
 	return cmd
 }
 
-func restartEnvironmentByID(id string) error {
-	requester, err := requests.New(io.Discard)
-	if err != nil {
-		return err
-	}
-
+func restartEnvironmentByID(c client.Client, id string) error {
 	params := make(map[string]string)
-	org := viper.GetString("org")
-	if org != "" {
-		params["org"] = org
+	if c.Org != "" {
+		params["org"] = c.Org
 	}
 
-	_, err = requester.Do(http.MethodPost, uri.CreateResourceURI("restart", "environment", id, "", params), nil)
+	_, err := c.Requester.Do(http.MethodPost, uri.CreateResourceURI("restart", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}

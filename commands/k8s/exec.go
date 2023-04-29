@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/docker/cli/cli/streams"
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
@@ -13,11 +14,10 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 
 	"github.com/shipyard/shipyard-cli/constants"
-	"github.com/shipyard/shipyard-cli/pkg/client/services"
 	"github.com/shipyard/shipyard-cli/pkg/k8s"
 )
 
-func NewExecCmd() *cobra.Command {
+func NewExecCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "exec",
 		GroupID: constants.GroupEnvironments,
@@ -35,7 +35,7 @@ shipyard exec --env 123 --service web -- bash`,
 			_ = viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleExecCmd(args)
+			return handleExecCmd(c, args)
 		},
 	}
 
@@ -48,20 +48,19 @@ shipyard exec --env 123 --service web -- bash`,
 	return cmd
 }
 
-func handleExecCmd(args []string) error {
+func handleExecCmd(c client.Client, args []string) error {
 	if len(args) == 0 {
 		return errors.New("no command arguments provided")
 	}
 
 	serviceName := viper.GetString("service")
 	id := viper.GetString("env")
-	org := viper.GetString("org")
-	s, err := services.GetByName(serviceName, id, org)
+	s, err := c.FindService(serviceName, id)
 	if err != nil {
 		return err
 	}
 
-	if err := k8s.SetupKubeconfig(id, org); err != nil {
+	if err := k8s.SetupKubeconfig(id, c.Org); err != nil {
 		return err
 	}
 
