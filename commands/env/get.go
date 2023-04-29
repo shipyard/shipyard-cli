@@ -6,8 +6,8 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/display"
-	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/shipyard/shipyard-cli/pkg/types"
 
@@ -17,7 +17,7 @@ import (
 
 var errNoEnvironment = errors.New("environment ID argument not provided")
 
-func NewGetEnvironmentCmd() *cobra.Command {
+func NewGetEnvironmentCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "environment [environment ID]",
 		Aliases: []string{"env"},
@@ -36,7 +36,7 @@ func NewGetEnvironmentCmd() *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
-				return handleGetEnvironmentByID(args[0])
+				return handleGetEnvironmentByID(c, args[0])
 			}
 			return errNoEnvironment
 		},
@@ -47,7 +47,7 @@ func NewGetEnvironmentCmd() *cobra.Command {
 	return cmd
 }
 
-func NewGetAllEnvironmentsCmd() *cobra.Command {
+func NewGetAllEnvironmentsCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "environments",
 		Aliases:      []string{"envs"},
@@ -77,7 +77,7 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 			_ = viper.BindPFlag("json", cmd.Flags().Lookup("json"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleGetAllEnvironments()
+			return handleGetAllEnvironments(c)
 		},
 	}
 
@@ -94,12 +94,7 @@ func NewGetAllEnvironmentsCmd() *cobra.Command {
 	return cmd
 }
 
-func handleGetAllEnvironments() error {
-	client, err := requests.New(os.Stdout)
-	if err != nil {
-		return err
-	}
-
+func handleGetAllEnvironments(c client.Client) error {
 	params := make(map[string]string)
 
 	if name := viper.GetString("name"); name != "" {
@@ -130,13 +125,14 @@ func handleGetAllEnvironments() error {
 		params["org"] = org
 	}
 
-	body, err := client.Do(http.MethodGet, uri.CreateResourceURI("", "environment", "", "", params), nil)
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", "", "", params), nil)
 	if err != nil {
 		return err
 	}
 
 	if viper.GetBool("json") {
-		return client.Write(body)
+		display.Println(body)
+		return nil
 	}
 
 	r, err := types.UnmarshalManyEnvs(body)
@@ -153,25 +149,20 @@ func handleGetAllEnvironments() error {
 	return nil
 }
 
-func handleGetEnvironmentByID(id string) error {
-	requester, err := requests.New(os.Stdout)
-	if err != nil {
-		return err
-	}
-
+func handleGetEnvironmentByID(c client.Client, id string) error {
 	params := make(map[string]string)
-	org := viper.GetString("org")
-	if org != "" {
-		params["org"] = org
+	if c.Org != "" {
+		params["org"] = c.Org
 	}
 
-	body, err := requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), nil)
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}
 
 	if viper.GetBool("json") {
-		return requester.Write(body)
+		display.Println(body)
+		return nil
 	}
 
 	r, err := types.UnmarshalEnv(body)

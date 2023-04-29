@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/spf13/cobra"
 
 	"github.com/shipyard/shipyard-cli/commands/env"
@@ -9,7 +10,7 @@ import (
 	"github.com/shipyard/shipyard-cli/constants"
 )
 
-func NewGetCmd() *cobra.Command {
+func NewGetCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "get",
 		GroupID: constants.GroupEnvironments,
@@ -30,11 +31,11 @@ func NewGetCmd() *cobra.Command {
   shipyard get orgs`,
 	}
 
-	cmd.AddCommand(env.NewGetAllEnvironmentsCmd())
-	cmd.AddCommand(env.NewGetEnvironmentCmd())
+	cmd.AddCommand(env.NewGetAllEnvironmentsCmd(c))
+	cmd.AddCommand(env.NewGetEnvironmentCmd(c))
 	cmd.AddCommand(org.NewGetCurrentOrgCmd())
-	cmd.AddCommand(org.NewGetAllOrgsCmd())
-	cmd.AddCommand(services.NewGetServicesCmd())
+	cmd.AddCommand(org.NewGetAllOrgsCmd(c))
+	cmd.AddCommand(services.NewGetServicesCmd(c))
 
 	return cmd
 }

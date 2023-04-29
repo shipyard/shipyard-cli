@@ -8,9 +8,6 @@ import (
 )
 
 func TestCreateResourceURI(t *testing.T) {
-	t.Parallel()
-	_ = os.Unsetenv("SHIPYARD_BUILD_URL")
-
 	testCases := []struct {
 		action      string
 		resource    string
@@ -76,5 +73,15 @@ func TestCreateResourceURI(t *testing.T) {
 				t.Errorf("expected %s, but got %s", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestCreateResourceURIWithCustomBase(t *testing.T) {
+	_ = os.Setenv("SHIPYARD_BUILD_URL", "localhost:8000")
+
+	want := "localhost:8000/environment/123abc"
+	got := uri.CreateResourceURI("", "environment", "123abc", "", nil)
+	if got != want {
+		t.Errorf("expected %s, but got %s", want, got)
 	}
 }

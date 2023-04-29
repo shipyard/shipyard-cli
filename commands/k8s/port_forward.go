@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/kubernetes"
@@ -15,12 +16,11 @@ import (
 	"k8s.io/client-go/transport/spdy"
 
 	"github.com/shipyard/shipyard-cli/constants"
-	"github.com/shipyard/shipyard-cli/pkg/client/services"
 	"github.com/shipyard/shipyard-cli/pkg/display"
 	"github.com/shipyard/shipyard-cli/pkg/k8s"
 )
 
-func NewPortForwardCmd() *cobra.Command {
+func NewPortForwardCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "port-forward",
 		GroupID: constants.GroupEnvironments,
@@ -38,7 +38,7 @@ func NewPortForwardCmd() *cobra.Command {
 			_ = viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handlePortForwardCmd()
+			return handlePortForwardCmd(c)
 		},
 	}
 
@@ -54,16 +54,15 @@ func NewPortForwardCmd() *cobra.Command {
 	return cmd
 }
 
-func handlePortForwardCmd() error {
+func handlePortForwardCmd(c client.Client) error {
 	serviceName := viper.GetString("service")
 	id := viper.GetString("env")
-	org := viper.GetString("org")
-	s, err := services.GetByName(serviceName, id, org)
+	s, err := c.FindService(serviceName, id)
 	if err != nil {
 		return err
 	}
 
-	if err := k8s.SetupKubeconfig(id, org); err != nil {
+	if err := k8s.SetupKubeconfig(id, c.Org); err != nil {
 		return err
 	}
 

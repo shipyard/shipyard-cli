@@ -5,18 +5,18 @@ import (
 	"context"
 	"io"
 
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/shipyard/shipyard-cli/constants"
-	"github.com/shipyard/shipyard-cli/pkg/client/services"
 	"github.com/shipyard/shipyard-cli/pkg/display"
 	"github.com/shipyard/shipyard-cli/pkg/k8s"
 )
 
-func NewLogsCmd() *cobra.Command {
+func NewLogsCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "logs",
 		GroupID: constants.GroupEnvironments,
@@ -38,7 +38,7 @@ func NewLogsCmd() *cobra.Command {
 			_ = viper.BindPFlag("tail", cmd.Flags().Lookup("tail"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleLogsCmd()
+			return handleLogsCmd(c)
 		},
 	}
 
@@ -54,17 +54,16 @@ func NewLogsCmd() *cobra.Command {
 	return cmd
 }
 
-func handleLogsCmd() error {
+func handleLogsCmd(c client.Client) error {
 	serviceName := viper.GetString("service")
 	id := viper.GetString("env")
-	org := viper.GetString("org")
 
-	s, err := services.GetByName(serviceName, id, org)
+	s, err := c.FindService(serviceName, id)
 	if err != nil {
 		return err
 	}
 
-	if err := k8s.SetupKubeconfig(id, org); err != nil {
+	if err := k8s.SetupKubeconfig(id, c.Org); err != nil {
 		return err
 	}
 

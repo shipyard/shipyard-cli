@@ -2,12 +2,12 @@ package k8s
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
 	"github.com/shipyard/shipyard-cli/pkg/requests"
@@ -29,10 +29,8 @@ func SetupKubeconfig(envID, org string) error {
 
 // fetchKubeconfig tries to fetch the Kubeconfig from the backend API.
 func fetchKubeconfig(envID, org string) ([]byte, error) {
-	client, err := requests.New(io.Discard)
-	if err != nil {
-		return nil, err
-	}
+	client := requests.New(viper.GetString("API_TOKEN"))
+	// TODO: fix
 
 	params := make(map[string]string)
 	if org != "" {

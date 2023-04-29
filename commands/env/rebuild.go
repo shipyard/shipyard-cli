@@ -1,19 +1,16 @@
 package env
 
 import (
-	"io"
 	"net/http"
 
+	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/display"
-	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-
-	"github.com/shipyard/shipyard-cli/constants"
 )
 
-func NewRebuildCmd() *cobra.Command {
+func NewRebuildCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "rebuild",
 		GroupID: constants.GroupEnvironments,
@@ -24,12 +21,12 @@ Rebuild will automatically fetch the latest commit for the branch/PR.`,
   shipyard rebuild environment 12345`,
 	}
 
-	cmd.AddCommand(newRebuildEnvironmentCmd())
+	cmd.AddCommand(newRebuildEnvironmentCmd(c))
 
 	return cmd
 }
 
-func newRebuildEnvironmentCmd() *cobra.Command {
+func newRebuildEnvironmentCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Aliases: []string{"env"},
 		Use:     "environment [environment ID]",
@@ -41,7 +38,7 @@ Rebuild will automatically fetch the latest commit for the branch/PR.`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
-				return rebuildEnvironmentByID(args[0])
+				return rebuildEnvironmentByID(c, args[0])
 			}
 			return errNoEnvironment
 		},
@@ -50,19 +47,13 @@ Rebuild will automatically fetch the latest commit for the branch/PR.`,
 	return cmd
 }
 
-func rebuildEnvironmentByID(id string) error {
-	requester, err := requests.New(io.Discard)
-	if err != nil {
-		return err
-	}
-
+func rebuildEnvironmentByID(c client.Client, id string) error {
 	params := make(map[string]string)
-	org := viper.GetString("org")
-	if org != "" {
-		params["org"] = org
+	if c.Org != "" {
+		params["org"] = c.Org
 	}
 
-	_, err = requester.Do(http.MethodPost, uri.CreateResourceURI("rebuild", "environment", id, "", params), nil)
+	_, err := c.Requester.Do(http.MethodPost, uri.CreateResourceURI("rebuild", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}

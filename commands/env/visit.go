@@ -4,14 +4,12 @@ import (
 	"fmt"
 
 	"github.com/pkg/browser"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-
 	"github.com/shipyard/shipyard-cli/constants"
-	"github.com/shipyard/shipyard-cli/pkg/client/env"
+	"github.com/shipyard/shipyard-cli/pkg/client"
+	"github.com/spf13/cobra"
 )
 
-func NewVisitCmd() *cobra.Command {
+func NewVisitCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "visit",
 		GroupID:      constants.GroupEnvironments,
@@ -22,7 +20,7 @@ func NewVisitCmd() *cobra.Command {
   shipyard visit 12345`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
-				return visitEnvironment(args[0])
+				return visitEnvironment(c, args[0])
 			}
 			return errNoEnvironment
 		},
@@ -31,9 +29,8 @@ func NewVisitCmd() *cobra.Command {
 	return cmd
 }
 
-func visitEnvironment(id string) error {
-	org := viper.GetString("org")
-	e, err := env.GetByID(id, org)
+func visitEnvironment(c client.Client, id string) error {
+	e, err := c.EnvByID(id)
 	if err != nil {
 		return err
 	}

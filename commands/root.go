@@ -9,6 +9,9 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
+	"github.com/shipyard/shipyard-cli/auth"
+	"github.com/shipyard/shipyard-cli/pkg/client"
+	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
@@ -40,10 +43,10 @@ var (
 )
 
 func Execute() {
+	setupCommands()
 	err := rootCmd.Execute()
 	if err != nil {
-		red := color.New(color.FgHiRed)
-		_, _ = red.Fprintln(os.Stderr, "Error:", err.Error())
+		fail("Error", err)
 	}
 }
 
@@ -52,7 +55,6 @@ func init() {
 	viper.SetEnvKeyReplacer(replacer)
 	viper.SetEnvPrefix("shipyard")
 	viper.AutomaticEnv()
-	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.shipyard/config.yaml)")
 
@@ -62,24 +64,32 @@ func init() {
 	rootCmd.PersistentFlags().String("org", "", "Org of environment (default org if unspecified)")
 	_ = viper.BindPFlag("org", rootCmd.PersistentFlags().Lookup("org"))
 
+	initConfig()
 	setupCommands()
 }
 
 func setupCommands() {
-	rootCmd.AddCommand(NewGetCmd())
+	token, err := auth.GetAPIToken()
+	if err != nil {
+		fail("Token", err)
+	}
+
+	requester := requests.New(token)
+	c := client.New(requester, viper.GetString("org"))
+	rootCmd.AddCommand(NewGetCmd(c))
 	rootCmd.AddCommand(NewSetCmd())
 
 	rootCmd.AddGroup(&cobra.Group{ID: constants.GroupEnvironments, Title: "Environments"})
-	rootCmd.AddCommand(env.NewCancelCmd())
-	rootCmd.AddCommand(env.NewRebuildCmd())
-	rootCmd.AddCommand(env.NewRestartCmd())
-	rootCmd.AddCommand(env.NewReviveCmd())
-	rootCmd.AddCommand(env.NewStopCmd())
-	rootCmd.AddCommand(env.NewVisitCmd())
+	rootCmd.AddCommand(env.NewCancelCmd(c))
+	rootCmd.AddCommand(env.NewRebuildCmd(c))
+	rootCmd.AddCommand(env.NewRestartCmd(c))
+	rootCmd.AddCommand(env.NewReviveCmd(c))
+	rootCmd.AddCommand(env.NewStopCmd(c))
+	rootCmd.AddCommand(env.NewVisitCmd(c))
 
-	rootCmd.AddCommand(k8s.NewExecCmd())
-	rootCmd.AddCommand(k8s.NewLogsCmd())
-	rootCmd.AddCommand(k8s.NewPortForwardCmd())
+	rootCmd.AddCommand(k8s.NewExecCmd(c))
+	rootCmd.AddCommand(k8s.NewLogsCmd(c))
+	rootCmd.AddCommand(k8s.NewPortForwardCmd(c))
 }
 
 func initConfig() {
@@ -87,16 +97,16 @@ func initConfig() {
 		viper.SetConfigFile(cfgFile)
 		if err := viper.ReadInConfig(); err != nil {
 			if errors.As(err, &viper.ConfigParseError{}) {
-				initFail(errConfigParse)
+				fail("Init", errConfigParse)
 			}
-			initFail(err)
+			fail("Init", err)
 		}
 		return
 	}
 
 	home := homedir.HomeDir()
 	if home == "" {
-		initFail(errors.New("home directory not found"))
+		fail("Init", errors.New("home directory not found"))
 	}
 
 	viper.AddConfigPath(filepath.Join(home, ".shipyard"))
@@ -107,20 +117,20 @@ func initConfig() {
 		if errors.As(err, &viper.ConfigFileNotFoundError{}) {
 			// Create an empty config for the user.
 			if err := config.CreateDefaultConfig(home); err != nil {
-				initFail(err)
+				fail("Init", err)
 			}
 			_, _ = fmt.Fprintln(os.Stdout, "Creating a default config.yaml in $HOME/.shipyard")
 			return
 		} else if errors.As(err, &viper.ConfigParseError{}) {
-			initFail(errConfigParse)
+			fail("Init", errConfigParse)
 		} else {
-			initFail(err)
+			fail("Init", err)
 		}
 	}
 }
 
-func initFail(err error) {
+func fail(kind string, err error) {
 	red := color.New(color.FgHiRed)
-	_, _ = red.Fprintf(os.Stderr, "Init error: %s\n", err)
+	_, _ = red.Fprintf(os.Stderr, fmt.Sprintf("%s error: %s\n", kind, err))
 	os.Exit(1)
 }

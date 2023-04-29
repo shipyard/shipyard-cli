@@ -3,11 +3,10 @@ package org
 import (
 	"errors"
 	"net/http"
-	"os"
 	"strings"
 
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/display"
-	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/shipyard/shipyard-cli/pkg/types"
 
@@ -15,7 +14,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func NewGetAllOrgsCmd() *cobra.Command {
+func NewGetAllOrgsCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "orgs",
 		Aliases: []string{"organizations"},
@@ -27,7 +26,7 @@ Note that this command requires a user-level access token.`,
 			_ = viper.BindPFlag("json", cmd.Flags().Lookup("json"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return getAllOrgs()
+			return getAllOrgs(c)
 		},
 	}
 
@@ -61,19 +60,15 @@ func getCurrentOrg() error {
 	return nil
 }
 
-func getAllOrgs() error {
-	requester, err := requests.New(os.Stdout)
-	if err != nil {
-		return err
-	}
-
-	body, err := requester.Do(http.MethodGet, uri.CreateResourceURI("", "org", "", "", nil), nil)
+func getAllOrgs(c client.Client) error {
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "org", "", "", nil), nil)
 	if err != nil {
 		return err
 	}
 
 	if viper.GetBool("json") {
-		return requester.Write(body)
+		display.Println(body)
+		return nil
 	}
 
 	orgs, err := types.UnmarshalOrgs(body)
@@ -86,5 +81,6 @@ func getAllOrgs() error {
 		names = append(names, item.Attributes.Name)
 	}
 
-	return requester.Write(strings.Join(names, "\n") + "\n")
+	display.Println(strings.Join(names, "\n"))
+	return nil
 }

@@ -1,19 +1,16 @@
 package env
 
 import (
-	"io"
 	"net/http"
 
+	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/display"
-	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-
-	"github.com/shipyard/shipyard-cli/constants"
 )
 
-func NewReviveCmd() *cobra.Command {
+func NewReviveCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "revive",
 		GroupID: constants.GroupEnvironments,
@@ -25,12 +22,12 @@ To get the UUID of a deleted environment, you can use:
   shipyard revive environment 12345`,
 	}
 
-	cmd.AddCommand(newReviveEnvironmentCmd())
+	cmd.AddCommand(newReviveEnvironmentCmd(c))
 
 	return cmd
 }
 
-func newReviveEnvironmentCmd() *cobra.Command {
+func newReviveEnvironmentCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Aliases: []string{"env"},
 		Use:     "environment [environment ID]",
@@ -40,7 +37,7 @@ func newReviveEnvironmentCmd() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
-				return reviveEnvironmentByID(args[0])
+				return reviveEnvironmentByID(c, args[0])
 			}
 			return errNoEnvironment
 		},
@@ -49,19 +46,13 @@ func newReviveEnvironmentCmd() *cobra.Command {
 	return cmd
 }
 
-func reviveEnvironmentByID(id string) error {
-	requester, err := requests.New(io.Discard)
-	if err != nil {
-		return err
-	}
-
+func reviveEnvironmentByID(c client.Client, id string) error {
 	params := make(map[string]string)
-	org := viper.GetString("org")
-	if org != "" {
-		params["org"] = org
+	if c.Org != "" {
+		params["org"] = c.Org
 	}
 
-	_, err = requester.Do(http.MethodPost, uri.CreateResourceURI("revive", "environment", id, "", params), nil)
+	_, err := c.Requester.Do(http.MethodPost, uri.CreateResourceURI("revive", "environment", id, "", params), nil)
 	if err != nil {
 		return err
 	}
