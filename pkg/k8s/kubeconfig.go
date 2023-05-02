@@ -7,17 +7,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
-	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 )
 
-// SetupKubeconfig tries to fetch a kubeconfig for a given environment and
+// setupKubeconfig tries to fetch a kubeconfig for a given environment and
 // save it in the default store directory.
-func SetupKubeconfig(envID, org string) error {
-	cfg, err := fetchKubeconfig(envID, org)
+func (c *Service) setupKubeconfig(envID string) error {
+	cfg, err := c.fetchKubeconfig(envID)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve kubeconfig: %w", err)
 	}
@@ -28,17 +26,14 @@ func SetupKubeconfig(envID, org string) error {
 }
 
 // fetchKubeconfig tries to fetch the Kubeconfig from the backend API.
-func fetchKubeconfig(envID, org string) ([]byte, error) {
-	client := requests.New(viper.GetString("API_TOKEN"))
-	// TODO: fix
-
+func (c *Service) fetchKubeconfig(envID string) ([]byte, error) {
 	params := make(map[string]string)
-	if org != "" {
-		params["org"] = org
+	if c.client.Org != "" {
+		params["org"] = c.client.Org
 	}
 
 	requestURI := uri.CreateResourceURI("", "environment", envID, "kubeconfig", params)
-	body, err := client.Do(http.MethodGet, requestURI, nil)
+	body, err := c.client.Requester.Do(http.MethodGet, requestURI, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -61,15 +56,14 @@ func saveKubeconfig(body []byte) error {
 	return os.WriteFile(p, body, 0o600)
 }
 
-// kubeconfigPath tries to find a Kubeconfig in the HOME directory of the user.
 func kubeconfigPath() (string, error) {
 	if home := homedir.HomeDir(); home != "" {
-		kubeconfigPath := filepath.Join(home, ".shipyard", "kubeconfig")
-		if _, err := os.Stat(kubeconfigPath); err != nil {
+		path := filepath.Join(home, ".shipyard", "kubeconfig")
+		if _, err := os.Stat(path); err != nil {
 			return "", err
 		}
 		log.Println("Using a kubeconfig found in the default .shipyard directory")
-		return kubeconfigPath, nil
+		return path, nil
 	}
 	return "", fmt.Errorf("user's $HOME directory not found")
 }

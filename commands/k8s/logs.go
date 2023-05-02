@@ -1,18 +1,11 @@
 package k8s
 
 import (
-	"bytes"
-	"context"
-	"io"
-
-	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/kubernetes"
 
 	"github.com/shipyard/shipyard-cli/constants"
-	"github.com/shipyard/shipyard-cli/pkg/display"
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/k8s"
 )
 
@@ -58,26 +51,12 @@ func handleLogsCmd(c client.Client) error {
 	serviceName := viper.GetString("service")
 	id := viper.GetString("env")
 
-	s, err := c.FindService(serviceName, id)
+	svc, err := c.FindService(serviceName, id)
 	if err != nil {
 		return err
 	}
 
-	if err := k8s.SetupKubeconfig(id, c.Org); err != nil {
-		return err
-	}
-
-	config, namespace, err := k8s.RESTConfig()
-	if err != nil {
-		return err
-	}
-
-	clientSet, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return err
-	}
-
-	podName, err := k8s.PodName(clientSet, namespace, s)
+	k, err := k8s.New(c, id, svc)
 	if err != nil {
 		return err
 	}
@@ -85,41 +64,5 @@ func handleLogsCmd(c client.Client) error {
 	follow := viper.GetBool("follow")
 	tail := viper.GetInt64("tail")
 
-	podLogOpts := corev1.PodLogOptions{
-		Follow:    follow,
-		TailLines: &tail,
-	}
-	req := clientSet.CoreV1().Pods(namespace).GetLogs(podName, &podLogOpts)
-	podLogs, err := req.Stream(context.TODO())
-	if err != nil {
-		return err
-	}
-	defer podLogs.Close()
-
-	if !follow {
-		var buf bytes.Buffer
-		if _, err = io.Copy(&buf, podLogs); err != nil {
-			return err
-		}
-		display.Print(buf.String())
-		return nil
-	}
-
-	for {
-		buf := make([]byte, 2000)
-		bytesRead, err := podLogs.Read(buf)
-		if bytesRead == 0 {
-			continue
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		message := string(buf[:bytesRead])
-		display.Print(message)
-	}
-
-	return nil
+	return k.Logs(follow, tail)
 }
