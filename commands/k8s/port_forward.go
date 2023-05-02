@@ -1,22 +1,11 @@
 package k8s
 
 import (
-	"bytes"
-	"fmt"
-	"net/http"
-	"net/url"
-	"strings"
-
-	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/portforward"
-	"k8s.io/client-go/transport/spdy"
 
 	"github.com/shipyard/shipyard-cli/constants"
-	"github.com/shipyard/shipyard-cli/pkg/display"
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/k8s"
 )
 
@@ -55,69 +44,19 @@ func NewPortForwardCmd(c client.Client) *cobra.Command {
 }
 
 func handlePortForwardCmd(c client.Client) error {
-	serviceName := viper.GetString("service")
 	id := viper.GetString("env")
+	serviceName := viper.GetString("service")
+	ports := viper.GetStringSlice("ports")
+
 	s, err := c.FindService(serviceName, id)
 	if err != nil {
 		return err
 	}
 
-	if err := k8s.SetupKubeconfig(id, c.Org); err != nil {
-		return err
-	}
-
-	config, namespace, err := k8s.RESTConfig()
+	k, err := k8s.New(c, id, s)
 	if err != nil {
 		return err
 	}
 
-	clientSet, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return err
-	}
-
-	podName, err := k8s.PodName(clientSet, namespace, s)
-	if err != nil {
-		return err
-	}
-
-	ports := viper.GetStringSlice("ports")
-	return portForward(config, namespace, podName, ports)
-}
-
-func portForward(config *rest.Config, namespace, pod string, ports []string) error {
-	roundTripper, upgrader, err := spdy.RoundTripperFor(config)
-	if err != nil {
-		return err
-	}
-
-	host := strings.TrimPrefix(config.Host, "https://")
-	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", namespace, pod)
-	serverURL := url.URL{Scheme: "https", Host: host, Path: path}
-
-	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: roundTripper}, http.MethodPost, &serverURL)
-
-	stopChan, readyChan := make(chan struct{}, 1), make(chan struct{}, 1)
-	out, errOut := new(bytes.Buffer), new(bytes.Buffer)
-
-	forwarder, err := portforward.New(dialer, ports, stopChan, readyChan, out, errOut)
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		for range readyChan {
-		}
-
-		if s := errOut.String(); s != "" {
-			display.Fail(s)
-		} else if s = out.String(); s != "" {
-			display.Print(s)
-		}
-	}()
-
-	if err := forwarder.ForwardPorts(); err != nil {
-		return err
-	}
-	return nil
+	return k.PortForward(ports)
 }

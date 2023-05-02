@@ -2,18 +2,12 @@ package k8s
 
 import (
 	"errors"
-	"os"
 
-	"github.com/docker/cli/cli/streams"
-	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/remotecommand"
 
 	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/k8s"
 )
 
@@ -55,68 +49,15 @@ func handleExecCmd(c client.Client, args []string) error {
 
 	serviceName := viper.GetString("service")
 	id := viper.GetString("env")
-	s, err := c.FindService(serviceName, id)
+	svc, err := c.FindService(serviceName, id)
 	if err != nil {
 		return err
 	}
 
-	if err := k8s.SetupKubeconfig(id, c.Org); err != nil {
-		return err
-	}
-
-	config, namespace, err := k8s.RESTConfig()
+	k, err := k8s.New(c, id, svc)
 	if err != nil {
 		return err
 	}
 
-	clientSet, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return err
-	}
-
-	podName, err := k8s.PodName(clientSet, namespace, s)
-	if err != nil {
-		return err
-	}
-
-	req := clientSet.CoreV1().RESTClient().Post().Resource("pods").Name(podName).
-		Namespace(namespace).SubResource("exec")
-
-	option := &v1.PodExecOptions{
-		Command: args,
-		Stdin:   true,
-		Stdout:  true,
-		Stderr:  true,
-		TTY:     true,
-	}
-
-	req.VersionedParams(option, scheme.ParameterCodec)
-	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
-	if err != nil {
-		return err
-	}
-
-	in := streams.NewIn(os.Stdin)
-	if err := in.SetRawTerminal(); err != nil {
-		return err
-	}
-	defer in.RestoreTerminal()
-
-	return exec.Stream(remotecommand.StreamOptions{
-		Stdin:             in,
-		Stdout:            os.Stdout,
-		Stderr:            os.Stderr,
-		TerminalSizeQueue: &fixedTerminalSizeQueue{},
-	})
-}
-
-// fixedTerminalSizeQueue and its Next method ensure the terminal size remains the same
-// after being attached to and detached from a shell in a container.
-type fixedTerminalSizeQueue struct{}
-
-func (s *fixedTerminalSizeQueue) Next() *remotecommand.TerminalSize {
-	return &remotecommand.TerminalSize{
-		Width:  3000,
-		Height: 8000,
-	}
+	return k.Exec(args)
 }
