@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/fatih/color"
 
@@ -14,6 +16,7 @@ func main() {
 		if err := recover(); err != nil {
 			red := color.New(color.FgHiRed)
 			_, _ = red.Fprintf(os.Stderr, "Runtime error: %v\n", err)
+			_, _ = fmt.Fprintln(os.Stderr, string(debug.Stack()))
 			os.Exit(1)
 		}
 	}()
