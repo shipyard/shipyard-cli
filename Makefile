@@ -12,5 +12,8 @@ LDFLAGS += -s -w
 build:
 	go build -o $(NAME) -ldflags "$(LDFLAGS)"
 
+build-docker:
+	docker build --build-arg version=$(VERSION) --build-arg git_commit=$(GIT_COMMIT) -t shipyard .
+
 test:
 	@go test ./... -cover
