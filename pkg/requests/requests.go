@@ -31,6 +31,9 @@ func New(token string) HTTPClient {
 }
 
 func (c HTTPClient) Do(method, uri string, body any) ([]byte, error) {
+	if c.token == "" {
+		return nil, errors.New("missing API token")
+	}
 	start := time.Now()
 	defer func() {
 		log.Println("Network request took", time.Since(start))

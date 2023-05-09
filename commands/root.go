@@ -43,10 +43,9 @@ var (
 )
 
 func Execute() {
-	setupCommands()
 	err := rootCmd.Execute()
 	if err != nil {
-		fail("Error", err)
+		fail("Command", err)
 	}
 }
 
@@ -71,7 +70,7 @@ func init() {
 func setupCommands() {
 	token, err := auth.GetAPIToken()
 	if err != nil {
-		fail("Token", err)
+		warn("Token", err)
 	}
 
 	requester := requests.New(token)
@@ -133,4 +132,9 @@ func fail(kind string, err error) {
 	red := color.New(color.FgHiRed)
 	_, _ = red.Fprintf(os.Stderr, fmt.Sprintf("%s error: %s\n", kind, err))
 	os.Exit(1)
+}
+
+func warn(kind string, err error) {
+	yellow := color.New(color.FgHiYellow)
+	_, _ = yellow.Fprintf(os.Stderr, fmt.Sprintf("%s error: %s\n", kind, err))
 }

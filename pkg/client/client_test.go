@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
 	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/shipyard/shipyard-cli/pkg/types"
 )
@@ -70,7 +71,7 @@ func setup() (client Client, cleanup func()) {
 	handler := newMux()
 	server := httptest.NewServer(handler)
 	_ = os.Setenv("SHIPYARD_BUILD_URL", server.URL)
-	c := New(requests.HTTPClient{}, "")
+	c := New(requests.New("someToken"), "")
 	return c, func() {
 		defer server.Close()
 	}
