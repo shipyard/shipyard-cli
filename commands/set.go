@@ -52,7 +52,7 @@ func NewSetTokenCmd() *cobra.Command {
 			if len(args) == 0 {
 				return setTokenInteractively(os.Stdin)
 			}
-			return setToken(args[0])
+			return SetToken(args[0])
 		},
 	}
 
@@ -77,11 +77,13 @@ func setTokenInteractively(r io.Reader) error {
 		return err
 	}
 
-	return setToken(token)
+	return SetToken(token)
 }
 
-func setToken(token string) error {
+func SetToken(token string) error {
 	viper.Set("api_token", token)
+	// TODO: find a better way to not persist the value of verbose globally.
+	viper.Set("verbose", false)
 	err := viper.MergeInConfig()
 	if err != nil {
 		return err
