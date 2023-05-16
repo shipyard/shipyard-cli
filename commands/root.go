@@ -9,18 +9,18 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/shipyard/shipyard-cli/auth"
-	"github.com/shipyard/shipyard-cli/pkg/client"
-	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
+	"github.com/shipyard/shipyard-cli/auth"
 	"github.com/shipyard/shipyard-cli/commands/env"
 	"github.com/shipyard/shipyard-cli/commands/k8s"
 	"github.com/shipyard/shipyard-cli/config"
 	"github.com/shipyard/shipyard-cli/constants"
 	"github.com/shipyard/shipyard-cli/logging"
+	"github.com/shipyard/shipyard-cli/pkg/client"
+	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/shipyard/shipyard-cli/version"
 )
 
@@ -68,11 +68,7 @@ func init() {
 }
 
 func setupCommands() {
-	token, err := auth.GetAPIToken()
-	if err != nil {
-		warn("Token", err)
-	}
-
+	token, _ := auth.GetAPIToken()
 	requester := requests.New(token)
 	c := client.New(requester, viper.GetString("org"))
 	rootCmd.AddCommand(NewGetCmd(c))
