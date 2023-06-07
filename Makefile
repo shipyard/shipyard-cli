@@ -17,3 +17,4 @@ build-docker:
 
 test:
 	@go test ./... -cover
+	golangci-lint run

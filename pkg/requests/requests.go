@@ -18,10 +18,6 @@ import (
 	"github.com/shipyard/shipyard-cli/version"
 )
 
-type Requester interface {
-	Do(method string, uri string, body any) ([]byte, error)
-}
-
 type HTTPClient struct {
 	token string
 }

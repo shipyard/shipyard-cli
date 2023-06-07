@@ -1,12 +1,14 @@
 package client
 
-import "github.com/shipyard/shipyard-cli/pkg/requests"
+type Requester interface {
+	Do(method string, uri string, body any) ([]byte, error)
+}
 
 type Client struct {
-	Requester requests.Requester
+	Requester Requester
 	Org       string
 }
 
-func New(r requests.Requester, org string) Client {
+func New(r Requester, org string) Client {
 	return Client{Requester: r, Org: org}
 }

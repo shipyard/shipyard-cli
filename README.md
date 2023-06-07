@@ -152,6 +152,11 @@ shipyard port-forward --env {environment_uuid} --service {service_name} --ports 
 shipyard logs --env {environment_uuid} --service {service_name}
 ```
 
+### Connect an environment to telepresence
+```bash
+shipyard telepresence-connect --env {environment_uuid}
+```
+
 ### Visit an environment
 ```bash
 shipyard visit {environment_uuid}
