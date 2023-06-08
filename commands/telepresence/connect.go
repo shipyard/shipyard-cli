@@ -15,10 +15,10 @@ var errNoEnvironment = errors.New("environment ID argument not provided")
 
 func NewConnectCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "telepresence-connect [environment ID]",
+		Use:     "telepresence connect [environment ID]",
 		Aliases: []string{"env"},
 		Short:   "Connect telepresence to an environment by ID",
-		Example: `  # Connecct telepresence to env ID 12345:
+		Example: `  # Connect telepresence to env ID 12345:
   shipyard telepresence connect 12345
   
   # Get all the details for environment ID 12345 in JSON format:
