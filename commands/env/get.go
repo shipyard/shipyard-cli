@@ -2,6 +2,7 @@ package env
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -146,6 +147,9 @@ func handleGetAllEnvironments(c client.Client) error {
 	}
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
+	if r.Links.Next != "" {
+		display.Println(fmt.Sprintf("Table is truncated, fetch the next page %d.", r.NextPage()))
+	}
 	return nil
 }
 
