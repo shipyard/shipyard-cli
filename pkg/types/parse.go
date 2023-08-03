@@ -73,7 +73,7 @@ type Links struct {
 	Prev  string `json:"prev"`
 }
 
-func ParseErrorResponse(p []byte) string {
+func ErrorFromResponse(p []byte) string {
 	var r errorResponse
 	if err := json.Unmarshal(p, &r); err != nil {
 		return ""
