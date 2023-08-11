@@ -83,7 +83,7 @@ func (c HTTPClient) Do(method, uri string, body any) ([]byte, error) {
 		if len(b) == 0 {
 			return nil, fmt.Errorf("empty response")
 		}
-		errString := types.ParseErrorResponse(b)
+		errString := types.ErrorFromResponse(b)
 		if errString == "" {
 			return nil, errors.New(string(b))
 		}
