@@ -140,6 +140,10 @@ func handleGetAllEnvironments(c client.Client) error {
 	if err != nil {
 		return err
 	}
+	if len(r.Data) == 0 {
+		display.Println("No environments found in the org.")
+		return nil
+	}
 
 	var data [][]string
 	for _, d := range r.Data {
@@ -148,7 +152,7 @@ func handleGetAllEnvironments(c client.Client) error {
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
 	if r.Links.Next != "" {
-		display.Println(fmt.Sprintf("Table is truncated, fetch the next page %d.", r.NextPage()))
+		display.Println(fmt.Sprintf("Table is truncated, fetch the next page %d.", r.Links.NextPage()))
 	}
 	return nil
 }
