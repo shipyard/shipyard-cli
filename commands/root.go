@@ -71,6 +71,7 @@ func setupCommands() {
 	token, _ := auth.GetAPIToken()
 	requester := requests.New(token)
 	c := client.New(requester, viper.GetString("org"))
+	rootCmd.AddCommand(NewLoginCmd())
 	rootCmd.AddCommand(NewGetCmd(c))
 	rootCmd.AddCommand(NewSetCmd())
 
