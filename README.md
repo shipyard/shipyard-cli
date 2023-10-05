@@ -17,7 +17,12 @@ A tool to manage Ephemeral Environments on the Shipyard platform.
     brew install shipyard
     ```
 
-## Get Your Token
+## Login
+
+Run `shipyard login` to initialize the CLI. This will prompt you to log in to Shipyard in the browser. The CLI will then
+save your API token in a local config. You're ready to start running commands.
+
+## Set Your Token Manually
 
 Set your Shipyard API token as the value of the `SHIPYARD_API_TOKEN` environment variable.
 Or set it as the value for the `api_token` config key.
@@ -30,9 +35,9 @@ You can get it by going to [your profile page](https://shipyard.build/profile).
 shipyard set token
 ```
 
-You can get in touch with us at support@shipyard.build if you would like to enable API access for your org. If you have
-any other questions feel free to join
-our [community slack](https://join.slack.com/t/shipyardcommunity/shared_invite/zt-x830cx39-BuiQKZwvhG7zGRTXAvojVQ).
+You can get in touch with us at [support@shipyard.build](mailto:support@shipyard.build) if you would like to enable API
+access for your org. If you have any other questions, feel free to join
+our community [Slack](https://join.slack.com/t/shipyardcommunity/shared_invite/zt-x830cx39-BuiQKZwvhG7zGRTXAvojVQ).
 
 Alternatively, you can use a configuration file stored in `$HOME/.shipyard/config.yaml` by default.
 When you run the CLI for the first time, it will create a default empty config that you can then edit.
