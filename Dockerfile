@@ -1,4 +1,4 @@
-FROM golang:1.20 AS build
+FROM golang:1.21 AS build
 
 WORKDIR /app
 
@@ -18,5 +18,5 @@ RUN echo $VERSION $GIT_COMMIT
 RUN CGO_ENABLED=0 go build -buildvcs=false -o /shipyard \
     -ldflags "-s -w -X github.com/shipyard/shipyard-cli/version.Version=${VERSION} -X github.com/shipyard/shipyard-cli/version.GitCommit=${GIT_COMMIT}"
 
-FROM alpine:3.17
+FROM alpine:3.18
 COPY --from=build /shipyard /usr/local/bin
