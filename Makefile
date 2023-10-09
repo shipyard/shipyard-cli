@@ -10,7 +10,7 @@ LDFLAGS += -X github.com/shipyard/shipyard-cli/version.Version=$(VERSION)
 LDFLAGS += -s -w
 
 build:
-	go build -o $(NAME) -ldflags "$(LDFLAGS)"
+	go build -o bin/$(NAME) -ldflags "$(LDFLAGS)"
 
 build-docker:
 	docker build --build-arg version=$(VERSION) --build-arg git_commit=$(GIT_COMMIT) -t shipyard .
