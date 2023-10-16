@@ -47,17 +47,6 @@ type RespManyEnvs struct {
 	Links Links `json:"links"`
 }
 
-// NextPage extracts the value of the "page" query parameter of the "next" URL.
-func (r RespManyEnvs) NextPage() int {
-	parsed, err := url.Parse(r.Links.Next)
-	if err != nil {
-		return 0
-	}
-	page := parsed.Query().Get("page")
-	i, _ := strconv.Atoi(page)
-	return i
-}
-
 type OrgsResponse struct {
 	Data []struct {
 		Attributes struct {
@@ -66,11 +55,31 @@ type OrgsResponse struct {
 	} `json:"data"`
 }
 
+type VolumesResponse struct {
+	Data []Volume `json:"data"`
+}
+
+type SnapshotsResponse struct {
+	Data  []Snapshot `json:"data"`
+	Links Links      `json:"links"`
+}
+
 type Links struct {
 	First string `json:"first"`
 	Last  string `json:"last"`
 	Next  string `json:"next"`
 	Prev  string `json:"prev"`
+}
+
+// NextPage extracts the value of the "page" query parameter of the "next" URL.
+func (l Links) NextPage() int {
+	parsed, err := url.Parse(l.Next)
+	if err != nil {
+		return 0
+	}
+	page := parsed.Query().Get("page")
+	i, _ := strconv.Atoi(page)
+	return i
 }
 
 func ErrorFromResponse(p []byte) string {

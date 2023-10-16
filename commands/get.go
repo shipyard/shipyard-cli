@@ -1,13 +1,14 @@
 package commands
 
 import (
-	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/spf13/cobra"
 
 	"github.com/shipyard/shipyard-cli/commands/env"
 	"github.com/shipyard/shipyard-cli/commands/org"
 	"github.com/shipyard/shipyard-cli/commands/services"
+	"github.com/shipyard/shipyard-cli/commands/volumes"
 	"github.com/shipyard/shipyard-cli/constants"
+	"github.com/shipyard/shipyard-cli/pkg/client"
 )
 
 func NewGetCmd(c client.Client) *cobra.Command {
@@ -36,6 +37,8 @@ func NewGetCmd(c client.Client) *cobra.Command {
 	cmd.AddCommand(org.NewGetCurrentOrgCmd())
 	cmd.AddCommand(org.NewGetAllOrgsCmd(c))
 	cmd.AddCommand(services.NewGetServicesCmd(c))
+	cmd.AddCommand(volumes.NewGetVolumesCmd(c))
+	cmd.AddCommand(volumes.NewGetVolumeSnapshotsCmd(c))
 
 	return cmd
 }

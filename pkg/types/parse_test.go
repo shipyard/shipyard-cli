@@ -44,7 +44,7 @@ func TestNextPage(t *testing.T) {
 					Next: test.input,
 				},
 			}
-			if got := r.NextPage(); got != test.want {
+			if got := r.Links.NextPage(); got != test.want {
 				t.Errorf(cmp.Diff(got, test.want))
 			}
 		})
