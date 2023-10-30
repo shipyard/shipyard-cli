@@ -20,7 +20,7 @@ import (
 )
 
 type Requester interface {
-	Do(method string, uri string, body any) ([]byte, error)
+	Do(method string, uri string, contentType string, body any) ([]byte, error)
 }
 
 type HTTPClient struct {
@@ -30,7 +30,7 @@ func New() HTTPClient {
 	return HTTPClient{}
 }
 
-func (c HTTPClient) Do(method, uri string, body any) ([]byte, error) {
+func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error) {
 	var token string
 	var err error
 	// TODO: refactor the CLI initialization process this to make the client not depend on global state.
@@ -45,11 +45,12 @@ func (c HTTPClient) Do(method, uri string, body any) ([]byte, error) {
 	log.Println("URI", uri)
 
 	var reqBody io.Reader
-	if body == nil {
-		reqBody = nil
-	} else if d, ok := body.([]byte); ok {
-		reqBody = bytes.NewReader(d)
-	} else {
+	switch body := body.(type) {
+	case []byte:
+		reqBody = bytes.NewReader(body)
+	case *bytes.Buffer:
+		reqBody = bytes.NewReader(body.Bytes())
+	default:
 		serialized, err := json.Marshal(body)
 		if err != nil {
 			return nil, err
@@ -64,7 +65,7 @@ func (c HTTPClient) Do(method, uri string, body any) ([]byte, error) {
 		return nil, fmt.Errorf("error creating API request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-%s-%s-%s", "shipyard-cli", version.Version, runtime.GOOS, runtime.GOARCH))
 	req.Header.Set("x-api-token", token)
 

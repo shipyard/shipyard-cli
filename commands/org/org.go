@@ -61,7 +61,7 @@ func getCurrentOrg() error {
 }
 
 func getAllOrgs(c client.Client) error {
-	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "org", "", "", nil), nil)
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "org", "", "", nil), "application/json", nil)
 	if err != nil {
 		return err
 	}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/shipyard/shipyard-cli/commands/env"
 	"github.com/shipyard/shipyard-cli/commands/k8s"
+	"github.com/shipyard/shipyard-cli/commands/volumes"
 	"github.com/shipyard/shipyard-cli/config"
 	"github.com/shipyard/shipyard-cli/constants"
 	"github.com/shipyard/shipyard-cli/logging"
@@ -72,6 +73,9 @@ func setupCommands() {
 	rootCmd.AddCommand(NewLoginCmd())
 	rootCmd.AddCommand(NewGetCmd(c))
 	rootCmd.AddCommand(NewSetCmd())
+	rootCmd.AddCommand(volumes.NewResetCmd(c))
+	rootCmd.AddCommand(volumes.NewCreateCmd(c))
+	rootCmd.AddCommand(volumes.NewUploadCmd(c))
 
 	rootCmd.AddGroup(&cobra.Group{ID: constants.GroupEnvironments, Title: "Environments"})
 	rootCmd.AddCommand(env.NewCancelCmd(c))
@@ -127,9 +131,4 @@ func fail(kind string, err error) {
 	red := color.New(color.FgHiRed)
 	_, _ = red.Fprintf(os.Stderr, fmt.Sprintf("%s error: %s\n", kind, err))
 	os.Exit(1)
-}
-
-func warn(kind string, err error) {
-	yellow := color.New(color.FgHiYellow)
-	_, _ = yellow.Fprintf(os.Stderr, fmt.Sprintf("%s error: %s\n", kind, err))
 }
