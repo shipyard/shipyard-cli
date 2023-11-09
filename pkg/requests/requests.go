@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shipyard/shipyard-cli/auth"
 	"github.com/shipyard/shipyard-cli/pkg/types"
 	"github.com/shipyard/shipyard-cli/version"
 )
@@ -23,16 +24,19 @@ type Requester interface {
 }
 
 type HTTPClient struct {
-	token string
 }
 
-func New(token string) HTTPClient {
-	return HTTPClient{token: token}
+func New() HTTPClient {
+	return HTTPClient{}
 }
 
 func (c HTTPClient) Do(method, uri string, body any) ([]byte, error) {
-	if c.token == "" {
-		return nil, errors.New("missing API token")
+	var token string
+	var err error
+	// TODO: refactor the CLI initialization process this to make the client not depend on global state.
+	token, err = auth.APIToken()
+	if err != nil {
+		return nil, err
 	}
 	start := time.Now()
 	defer func() {
@@ -62,7 +66,7 @@ func (c HTTPClient) Do(method, uri string, body any) ([]byte, error) {
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-%s-%s-%s", "shipyard-cli", version.Version, runtime.GOOS, runtime.GOARCH))
-	req.Header.Set("x-api-token", c.token)
+	req.Header.Set("x-api-token", token)
 
 	var netClient http.Client
 	resp, err := netClient.Do(req)
