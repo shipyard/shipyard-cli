@@ -28,7 +28,7 @@ func NewLoginCmd() *cobra.Command {
 }
 
 func login() error {
-	if _, err := auth.GetAPIToken(); err == nil {
+	if _, err := auth.APIToken(); err == nil {
 		display.Println("You are already logged in.")
 		return nil
 	}

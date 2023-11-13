@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/spf13/viper"
 
 	"github.com/shipyard/shipyard-cli/pkg/requests"
 	"github.com/shipyard/shipyard-cli/pkg/types"
 )
 
-func TestGetByID(t *testing.T) {
+func TestEnvByID(t *testing.T) {
 	t.Parallel()
 
 	client, cleanup := setup()
@@ -71,7 +72,8 @@ func setup() (client Client, cleanup func()) {
 	handler := newMux()
 	server := httptest.NewServer(handler)
 	_ = os.Setenv("SHIPYARD_BUILD_URL", server.URL)
-	c := New(requests.New("someToken"), "")
+	viper.Set("API_TOKEN", "fake-token")
+	c := New(requests.New(), "")
 	return c, func() {
 		defer server.Close()
 	}

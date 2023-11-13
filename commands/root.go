@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
-	"github.com/shipyard/shipyard-cli/auth"
 	"github.com/shipyard/shipyard-cli/commands/env"
 	"github.com/shipyard/shipyard-cli/commands/k8s"
 	"github.com/shipyard/shipyard-cli/config"
@@ -54,6 +53,7 @@ func init() {
 	viper.SetEnvKeyReplacer(replacer)
 	viper.SetEnvPrefix("shipyard")
 	viper.AutomaticEnv()
+	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.shipyard/config.yaml)")
 
@@ -63,13 +63,11 @@ func init() {
 	rootCmd.PersistentFlags().String("org", "", "Org of environment (default org if unspecified)")
 	_ = viper.BindPFlag("org", rootCmd.PersistentFlags().Lookup("org"))
 
-	initConfig()
 	setupCommands()
 }
 
 func setupCommands() {
-	token, _ := auth.GetAPIToken()
-	requester := requests.New(token)
+	requester := requests.New()
 	c := client.New(requester, viper.GetString("org"))
 	rootCmd.AddCommand(NewLoginCmd())
 	rootCmd.AddCommand(NewGetCmd(c))
