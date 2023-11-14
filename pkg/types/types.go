@@ -28,6 +28,7 @@ type Volume struct {
 	Attributes struct {
 		ComposePath      string `json:"compose_path"`
 		RemoteComposeURL string `json:"remote_compose_url"`
+		Name             string `json:"volume_name"`
 		ServiceName      string `json:"service_name"`
 		VolumePath       string `json:"volume_path"`
 	} `json:"attributes"`

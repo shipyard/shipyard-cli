@@ -55,19 +55,19 @@ func handleGetVolumesCmd(c client.Client) error {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return fmt.Errorf("failed to unmarshal volumes: %w", err)
 	}
-
-	if err != nil {
-		return err
+	if len(resp.Data) == 0 {
+		display.Println("No volumes found in the environment.")
+		return nil
 	}
+
 	var data [][]string
 	for _, v := range resp.Data {
 		data = append(data, []string{
+			v.Attributes.Name,
 			v.Attributes.ServiceName,
-			v.Attributes.VolumePath,
-			v.Type,
 		})
 	}
-	columns := []string{"Name", "Path", "Type"}
+	columns := []string{"Name", "Service"}
 	display.RenderTable(os.Stdout, columns, data)
 	return nil
 }
