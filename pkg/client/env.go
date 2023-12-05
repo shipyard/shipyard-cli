@@ -19,7 +19,7 @@ func (c Client) EnvByID(id string) (*types.Response, error) {
 		params["Org"] = c.Org
 	}
 
-	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), nil)
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), "application/json", nil)
 	if err != nil {
 		return nil, err
 	}

@@ -42,7 +42,7 @@ func handleGetVolumesCmd(c client.Client) error {
 		params["Org"] = c.Org
 	}
 
-	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "volumes", params), nil)
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "volumes", params), "application/json", nil)
 	if err != nil {
 		return err
 	}

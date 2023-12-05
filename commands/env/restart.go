@@ -50,7 +50,7 @@ func restartEnvironmentByID(c client.Client, id string) error {
 		params["org"] = c.Org
 	}
 
-	_, err := c.Requester.Do(http.MethodPost, uri.CreateResourceURI("restart", "environment", id, "", params), nil)
+	_, err := c.Requester.Do(http.MethodPost, uri.CreateResourceURI("restart", "environment", id, "", params), "application/json", nil)
 	if err != nil {
 		return err
 	}

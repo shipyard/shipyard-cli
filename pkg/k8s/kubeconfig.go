@@ -33,7 +33,7 @@ func (c *Service) fetchKubeconfig(envID string) ([]byte, error) {
 	}
 
 	requestURI := uri.CreateResourceURI("", "environment", envID, "kubeconfig", params)
-	body, err := c.client.Requester.Do(http.MethodGet, requestURI, nil)
+	body, err := c.client.Requester.Do(http.MethodGet, requestURI, "application/json", nil)
 	if err != nil {
 		return nil, err
 	}

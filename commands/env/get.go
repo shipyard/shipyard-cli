@@ -126,7 +126,7 @@ func handleGetAllEnvironments(c client.Client) error {
 		params["org"] = org
 	}
 
-	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", "", "", params), nil)
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", "", "", params), "application/json", nil)
 	if err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func handleGetEnvironmentByID(c client.Client, id string) error {
 		params["org"] = c.Org
 	}
 
-	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), nil)
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), "application/json", nil)
 	if err != nil {
 		return err
 	}

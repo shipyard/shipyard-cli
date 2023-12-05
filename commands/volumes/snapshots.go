@@ -52,7 +52,7 @@ func handleGetVolumeSnapshotsCmd(c client.Client) error {
 		params["page_size"] = strconv.Itoa(pageSize)
 	}
 	id := viper.GetString("env")
-	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "volume-snapshots", params), nil)
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "volume-snapshots", params), "application/json", nil)
 	if err != nil {
 		return err
 	}
