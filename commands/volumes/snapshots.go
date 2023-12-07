@@ -87,3 +87,53 @@ func handleGetVolumeSnapshotsCmd(c client.Client) error {
 	}
 	return nil
 }
+
+func NewLoadCmd(c client.Client) *cobra.Command {
+	cmd := &cobra.Command{
+		Use: "load",
+	}
+	cmd.AddCommand(NewLoadVolumeSnapshotCmd(c))
+	return cmd
+}
+
+func NewLoadVolumeSnapshotCmd(c client.Client) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:          "snapshot",
+		Short:        "Load volume snapshot in an environment",
+		SilenceUsage: true,
+		PreRun: func(cmd *cobra.Command, args []string) {
+			_ = viper.BindPFlag("env", cmd.Flags().Lookup("env"))
+			_ = viper.BindPFlag("sequence-number", cmd.Flags().Lookup("sequence-number"))
+			_ = viper.BindPFlag("source-application-id", cmd.Flags().Lookup("source-application-id"))
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return handleLoadVolumeSnapshotCmd(c)
+		},
+	}
+
+	cmd.Flags().String("env", "", "environment ID")
+	cmd.Flags().String("sequence-number", "", "sequence number of a snapshot")
+	cmd.Flags().String("source-application-id", "", "source application ID")
+	_ = cmd.MarkFlagRequired("env")
+	_ = cmd.MarkFlagRequired("sequence-number")
+	return cmd
+}
+
+func handleLoadVolumeSnapshotCmd(c client.Client) error {
+	params := make(map[string]string)
+	if org := viper.GetString("org"); org != "" {
+		params["org"] = org
+	}
+	id := viper.GetString("env")
+	data := map[string]any{
+		"data": map[string]any{
+			"type": "snapshot-load",
+			"attributes": map[string]any{
+				"sequence_number":       viper.GetInt("sequence-number"),
+				"source_application_id": viper.GetString("source-application-id"),
+			},
+		},
+	}
+	_, err := c.Requester.Do(http.MethodPost, uri.CreateResourceURI("", "environment", id, "snapshot-load", params), "application/json", data)
+	return err
+}
