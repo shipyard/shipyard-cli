@@ -189,6 +189,44 @@ Available flags:
 | follow | Follow the logs output        | boolean | false         |
 | tail   | # of recent log lines to show | int     | 3000          |
 
+## Work with volumes
+
+### List all volumes in an environment
+
+```bash
+shipyard get volumes --env {environment_uuid}
+```
+
+### List all volume snapshots in an environment
+
+```bash
+shipyard get snapshots --env {environment_uuid}
+```
+
+### Reset a volume in an environment
+
+```bash
+shipyard reset volume --env {environment_uuid}
+```
+
+### Create a snapshot in an environment
+
+```bash
+shipyard create snapshot --env {environment_uuid}
+```
+
+### Load a volume snapshot in an environment
+
+```bash
+shipyard load snapshot --env {environment_uuid} --sequence-number {n}
+```
+
+### Upload a file to a volume in an environment
+
+```bash
+shipyard upload volume --env {environment_uuid} --volume {volume} --file {filepath.bz2}
+```
+
 ## Build executable from code:
 
 You can make an executable by running the following command:
