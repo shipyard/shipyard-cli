@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
+	"github.com/shipyard/shipyard-cli/pkg/completion"
 	"github.com/shipyard/shipyard-cli/pkg/display"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/shipyard/shipyard-cli/pkg/types"
@@ -41,6 +42,7 @@ func NewGetEnvironmentCmd(c client.Client) *cobra.Command {
 			}
 			return errNoEnvironment
 		},
+		ValidArgsFunction: completion.New(c).EnvironmentUUIDs,
 	}
 
 	cmd.Flags().Bool("json", false, "JSON output")
