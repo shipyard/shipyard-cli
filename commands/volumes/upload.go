@@ -7,12 +7,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
+	"github.com/shipyard/shipyard-cli/zip"
 )
 
 func NewUploadCmd(c client.Client) *cobra.Command {
@@ -31,7 +33,7 @@ func NewUploadVolumeCmd(c client.Client) *cobra.Command {
 		PreRun: func(cmd *cobra.Command, args []string) {
 			_ = viper.BindPFlag("env", cmd.Flags().Lookup("env"))
 			_ = viper.BindPFlag("volume", cmd.Flags().Lookup("volume"))
-			_ = viper.BindPFlag("file", cmd.Flags().Lookup("file"))
+			_ = viper.BindPFlag("path", cmd.Flags().Lookup("path"))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return handleUploadVolumeCmd(c)
@@ -40,10 +42,10 @@ func NewUploadVolumeCmd(c client.Client) *cobra.Command {
 
 	cmd.Flags().String("env", "", "environment ID")
 	cmd.Flags().String("volume", "", "volume name")
-	cmd.Flags().String("file", "", "file to upload")
+	cmd.Flags().String("path", "", "path to a file to upload (either a .bz2 archive, regular file, or directory")
 	_ = cmd.MarkFlagRequired("env")
 	_ = cmd.MarkFlagRequired("volume")
-	_ = cmd.MarkFlagRequired("file")
+	_ = cmd.MarkFlagRequired("path")
 
 	return cmd
 }
@@ -56,9 +58,37 @@ func handleUploadVolumeCmd(c client.Client) error {
 		params["Org"] = c.Org
 	}
 
+	path := viper.GetString("path")
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	var archiveFilename string
+
+	switch {
+	case fi.IsDir():
+		if err := zip.CreateArchiveFromDir(path); err != nil {
+			return err
+		}
+		archiveFilename = path + ".tar.bz2"
+	case !bz2File(path):
+		if err := zip.CreateArchiveFromFile(path); err != nil {
+			return err
+		}
+		archiveFilename = path + ".tar.bz2"
+	default: // .bz2 file
+		archiveFilename = path
+	}
+
+	file, err := os.Open(archiveFilename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
 	subresource := fmt.Sprintf("volume/%s/upload", volume)
 	url := uri.CreateResourceURI("", "environment", envID, subresource, params)
-	form, contentType, err := fileForm(viper.GetString("file"), "volume_tarball")
+	form, contentType, err := fileForm(file, "volume_tarball")
 	if err != nil {
 		return err
 	}
@@ -66,18 +96,16 @@ func handleUploadVolumeCmd(c client.Client) error {
 	return err
 }
 
-func fileForm(path, formField string) (*bytes.Buffer, string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, "", err
-	}
-	defer file.Close()
+func bz2File(path string) bool {
+	return filepath.Ext(path) == ".bz2"
+}
 
+func fileForm(file *os.File, formField string) (*bytes.Buffer, string, error) {
 	var bodyBuf bytes.Buffer
 	bodyWriter := multipart.NewWriter(&bodyBuf)
 	defer bodyWriter.Close()
 
-	fileWriter, err := bodyWriter.CreateFormFile(formField, path)
+	fileWriter, err := bodyWriter.CreateFormFile(formField, file.Name())
 	if err != nil {
 		return nil, "", err
 	}

@@ -5,6 +5,7 @@ go 1.21
 require (
 	github.com/agnivade/levenshtein v1.1.1
 	github.com/docker/cli v24.0.7+incompatible
+	github.com/dsnet/compress v0.0.1
 	github.com/fatih/color v1.15.0
 	github.com/google/go-cmp v0.6.0
 	github.com/olekukonko/tablewriter v0.0.5
