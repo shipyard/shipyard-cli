@@ -14,7 +14,7 @@ import (
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
-	"github.com/shipyard/shipyard-cli/zip"
+	"github.com/shipyard/shipyard-cli/pkg/zip"
 )
 
 func NewUploadCmd(c client.Client) *cobra.Command {
