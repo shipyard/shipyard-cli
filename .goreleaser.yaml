@@ -24,9 +24,8 @@ checksum:
 changelog:
   skip: true
 brews:
-  -
-    name: shipyard
-    tap:
+  - name: shipyard
+    repository:
       owner: shipyard
       name: homebrew-tap
       branch: main
