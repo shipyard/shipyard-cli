@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -25,4 +26,23 @@ func (c Client) EnvByID(id string) (*types.Response, error) {
 	}
 
 	return types.UnmarshalEnv(body)
+}
+
+// AllEnvironmentUUIDs tries to fetch all environment by UUIDs in an org.
+func (c Client) AllEnvironmentUUIDs() (*types.UUIDResponse, error) {
+	params := make(map[string]string)
+	if c.Org != "" {
+		params["Org"] = c.Org
+	}
+
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment/uuid", "", "", params), "application/json", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var res types.UUIDResponse
+	if err := json.Unmarshal(body, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
 }

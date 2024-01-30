@@ -47,6 +47,10 @@ type RespManyEnvs struct {
 	Links Links `json:"links"`
 }
 
+type UUIDResponse struct {
+	Data []string `json:"data"`
+}
+
 type OrgsResponse struct {
 	Data []struct {
 		Attributes struct {
