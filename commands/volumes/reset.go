@@ -45,8 +45,8 @@ func handleResetVolumeCmd(c client.Client) error {
 	envID := viper.GetString("env")
 	volume := viper.GetString("volume")
 	params := make(map[string]string)
-	if c.Org != "" {
-		params["Org"] = c.Org
+	if org := c.OrgLookupFn(); org != "" {
+		params["org"] = org
 	}
 
 	subresource := fmt.Sprintf("volume/%s/volume-reset", volume)

@@ -69,7 +69,10 @@ func init() {
 
 func setupCommands() {
 	requester := requests.New()
-	c := client.New(requester, viper.GetString("org"))
+	orgLookupFn := func() string {
+		return viper.GetString("org")
+	}
+	c := client.New(requester, orgLookupFn)
 	rootCmd.AddCommand(NewLoginCmd())
 	rootCmd.AddCommand(NewGetCmd(c))
 	rootCmd.AddCommand(NewSetCmd())

@@ -46,8 +46,8 @@ func newRestartEnvironmentCmd(c client.Client) *cobra.Command {
 
 func restartEnvironmentByID(c client.Client, id string) error {
 	params := make(map[string]string)
-	if c.Org != "" {
-		params["org"] = c.Org
+	if org := c.OrgLookupFn(); org != "" {
+		params["org"] = org
 	}
 
 	_, err := c.Requester.Do(http.MethodPost, uri.CreateResourceURI("restart", "environment", id, "", params), "application/json", nil)

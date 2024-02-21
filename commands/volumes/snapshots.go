@@ -42,7 +42,7 @@ func NewGetVolumeSnapshotsCmd(c client.Client) *cobra.Command {
 
 func handleGetVolumeSnapshotsCmd(c client.Client) error {
 	params := make(map[string]string)
-	if org := viper.GetString("org"); org != "" {
+	if org := c.OrgLookupFn(); org != "" {
 		params["org"] = org
 	}
 	if page := viper.GetInt("page"); page != 0 {
@@ -121,7 +121,7 @@ func NewLoadVolumeSnapshotCmd(c client.Client) *cobra.Command {
 
 func handleLoadVolumeSnapshotCmd(c client.Client) error {
 	params := make(map[string]string)
-	if org := viper.GetString("org"); org != "" {
+	if org := c.OrgLookupFn(); org != "" {
 		params["org"] = org
 	}
 	id := viper.GetString("env")
