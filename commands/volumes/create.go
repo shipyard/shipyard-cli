@@ -42,8 +42,8 @@ func NewCreateSnapshotCmd(c client.Client) *cobra.Command {
 func handleCreateSnapshotCmd(c client.Client) error {
 	envID := viper.GetString("env")
 	params := make(map[string]string)
-	if c.Org != "" {
-		params["Org"] = c.Org
+	if org := c.OrgLookupFn(); org != "" {
+		params["org"] = org
 	}
 	body := map[string]any{
 		"note": viper.GetString("note"),

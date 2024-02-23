@@ -73,7 +73,7 @@ func setup() (client Client, cleanup func()) {
 	server := httptest.NewServer(handler)
 	_ = os.Setenv("SHIPYARD_BUILD_URL", server.URL)
 	viper.Set("API_TOKEN", "fake-token")
-	c := New(requests.New(), "")
+	c := New(requests.New(), func() string { return "" })
 	return c, func() {
 		defer server.Close()
 	}

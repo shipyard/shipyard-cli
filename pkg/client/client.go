@@ -3,10 +3,10 @@ package client
 import "github.com/shipyard/shipyard-cli/pkg/requests"
 
 type Client struct {
-	Requester requests.Requester
-	Org       string
+	Requester   requests.Requester
+	OrgLookupFn func() string
 }
 
-func New(r requests.Requester, org string) Client {
-	return Client{Requester: r, Org: org}
+func New(r requests.Requester, orgLookupFn func() string) Client {
+	return Client{Requester: r, OrgLookupFn: orgLookupFn}
 }

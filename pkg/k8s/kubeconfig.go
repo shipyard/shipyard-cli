@@ -28,8 +28,8 @@ func (c *Service) setupKubeconfig(envID string) error {
 // fetchKubeconfig tries to fetch the Kubeconfig from the backend API.
 func (c *Service) fetchKubeconfig(envID string) ([]byte, error) {
 	params := make(map[string]string)
-	if c.client.Org != "" {
-		params["org"] = c.client.Org
+	if org := c.client.OrgLookupFn(); org != "" {
+		params["org"] = org
 	}
 
 	requestURI := uri.CreateResourceURI("", "environment", envID, "kubeconfig", params)

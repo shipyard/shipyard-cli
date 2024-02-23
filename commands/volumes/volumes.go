@@ -38,8 +38,8 @@ func NewGetVolumesCmd(c client.Client) *cobra.Command {
 func handleGetVolumesCmd(c client.Client) error {
 	id := viper.GetString("env")
 	params := make(map[string]string)
-	if c.Org != "" {
-		params["Org"] = c.Org
+	if org := c.OrgLookupFn(); org != "" {
+		params["org"] = org
 	}
 
 	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "volumes", params), "application/json", nil)

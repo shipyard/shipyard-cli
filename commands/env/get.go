@@ -124,7 +124,7 @@ func handleGetAllEnvironments(c client.Client) error {
 	if pageSize := viper.GetInt("page-size"); pageSize != 0 {
 		params["page_size"] = strconv.Itoa(pageSize)
 	}
-	if org := viper.GetString("org"); org != "" {
+	if org := c.OrgLookupFn(); org != "" {
 		params["org"] = org
 	}
 
@@ -161,8 +161,8 @@ func handleGetAllEnvironments(c client.Client) error {
 
 func handleGetEnvironmentByID(c client.Client, id string) error {
 	params := make(map[string]string)
-	if c.Org != "" {
-		params["org"] = c.Org
+	if org := c.OrgLookupFn(); org != "" {
+		params["org"] = org
 	}
 
 	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), "application/json", nil)
