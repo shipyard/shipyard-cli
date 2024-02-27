@@ -22,7 +22,7 @@ builds:
 checksum:
   name_template: 'checksums.txt'
 changelog:
-  skip: true
+  disable: true
 brews:
   - name: shipyard
     repository:
