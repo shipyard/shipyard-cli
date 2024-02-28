@@ -8,20 +8,21 @@ type Service struct {
 }
 
 type Environment struct {
-	Attributes struct {
-		Name  string `json:"name"`
-		URL   string `json:"url"`
-		Ready bool   `json:"ready"`
+	ID         string                `json:"id"`
+	Attributes EnvironmentAttributes `json:"attributes"`
+}
 
-		Projects []struct {
-			PullRequestNumber int    `json:"pull_request_number"`
-			RepoName          string `json:"repo_name"`
-		} `json:"projects"`
+type Project struct {
+	PullRequestNumber int    `json:"pull_request_number"`
+	RepoName          string `json:"repo_name"`
+}
 
-		Services []Service `json:"services"`
-	} `json:"attributes"`
-
-	ID string `json:"id"`
+type EnvironmentAttributes struct {
+	Name     string    `json:"name"`
+	URL      string    `json:"url"`
+	Ready    bool      `json:"ready"`
+	Projects []Project `json:"projects"`
+	Services []Service `json:"services"`
 }
 
 type Volume struct {

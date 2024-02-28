@@ -35,16 +35,12 @@ func UnmarshalOrgs(body []byte) (*OrgsResponse, error) {
 }
 
 type Response struct {
-	Data struct {
-		Environment
-	} `json:"data"`
+	Data Environment `json:"data"`
 }
 
 type RespManyEnvs struct {
-	Data []struct {
-		Environment
-	} `json:"data"`
-	Links Links `json:"links"`
+	Data  []Environment `json:"data"`
+	Links Links         `json:"links"`
 }
 
 type UUIDResponse struct {
