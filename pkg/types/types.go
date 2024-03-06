@@ -26,25 +26,29 @@ type EnvironmentAttributes struct {
 }
 
 type Volume struct {
-	Attributes struct {
-		ComposePath      string `json:"compose_path"`
-		RemoteComposeURL string `json:"remote_compose_url"`
-		Name             string `json:"volume_name"`
-		ServiceName      string `json:"service_name"`
-		VolumePath       string `json:"volume_path"`
-	} `json:"attributes"`
-	ID   string `json:"id"`
-	Type string `json:"type"`
+	Attributes VolumeAttributes `json:"attributes"`
+	ID         string           `json:"id"`
+	Type       string           `json:"type"`
+}
+
+type VolumeAttributes struct {
+	ComposePath      string `json:"compose_path"`
+	RemoteComposeURL string `json:"remote_compose_url"`
+	Name             string `json:"volume_name"`
+	ServiceName      string `json:"service_name"`
+	VolumePath       string `json:"volume_path"`
 }
 
 type Snapshot struct {
-	Attributes struct {
-		CreatedAt          string `json:"created_at"`
-		FromSnapshotNumber int    `json:"from_snapshot_number"`
-		SequenceNumber     int    `json:"sequence_number"`
-		Status             string `json:"status"`
-		TotalSize          int    `json:"total_size"`
-	} `json:"attributes"`
-	ID   string `json:"id"`
-	Type string `json:"type"`
+	Attributes SnapshotAttributes `json:"attributes"`
+	ID         string             `json:"id"`
+	Type       string             `json:"type"`
+}
+
+type SnapshotAttributes struct {
+	CreatedAt          string `json:"created_at"`
+	FromSnapshotNumber int    `json:"from_snapshot_number"`
+	SequenceNumber     int    `json:"sequence_number"`
+	Status             string `json:"status"`
+	TotalSize          int    `json:"total_size"`
 }
