@@ -2,11 +2,13 @@ package env
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
+	"github.com/shipyard/shipyard-cli/pkg/completion"
 	"github.com/shipyard/shipyard-cli/pkg/display"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/shipyard/shipyard-cli/pkg/types"
@@ -40,6 +42,7 @@ func NewGetEnvironmentCmd(c client.Client) *cobra.Command {
 			}
 			return errNoEnvironment
 		},
+		ValidArgsFunction: completion.New(c).EnvironmentUUIDs,
 	}
 
 	cmd.Flags().Bool("json", false, "JSON output")
@@ -94,6 +97,7 @@ func NewGetAllEnvironmentsCmd(c client.Client) *cobra.Command {
 	return cmd
 }
 
+//nolint:gocyclo // refactor?
 func handleGetAllEnvironments(c client.Client) error {
 	params := make(map[string]string)
 
@@ -121,11 +125,11 @@ func handleGetAllEnvironments(c client.Client) error {
 	if pageSize := viper.GetInt("page-size"); pageSize != 0 {
 		params["page_size"] = strconv.Itoa(pageSize)
 	}
-	if org := viper.GetString("org"); org != "" {
+	if org := c.OrgLookupFn(); org != "" {
 		params["org"] = org
 	}
 
-	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", "", "", params), nil)
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", "", "", params), "application/json", nil)
 	if err != nil {
 		return err
 	}
@@ -139,23 +143,31 @@ func handleGetAllEnvironments(c client.Client) error {
 	if err != nil {
 		return err
 	}
+	if len(r.Data) == 0 {
+		display.Println("No environments found in the org.")
+		return nil
+	}
 
 	var data [][]string
 	for _, d := range r.Data {
+		d := d
 		data = append(data, display.FormattedEnvironment(&d.Environment)...)
 	}
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
+	if r.Links.Next != "" {
+		display.Println(fmt.Sprintf("Table is truncated, fetch the next page %d.", r.Links.NextPage()))
+	}
 	return nil
 }
 
 func handleGetEnvironmentByID(c client.Client, id string) error {
 	params := make(map[string]string)
-	if c.Org != "" {
-		params["org"] = c.Org
+	if org := c.OrgLookupFn(); org != "" {
+		params["org"] = org
 	}
 
-	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), nil)
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), "application/json", nil)
 	if err != nil {
 		return err
 	}

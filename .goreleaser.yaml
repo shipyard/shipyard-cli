@@ -22,11 +22,10 @@ builds:
 checksum:
   name_template: 'checksums.txt'
 changelog:
-  skip: true
+  disable: true
 brews:
-  -
-    name: shipyard
-    tap:
+  - name: shipyard
+    repository:
       owner: shipyard
       name: homebrew-tap
       branch: main

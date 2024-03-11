@@ -49,11 +49,11 @@ Rebuild will automatically fetch the latest commit for the branch/PR.`,
 
 func rebuildEnvironmentByID(c client.Client, id string) error {
 	params := make(map[string]string)
-	if c.Org != "" {
-		params["org"] = c.Org
+	if org := c.OrgLookupFn(); org != "" {
+		params["org"] = org
 	}
 
-	_, err := c.Requester.Do(http.MethodPost, uri.CreateResourceURI("rebuild", "environment", id, "", params), nil)
+	_, err := c.Requester.Do(http.MethodPost, uri.CreateResourceURI("rebuild", "environment", id, "", params), "application/json", nil)
 	if err != nil {
 		return err
 	}

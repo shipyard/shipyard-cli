@@ -66,7 +66,7 @@ func connect(c client.Client) error {
 	).Output()
 
 	if err != nil {
-		fmt.Println(out)
+		fmt.Println(string(out))
 		fmt.Println(err)
 		return err
 	}

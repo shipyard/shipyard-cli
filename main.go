@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
-	"github.com/shipyard/shipyard-cli/auth"
 	"github.com/shipyard/shipyard-cli/commands"
 	"github.com/shipyard/shipyard-cli/commands/env"
 	"github.com/shipyard/shipyard-cli/commands/k8s"
@@ -78,9 +77,12 @@ func main() {
 }
 
 func setupCommands(r *cobra.Command) {
-	token, _ := auth.GetAPIToken()
-	requester := requests.New(token)
-	c := client.New(requester, viper.GetString("org"))
+	requester := requests.New()
+	orgLookupFn := func() string {
+		return viper.GetString("org")
+	}
+	c := client.New(requester, orgLookupFn)
+	r.AddCommand(commands.NewLoginCmd())
 	r.AddCommand(commands.NewGetCmd(c))
 	r.AddCommand(commands.NewSetCmd())
 

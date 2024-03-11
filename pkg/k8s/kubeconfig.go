@@ -29,12 +29,12 @@ func setupKubeconfig(c client.Client, envID string) error {
 // fetchKubeconfig tries to fetch the Kubeconfig from the backend API.
 func fetchKubeconfig(c client.Client, envID string) ([]byte, error) {
 	params := make(map[string]string)
-	if c.Org != "" {
-		params["org"] = c.Org
+	if org := c.OrgLookupFn(); org != "" {
+		params["org"] = org
 	}
 
 	requestURI := uri.CreateResourceURI("", "environment", envID, "kubeconfig", params)
-	body, err := c.Requester.Do(http.MethodGet, requestURI, nil)
+	body, err := c.Requester.Do(http.MethodGet, requestURI, "application/json", nil)
 	if err != nil {
 		return nil, err
 	}

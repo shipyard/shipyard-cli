@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 )
 
 var errUnmarshalling = errors.New("failed to unmarshal a value")
@@ -42,6 +44,11 @@ type RespManyEnvs struct {
 	Data []struct {
 		Environment
 	} `json:"data"`
+	Links Links `json:"links"`
+}
+
+type UUIDResponse struct {
+	Data []string `json:"data"`
 }
 
 type OrgsResponse struct {
@@ -52,7 +59,34 @@ type OrgsResponse struct {
 	} `json:"data"`
 }
 
-func ParseErrorResponse(p []byte) string {
+type VolumesResponse struct {
+	Data []Volume `json:"data"`
+}
+
+type SnapshotsResponse struct {
+	Data  []Snapshot `json:"data"`
+	Links Links      `json:"links"`
+}
+
+type Links struct {
+	First string `json:"first"`
+	Last  string `json:"last"`
+	Next  string `json:"next"`
+	Prev  string `json:"prev"`
+}
+
+// NextPage extracts the value of the "page" query parameter of the "next" URL.
+func (l Links) NextPage() int {
+	parsed, err := url.Parse(l.Next)
+	if err != nil {
+		return 0
+	}
+	page := parsed.Query().Get("page")
+	i, _ := strconv.Atoi(page)
+	return i
+}
+
+func ErrorFromResponse(p []byte) string {
 	var r errorResponse
 	if err := json.Unmarshal(p, &r); err != nil {
 		return ""
