@@ -149,9 +149,9 @@ func handleGetAllEnvironments(c client.Client) error {
 	}
 
 	var data [][]string
-	for _, d := range r.Data {
-		d := d
-		data = append(data, display.FormattedEnvironment(&d.Environment)...)
+	for i := range r.Data {
+		i := i
+		data = append(data, display.FormattedEnvironment(&r.Data[i])...)
 	}
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
@@ -182,7 +182,7 @@ func handleGetEnvironmentByID(c client.Client, id string) error {
 		return err
 	}
 
-	data := display.FormattedEnvironment(&r.Data.Environment)
+	data := display.FormattedEnvironment(&r.Data)
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
 	return nil

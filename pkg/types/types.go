@@ -8,42 +8,47 @@ type Service struct {
 }
 
 type Environment struct {
-	Attributes struct {
-		Name  string `json:"name"`
-		URL   string `json:"url"`
-		Ready bool   `json:"ready"`
+	ID         string                `json:"id"`
+	Attributes EnvironmentAttributes `json:"attributes"`
+}
 
-		Projects []struct {
-			PullRequestNumber int    `json:"pull_request_number"`
-			RepoName          string `json:"repo_name"`
-		} `json:"projects"`
+type Project struct {
+	PullRequestNumber int    `json:"pull_request_number"`
+	RepoName          string `json:"repo_name"`
+}
 
-		Services []Service `json:"services"`
-	} `json:"attributes"`
-
-	ID string `json:"id"`
+type EnvironmentAttributes struct {
+	Name     string    `json:"name"`
+	URL      string    `json:"url"`
+	Ready    bool      `json:"ready"`
+	Projects []Project `json:"projects"`
+	Services []Service `json:"services"`
 }
 
 type Volume struct {
-	Attributes struct {
-		ComposePath      string `json:"compose_path"`
-		RemoteComposeURL string `json:"remote_compose_url"`
-		Name             string `json:"volume_name"`
-		ServiceName      string `json:"service_name"`
-		VolumePath       string `json:"volume_path"`
-	} `json:"attributes"`
-	ID   string `json:"id"`
-	Type string `json:"type"`
+	Attributes VolumeAttributes `json:"attributes"`
+	ID         string           `json:"id"`
+	Type       string           `json:"type"`
+}
+
+type VolumeAttributes struct {
+	ComposePath      string `json:"compose_path"`
+	RemoteComposeURL string `json:"remote_compose_url"`
+	Name             string `json:"volume_name"`
+	ServiceName      string `json:"service_name"`
+	VolumePath       string `json:"volume_path"`
 }
 
 type Snapshot struct {
-	Attributes struct {
-		CreatedAt          string `json:"created_at"`
-		FromSnapshotNumber int    `json:"from_snapshot_number"`
-		SequenceNumber     int    `json:"sequence_number"`
-		Status             string `json:"status"`
-		TotalSize          int    `json:"total_size"`
-	} `json:"attributes"`
-	ID   string `json:"id"`
-	Type string `json:"type"`
+	Attributes SnapshotAttributes `json:"attributes"`
+	ID         string             `json:"id"`
+	Type       string             `json:"type"`
+}
+
+type SnapshotAttributes struct {
+	CreatedAt          string `json:"created_at"`
+	FromSnapshotNumber int    `json:"from_snapshot_number"`
+	SequenceNumber     int    `json:"sequence_number"`
+	Status             string `json:"status"`
+	TotalSize          int    `json:"total_size"`
 }
