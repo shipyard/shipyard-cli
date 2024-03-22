@@ -43,13 +43,19 @@ linters:
     - nakedret
     - nilerr
     - noctx
+    - rowserrcheck
+    - sqlclosecheck
     - staticcheck
+    - structcheck
     - stylecheck
     - typecheck
     - unconvert
     - unused
     - unparam
+    - varcheck
+    - wastedassign
     - whitespace
+    - maligned
 
 issues:
   exclude-rules:

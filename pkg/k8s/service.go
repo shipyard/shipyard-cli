@@ -36,7 +36,7 @@ type Service struct {
 
 func New(c client.Client, id string, svc *types.Service) (*Service, error) {
 	s := Service{client: c}
-	if err := s.setupKubeconfig(id); err != nil {
+	if err := setupKubeconfig(c, id); err != nil {
 		return nil, err
 	}
 

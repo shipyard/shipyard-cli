@@ -227,6 +227,15 @@ shipyard load snapshot --env {environment_uuid} --sequence-number {n}
 shipyard upload volume --env {environment_uuid} --volume {volume} --file {filepath.bz2}
 ```
 
+### Connect to telepresence
+```bash
+shipyard telepresence connect --env {environment_uuid}
+```
+
+From there, you'll be able to communicate directly with all pods in the namespace.  You _may_ have to use the
+namespace hostname to communicate with services, which you can get via `telepresence status` under the Namespace field.  For example, to communicate with redis, you'd use redis.shipyard-app-build-{uuid}
+
+
 ## Build executable from code:
 
 You can make an executable by running the following command:

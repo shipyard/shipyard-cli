@@ -50,6 +50,10 @@ func NewUploadVolumeCmd(c client.Client) *cobra.Command {
 	return cmd
 }
 
+const (
+	tarbz2 = "%s.tar.bz2"
+)
+
 func handleUploadVolumeCmd(c client.Client) error {
 	envID := viper.GetString("env")
 	volume := viper.GetString("volume")
@@ -70,12 +74,12 @@ func handleUploadVolumeCmd(c client.Client) error {
 		if err := zip.CreateArchiveFromDir(path); err != nil {
 			return err
 		}
-		archiveFilename = path + ".tar.bz2"
+		archiveFilename = fmt.Sprintf(tarbz2, path)
 	case !bz2File(path):
 		if err := zip.CreateArchiveFromFile(path); err != nil {
 			return err
 		}
-		archiveFilename = path + ".tar.bz2"
+		archiveFilename = fmt.Sprintf(tarbz2, path)
 	default: // .bz2 file
 		archiveFilename = path
 	}

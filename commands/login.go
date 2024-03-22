@@ -47,6 +47,7 @@ func login() error {
 	})
 	mux.Handle("/", handler)
 
+	//nolint:gosec //local only
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		return fmt.Errorf("error creating a local callback server: %w", err)

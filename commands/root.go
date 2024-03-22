@@ -15,6 +15,7 @@ import (
 
 	"github.com/shipyard/shipyard-cli/commands/env"
 	"github.com/shipyard/shipyard-cli/commands/k8s"
+	"github.com/shipyard/shipyard-cli/commands/telepresence"
 	"github.com/shipyard/shipyard-cli/commands/volumes"
 	"github.com/shipyard/shipyard-cli/config"
 	"github.com/shipyard/shipyard-cli/constants"
@@ -92,6 +93,7 @@ func setupCommands() {
 	rootCmd.AddCommand(k8s.NewExecCmd(c))
 	rootCmd.AddCommand(k8s.NewLogsCmd(c))
 	rootCmd.AddCommand(k8s.NewPortForwardCmd(c))
+	rootCmd.AddCommand(telepresence.NewTelepresenceCmd(c))
 }
 
 func initConfig() {

@@ -20,8 +20,6 @@ func (c Completion) EnvironmentUUIDs(_ *cobra.Command, _ []string, _ string) ([]
 		return nil, cobra.ShellCompDirectiveError
 	}
 	ids := make([]string, len(resp.Data))
-	for i := range resp.Data {
-		ids[i] = resp.Data[i]
-	}
+	copy(resp.Data, ids)
 	return ids, cobra.ShellCompDirectiveNoFileComp
 }

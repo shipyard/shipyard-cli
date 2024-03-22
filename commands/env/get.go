@@ -97,6 +97,7 @@ func NewGetAllEnvironmentsCmd(c client.Client) *cobra.Command {
 	return cmd
 }
 
+//nolint:gocyclo // refactor?
 func handleGetAllEnvironments(c client.Client) error {
 	params := make(map[string]string)
 
@@ -149,6 +150,7 @@ func handleGetAllEnvironments(c client.Client) error {
 
 	var data [][]string
 	for i := range r.Data {
+		i := i
 		data = append(data, display.FormattedEnvironment(&r.Data[i])...)
 	}
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}

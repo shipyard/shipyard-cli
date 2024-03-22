@@ -2,6 +2,10 @@ package client
 
 import "github.com/shipyard/shipyard-cli/pkg/requests"
 
+type Requester interface {
+	Do(method string, uri string, body any) ([]byte, error)
+}
+
 type Client struct {
 	Requester   requests.Requester
 	OrgLookupFn func() string

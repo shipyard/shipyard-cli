@@ -9,13 +9,14 @@ import (
 
 	"k8s.io/client-go/util/homedir"
 
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 )
 
 // setupKubeconfig tries to fetch a kubeconfig for a given environment and
 // save it in the default store directory.
-func (c *Service) setupKubeconfig(envID string) error {
-	cfg, err := c.fetchKubeconfig(envID)
+func setupKubeconfig(c client.Client, envID string) error {
+	cfg, err := fetchKubeconfig(c, envID)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve kubeconfig: %w", err)
 	}
@@ -26,14 +27,14 @@ func (c *Service) setupKubeconfig(envID string) error {
 }
 
 // fetchKubeconfig tries to fetch the Kubeconfig from the backend API.
-func (c *Service) fetchKubeconfig(envID string) ([]byte, error) {
+func fetchKubeconfig(c client.Client, envID string) ([]byte, error) {
 	params := make(map[string]string)
-	if org := c.client.OrgLookupFn(); org != "" {
+	if org := c.OrgLookupFn(); org != "" {
 		params["org"] = org
 	}
 
 	requestURI := uri.CreateResourceURI("", "environment", envID, "kubeconfig", params)
-	body, err := c.client.Requester.Do(http.MethodGet, requestURI, "application/json", nil)
+	body, err := c.Requester.Do(http.MethodGet, requestURI, "application/json", nil)
 	if err != nil {
 		return nil, err
 	}
