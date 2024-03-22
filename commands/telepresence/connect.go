@@ -58,7 +58,7 @@ func connect(c client.Client) error {
 			"--kubeconfig=%s",
 			k.Path,
 		),
-	).Output()
+	).CombinedOutput()
 
 	if err != nil {
 		display.Println(string(out))
