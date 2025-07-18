@@ -81,7 +81,7 @@ func login() error {
 	case err := <-errChan:
 		return fmt.Errorf("login error: %w", err)
 	case t := <-tokenChan:
-		if err := SetToken(t); err != nil {
+		if err := SetToken(t, ""); err != nil {
 			return err
 		}
 		display.Println("Login succeeded!")

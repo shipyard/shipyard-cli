@@ -1,10 +1,10 @@
 package uri_test
 
 import (
-	"os"
 	"testing"
 
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
+	"github.com/spf13/viper"
 )
 
 func TestCreateResourceURI(t *testing.T) {
@@ -77,7 +77,7 @@ func TestCreateResourceURI(t *testing.T) {
 }
 
 func TestCreateResourceURIWithCustomBase(t *testing.T) {
-	_ = os.Setenv("SHIPYARD_BUILD_URL", "localhost:8000")
+	viper.Set("api_url", "localhost:8000")
 
 	want := "localhost:8000/environment/123abc"
 	got := uri.CreateResourceURI("", "environment", "123abc", "", nil)

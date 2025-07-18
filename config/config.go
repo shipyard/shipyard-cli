@@ -8,10 +8,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type Profile struct {
+	AuthToken string `yaml:"auth_token"`
+}
+
 type Config struct {
-	Token   string `yaml:"api_token"`
-	Org     string `yaml:"org"`
-	Verbose bool   `yaml:"verbose"`
+	Token    string             `yaml:"api_token"`
+	Org      string             `yaml:"org"`
+	Verbose  bool               `yaml:"verbose"`
+	ApiURL   string             `yaml:"api_url"`
+	Profiles map[string]Profile `yaml:"profiles"`
 }
 
 // CreateDefaultConfig tries to create a config.yaml file in the default
