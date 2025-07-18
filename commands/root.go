@@ -77,6 +77,7 @@ func setupCommands() {
 	rootCmd.AddCommand(NewLoginCmd())
 	rootCmd.AddCommand(NewGetCmd(c))
 	rootCmd.AddCommand(NewSetCmd())
+	rootCmd.AddCommand(NewUpdateCmd())
 	rootCmd.AddCommand(volumes.NewResetCmd(c))
 	rootCmd.AddCommand(volumes.NewCreateCmd(c))
 	rootCmd.AddCommand(volumes.NewUploadCmd(c))
