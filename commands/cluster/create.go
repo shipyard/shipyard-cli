@@ -99,8 +99,8 @@ type ClusterPreflightResponse struct {
 func NewCreateCmd(c *client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "create",
-		Short:        "Create a new local Kubernetes cluster",
-		Long:         `Create a new local Kubernetes cluster using k3d with Tailscale integration.`,
+		Short:        "Create a new local shipyard cluster",
+		Long:         `Create a new local shipyard cluster.`,
 		SilenceUsage: true,
 		RunE:         runCreate(c),
 	}
@@ -146,7 +146,7 @@ func runCreate(c *client.Client) func(cmd *cobra.Command, args []string) error {
 		}
 
 		// Step 5: Create k3d cluster
-		clusterName := "k3d-org-" + clusterConfig.ClusterName
+		clusterName := "org-" + clusterConfig.ClusterName
 		apiPort, _ := cmd.Flags().GetString("api-port")
 		httpPort, _ := cmd.Flags().GetString("http-port")
 		httpsPort, _ := cmd.Flags().GetString("https-port")
@@ -381,7 +381,7 @@ func createK3dCluster(name, apiPort, httpPort, httpsPort string, config *Cluster
 
 	cmd := exec.Command("k3d", args...)
 	cmd.Env = env
-	return runCommandWithSpinner(cmd, "Creating k3d cluster...")
+	return runCommandWithSpinner(cmd, "Creating shipyard cluster...")
 }
 
 func saveKubeconfig(clusterName string) error {
@@ -413,7 +413,7 @@ func createTailscaleOperator(config *ClusterPreflightResponse) error {
 		"--install", "tailscale-operator",
 		"tailscale/tailscale-operator",
 		"--namespace", "tailscale", "--create-namespace",
-		"--set-string", fmt.Sprintf("operatorConfig.hostname=%s", config.TailscaleOperatorFQDN),
+		"--set-string", fmt.Sprintf("operatorConfig.hostname=%s-operator", config.ClusterName),
 		"--set-string", "apiServerProxyConfig.mode=noauth",
 		"--set", fmt.Sprintf("oauth.clientId=%s", config.TailscaleOAuthAppId),
 		"--set", fmt.Sprintf("oauth.clientSecret=%s", config.TailscaleOAuthAppSecret),
