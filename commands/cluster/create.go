@@ -105,7 +105,6 @@ func NewCreateCmd(c *client.Client) *cobra.Command {
 		RunE:         runCreate(c),
 	}
 
-	cmd.Flags().String("name", "sy-cluster", "Name of the cluster to create")
 	cmd.Flags().String("api-port", "6443", "API server port")
 	cmd.Flags().String("http-port", "80", "HTTP port")
 	cmd.Flags().String("https-port", "443", "HTTPS port")
@@ -147,7 +146,7 @@ func runCreate(c *client.Client) func(cmd *cobra.Command, args []string) error {
 		}
 
 		// Step 5: Create k3d cluster
-		clusterName, _ := cmd.Flags().GetString("name")
+		clusterName := "k3d-org-" + clusterConfig.ClusterName
 		apiPort, _ := cmd.Flags().GetString("api-port")
 		httpPort, _ := cmd.Flags().GetString("http-port")
 		httpsPort, _ := cmd.Flags().GetString("https-port")
@@ -364,8 +363,7 @@ func createK3dCluster(name, apiPort, httpPort, httpsPort string, config *Cluster
 	if err != nil {
 		return err
 	}
-	// print the k3d command
-	fmt.Println("k3d command: k3d cluster create", name, "--api-port", apiPort, "--port", fmt.Sprintf("%s:80@loadbalancer", httpPort), "--port", fmt.Sprintf("%s:443@loadbalancer", httpsPort), "--k3s-arg", "--disable=traefik@server:*", "--k3s-arg", "--service-cidr=10.43.0.0/16@server:*", "--k3s-arg", fmt.Sprintf("--tls-san=%s@server:*", config.TailscaleOperatorFQDN), "--registry-config", "hack/registries.yaml", "--volume", fmt.Sprintf("%s/volumes/nfsdata:/exports/nfs@all", pwd), "--wait")
+
 	// Build k3d command
 	args := []string{
 		"cluster", "create", name,
@@ -377,6 +375,7 @@ func createK3dCluster(name, apiPort, httpPort, httpsPort string, config *Cluster
 		"--k3s-arg", fmt.Sprintf("--tls-san=%s@server:*", config.TailscaleOperatorFQDN),
 		"--registry-config", "hack/registries.yaml",
 		"--volume", fmt.Sprintf("%s/volumes/nfsdata:/exports/nfs@all", pwd),
+		"--runtime-label", "shipyard.managed=true@server:*",
 		"--wait",
 	}
 
