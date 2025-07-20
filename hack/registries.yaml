@@ -1,0 +1,9 @@
+auths: null
+configs: null
+mirrors:
+  10.43.0.16:
+    endpoint:
+      - http://10.43.0.16:5000
+  10.43.0.16:5000:
+    endpoint:
+      - http://10.43.0.16:5000

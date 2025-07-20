@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
+	"github.com/shipyard/shipyard-cli/commands/cluster"
 	"github.com/shipyard/shipyard-cli/commands/env"
 	"github.com/shipyard/shipyard-cli/commands/k8s"
 	"github.com/shipyard/shipyard-cli/commands/telepresence"
@@ -91,6 +92,11 @@ func setupCommands() {
 	rootCmd.AddCommand(env.NewReviveCmd(c))
 	rootCmd.AddCommand(env.NewStopCmd(c))
 	rootCmd.AddCommand(env.NewVisitCmd(c))
+
+	rootCmd.AddGroup(&cobra.Group{ID: constants.GroupClusters, Title: "Clusters"})
+	clusterCmd := cluster.NewClusterCmd()
+	clusterCmd.AddCommand(cluster.NewCreateCmd(&c))
+	rootCmd.AddCommand(clusterCmd)
 
 	rootCmd.AddCommand(k8s.NewExecCmd(c))
 	rootCmd.AddCommand(k8s.NewLogsCmd(c))
