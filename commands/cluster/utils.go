@@ -73,14 +73,14 @@ func IsShipyardManagedCluster(clusterName string) bool {
 	output, err = cmd.Output()
 	if err != nil {
 		// Fallback to name-based check if JSON output fails
-		return strings.HasPrefix(clusterName, "k3d-org-")
+		return strings.HasPrefix(clusterName, "org-")
 	}
 
 	// Parse JSON output to check for labels
 	var clusterList []ClusterInfo
 	if err := json.Unmarshal(output, &clusterList); err != nil {
 		// Fallback to name-based check if JSON parsing fails
-		return strings.HasPrefix(clusterName, "k3d-org-")
+		return strings.HasPrefix(clusterName, "org-")
 	}
 
 	// Find the cluster by name and check its labels
@@ -101,12 +101,12 @@ func IsShipyardManagedCluster(clusterName string) bool {
 			}
 
 			// Also check the name prefix as a fallback
-			return strings.HasPrefix(clusterName, "k3d-org-")
+			return strings.HasPrefix(clusterName, "org-")
 		}
 	}
 
 	// If cluster not found in JSON, fallback to name-based check
-	return strings.HasPrefix(clusterName, "k3d-org-")
+	return strings.HasPrefix(clusterName, "org-")
 }
 
 // DebugClusterLabels is a helper function to debug cluster labels
