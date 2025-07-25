@@ -3,15 +3,6 @@ version: 2
 env:
   - GITHUB_TOKEN={{ if index .Env "GITHUB_TOKEN" }}{{ .Env.GITHUB_TOKEN }}{{else}}''{{end}}
 
-archives:
-  - format_overrides:
-      - goos: windows
-        formats: ["zip"]
-      - goos: darwin  
-        formats: ["zip"]
-      - goos: linux
-        formats: ["tar.gz"]
-    name_template: "shipyard-{{ .Os }}-{{ .Arch }}"
 builds:
   - env:
       - CGO_ENABLED=0
