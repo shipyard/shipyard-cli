@@ -13,12 +13,15 @@ builds:
     goarch:
       - amd64
       - arm64
-    binary:
-      shipyard-{{.Os}}-{{.Arch}}
+    binary: shipyard-{{.Os}}-{{.Arch}}
     ldflags:
       - -s -w
       - -X github.com/shipyard/shipyard-cli/version.GitCommit={{.ShortCommit}}
       - -X github.com/shipyard/shipyard-cli/version.Version={{.Version}}
+archives:
+  - formats:
+      - binary
+    name_template: "{{ .Binary }}"
 checksum:
   name_template: 'checksums.txt'
 changelog:
