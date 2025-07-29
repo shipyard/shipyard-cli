@@ -2,27 +2,30 @@ package cluster
 
 import (
 	"fmt"
+	"net/http"
 	"os/exec"
 
 	"github.com/fatih/color"
+	"github.com/shipyard/shipyard-cli/pkg/client"
+	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/spf13/cobra"
 )
 
-func NewDeleteCmd() *cobra.Command {
+func NewDeleteCmd(c *client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "delete",
 		Short:        "Delete local shipyard clusters",
 		Long:         `Delete local shipyard clusters and all their resources. This action cannot be undone.`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleDeleteClusters()
+			return handleDeleteClusters(c)
 		},
 	}
 
 	return cmd
 }
 
-func handleDeleteClusters() error {
+func handleDeleteClusters(c *client.Client) error {
 	blue := color.New(color.FgHiBlue)
 	green := color.New(color.FgHiGreen)
 	red := color.New(color.FgHiRed)
@@ -61,6 +64,28 @@ func handleDeleteClusters() error {
 		}
 
 		green.Printf("✓ Cluster '%s' deleted successfully\n", clusterName)
+	}
+
+	stopCluster(c, true)
+	return nil
+}
+
+func stopCluster(c *client.Client, destroy bool) error {
+	params := make(map[string]string)
+	if org := c.OrgLookupFn(); org != "" {
+		params["org"] = org
+	}
+	if destroy {
+		params["destroy"] = "true"
+	}
+
+	// Use CreateResourceURI to build the URL
+	url := uri.CreateResourceURI("", "cluster/stop", "", "", params)
+
+	// Use the existing HTTP client from the requests package
+	_, err := c.Requester.Do(http.MethodGet, url, "application/json", nil)
+	if err != nil {
+		return fmt.Errorf("API request failed: %w", err)
 	}
 	return nil
 }

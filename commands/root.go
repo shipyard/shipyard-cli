@@ -96,9 +96,10 @@ func setupCommands() {
 	rootCmd.AddGroup(&cobra.Group{ID: constants.GroupClusters, Title: "Clusters"})
 	clusterCmd := cluster.NewClusterCmd()
 	clusterCmd.AddCommand(cluster.NewCreateCmd(&c))
-	clusterCmd.AddCommand(cluster.NewStopCmd())
-	clusterCmd.AddCommand(cluster.NewStartCmd())
-	clusterCmd.AddCommand(cluster.NewDeleteCmd())
+	clusterCmd.AddCommand(cluster.NewSyncCmd(&c))
+	clusterCmd.AddCommand(cluster.NewStopCmd(&c))
+	clusterCmd.AddCommand(cluster.NewStartCmd(&c))
+	clusterCmd.AddCommand(cluster.NewDeleteCmd(&c))
 	rootCmd.AddCommand(clusterCmd)
 
 	rootCmd.AddCommand(k8s.NewExecCmd(c))

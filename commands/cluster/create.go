@@ -93,6 +93,7 @@ type ClusterPreflightResponse struct {
 	TailscaleOperatorFQDN   string `json:"tailscale_operator_fqdn"`
 	TailscaleOAuthAppId     string `json:"tailscale_oauth_app_id"`
 	TailscaleOAuthAppSecret string `json:"tailscale_oauth_app_secret"`
+	TailscaleOperatorName   string `json:"tailscale_operator_name"`
 	ClusterName             string `json:"sanitized_name"`
 }
 
@@ -128,7 +129,7 @@ func runCreate(c *client.Client) func(cmd *cobra.Command, args []string) error {
 
 		// Step 2: Get cluster initialization data from API
 		blue.Println("🌐 Fetching org details from Shipyard...")
-		clusterConfig, err := getClusterPreflightConfig(c)
+		clusterConfig, err := getClusterPreflightConfig(c, false)
 		if err != nil {
 			return fmt.Errorf("failed to get cluster configuration: %w", err)
 		}
@@ -181,14 +182,15 @@ func runCreate(c *client.Client) func(cmd *cobra.Command, args []string) error {
 
 		// Step 7: Install Tailscale operator via Helm
 		blue.Println("🔧 Creating connection to Shipyard...")
-		if err := createTailscaleOperator(clusterConfig); err != nil {
+		kubeconfigContent, err := createTailscaleOperator(clusterConfig)
+		if err != nil {
 			return fmt.Errorf("failed to create connection to Shipyard: %w", err)
 		}
 		green.Println("✓ Connection to Shipyard created successfully")
 
 		// Step 8: Provision cluster with Shipyard
 		blue.Println("🚀 Provisioning cluster with Shipyard...")
-		if err := provisionCluster(c); err != nil {
+		if err := provisionCluster(c, kubeconfigContent); err != nil {
 			return fmt.Errorf("failed to provision cluster: %w", err)
 		}
 		green.Println("✓ Cluster provisioned successfully")
@@ -297,11 +299,14 @@ func installHelm() error {
 	}
 }
 
-func getClusterPreflightConfig(c *client.Client) (*ClusterPreflightResponse, error) {
+func getClusterPreflightConfig(c *client.Client, sync bool) (*ClusterPreflightResponse, error) {
 	// Build parameters map with organization
 	params := make(map[string]string)
 	if org := c.OrgLookupFn(); org != "" {
 		params["org"] = org
+	}
+	if sync {
+		params["sync"] = "true"
 	}
 
 	// Use CreateResourceURI to build the URL
@@ -405,7 +410,7 @@ func saveKubeconfig(clusterName string) error {
 	return os.WriteFile(kubeconfigPath, output, 0600)
 }
 
-func createTailscaleOperator(config *ClusterPreflightResponse) error {
+func createTailscaleOperator(config *ClusterPreflightResponse) (string, error) {
 
 	// Build helm command
 	args := []string{
@@ -413,7 +418,7 @@ func createTailscaleOperator(config *ClusterPreflightResponse) error {
 		"--install", "tailscale-operator",
 		"tailscale/tailscale-operator",
 		"--namespace", "tailscale", "--create-namespace",
-		"--set-string", fmt.Sprintf("operatorConfig.hostname=%s-operator", config.ClusterName),
+		"--set-string", fmt.Sprintf("operatorConfig.hostname=%s", config.TailscaleOperatorName),
 		"--set-string", "apiServerProxyConfig.mode=noauth",
 		"--set", fmt.Sprintf("oauth.clientId=%s", config.TailscaleOAuthAppId),
 		"--set", fmt.Sprintf("oauth.clientSecret=%s", config.TailscaleOAuthAppSecret),
@@ -421,7 +426,114 @@ func createTailscaleOperator(config *ClusterPreflightResponse) error {
 	}
 
 	cmd := exec.Command("helm", args...)
-	return runCommandWithSpinner(cmd, "Dailing home...")
+	if err := runCommandWithSpinner(cmd, "Dailing home..."); err != nil {
+		return "", err
+	}
+
+	// Create Tailscale service account and generate kubeconfig
+	kubeconfigContent, err := createTailscaleServiceAccount(config)
+	if err != nil {
+		return "", fmt.Errorf("failed to create Tailscale service account: %w", err)
+	}
+
+	return kubeconfigContent, nil
+}
+
+func createTailscaleServiceAccount(config *ClusterPreflightResponse) (string, error) {
+	// Set environment variables
+	tailscaleNamespace := "tailscale"
+	tailscaleServiceAccount := "tailscale-access"
+	k3dClusterName := "org-" + config.ClusterName
+	tailscaleOperatorFQDN := config.TailscaleOperatorFQDN
+
+	// Create service account
+	cmd := exec.Command("kubectl", "-n", tailscaleNamespace, "create", "serviceaccount", tailscaleServiceAccount)
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run() // Ignore error if service account already exists
+
+	// Create service account token secret
+	tokenSecretYAML := fmt.Sprintf(`apiVersion: v1
+kind: Secret
+type: kubernetes.io/service-account-token
+metadata:
+  name: %s-token
+  namespace: %s
+  annotations:
+    kubernetes.io/service-account.name: %s
+`, tailscaleServiceAccount, tailscaleNamespace, tailscaleServiceAccount)
+
+	cmd = exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(tokenSecretYAML)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to create service account token: %w", err)
+	}
+
+	// Create cluster role binding
+	cmd = exec.Command("kubectl", "create", "clusterrolebinding", "tailscale-access-binding",
+		"--clusterrole=cluster-admin",
+		fmt.Sprintf("--serviceaccount=%s:%s", tailscaleNamespace, tailscaleServiceAccount))
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run() // Ignore error if binding already exists
+
+	return createKubeconfigFromServiceAccount(tailscaleNamespace, tailscaleServiceAccount, k3dClusterName, tailscaleOperatorFQDN)
+}
+
+// createKubeconfigFromServiceAccount creates a kubeconfig from an existing service account
+func createKubeconfigFromServiceAccount(namespace, serviceAccount, clusterName, operatorFQDN string) (string, error) {
+	// Get the service account token
+	cmd := exec.Command("kubectl", "-n", namespace, "get", "secret",
+		fmt.Sprintf("%s-token", serviceAccount), "-o", "jsonpath={.data.token}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get service account token: %w", err)
+	}
+
+	// Decode the token
+	tokenBytes, err := base64.StdEncoding.DecodeString(string(output))
+	if err != nil {
+		return "", fmt.Errorf("failed to decode service account token: %w", err)
+	}
+	serviceAccountToken := string(tokenBytes)
+
+	// Extract the TLS certificate from the operator secret
+	certCmd := exec.Command("kubectl", "-n", namespace, "get", "secret", "operator",
+		"-o", fmt.Sprintf("jsonpath={.data.%s\\.crt}", strings.ReplaceAll(operatorFQDN, ".", "\\.")))
+	certOutput, err := certCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get TLS certificate: %w", err)
+	}
+
+	// Decode the certificate
+	certBytes, err := base64.StdEncoding.DecodeString(string(certOutput))
+	if err != nil {
+		return "", fmt.Errorf("failed to decode TLS certificate: %w", err)
+	}
+
+	// Encode certificate for kubeconfig (base64 again for the kubeconfig format)
+	certBase64 := base64.StdEncoding.EncodeToString(certBytes)
+
+	// Create kubeconfig with proper certificate
+	kubeconfigYAML := fmt.Sprintf(`apiVersion: v1
+kind: Config
+clusters:
+- name: %s
+  cluster:
+    server: https://%s
+    certificate-authority-data: %s
+users:
+- name: %s
+  user:
+    token: %s
+contexts:
+- name: %s
+  context:
+    cluster: %s
+    user: %s
+current-context: %s
+`, clusterName, operatorFQDN, certBase64, serviceAccount, serviceAccountToken, clusterName, clusterName, serviceAccount, clusterName)
+
+	return kubeconfigYAML, nil
 }
 
 func clusterExists(clusterName string) bool {
@@ -453,16 +565,10 @@ func deleteCluster(clusterName string) error {
 	return runCommandWithSpinner(cmd, "Deleting existing cluster...")
 }
 
-func provisionCluster(c *client.Client) error {
-	// Read the kubeconfig file
-	kubeconfigPath := filepath.Join(os.Getenv("HOME"), ".kube", "sy-k3d-config")
-	kubeconfigData, err := os.ReadFile(kubeconfigPath)
-	if err != nil {
-		return fmt.Errorf("failed to read kubeconfig: %w", err)
-	}
+func provisionCluster(c *client.Client, kubeconfigContent string) error {
 
-	// Encode kubeconfig to base64
-	base64Kubeconfig := base64.StdEncoding.EncodeToString(kubeconfigData)
+	// Encode Tailscale kubeconfig to base64
+	base64TailscaleKubeconfig := base64.StdEncoding.EncodeToString([]byte(kubeconfigContent))
 
 	// Build parameters map with organization
 	params := make(map[string]string)
@@ -472,14 +578,14 @@ func provisionCluster(c *client.Client) error {
 
 	// Create the request body
 	requestBody := map[string]string{
-		"kubeconfig": base64Kubeconfig,
+		"kubeconfig": base64TailscaleKubeconfig,
 	}
 
 	// Use CreateResourceURI to build the URL
 	url := uri.CreateResourceURI("", "cluster/provision", "", "", params)
 
 	// Make the POST request
-	_, err = c.Requester.Do(http.MethodPost, url, "application/json", requestBody)
+	_, err := c.Requester.Do(http.MethodPost, url, "application/json", requestBody)
 	if err != nil {
 		return fmt.Errorf("failed to provision cluster: %w", err)
 	}

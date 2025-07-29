@@ -5,24 +5,25 @@ import (
 	"os/exec"
 
 	"github.com/fatih/color"
+	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/spf13/cobra"
 )
 
-func NewStopCmd() *cobra.Command {
+func NewStopCmd(c *client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "stop",
 		Short:        "Stop a local shipyard cluster",
 		Long:         `Stop a running local shipyard cluster. The cluster will be paused but not deleted.`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleStopClusters()
+			return handleStopClusters(c)
 		},
 	}
 
 	return cmd
 }
 
-func handleStopClusters() error {
+func handleStopClusters(c *client.Client) error {
 	blue := color.New(color.FgHiBlue)
 	green := color.New(color.FgHiGreen)
 
@@ -50,5 +51,6 @@ func handleStopClusters() error {
 
 		green.Printf("✓ Cluster '%s' stopped successfully\n", clusterName)
 	}
+	stopCluster(c, false)
 	return nil
 }
