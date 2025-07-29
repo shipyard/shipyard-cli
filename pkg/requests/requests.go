@@ -24,10 +24,15 @@ type Requester interface {
 }
 
 type HTTPClient struct {
+	userAgentType string
 }
 
 func New() HTTPClient {
-	return HTTPClient{}
+	return HTTPClient{userAgentType: "cli"}
+}
+
+func NewWithUserAgent(userAgentType string) HTTPClient {
+	return HTTPClient{userAgentType: userAgentType}
 }
 
 func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error) {
@@ -66,7 +71,7 @@ func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error
 	}
 
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("User-Agent", fmt.Sprintf("%s-%s-%s-%s", "shipyard-cli", version.Version, runtime.GOOS, runtime.GOARCH))
+	req.Header.Set("User-Agent", fmt.Sprintf("%s-%s-%s-%s", "shipyard-"+c.userAgentType, version.Version, runtime.GOOS, runtime.GOARCH))
 	req.Header.Set("x-api-token", token)
 
 	var netClient http.Client

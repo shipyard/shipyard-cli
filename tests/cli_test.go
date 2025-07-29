@@ -200,7 +200,7 @@ func newCmd(args []string) *cmdWrapper {
 		args: args,
 	}
 	c.cmd = exec.Command("./shipyard", commandLine(c.args)...)
-	c.cmd.Env = []string{"SHIPYARD_BUILD_URL=http://localhost:8000"}
+	c.cmd.Env = []string{"SHIPYARD_API_URL=http://localhost:8000"}
 	stderr, stdout := new(bytes.Buffer), new(bytes.Buffer)
 	c.cmd.Stderr = stderr
 	c.cmd.Stdout = stdout

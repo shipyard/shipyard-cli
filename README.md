@@ -336,3 +336,52 @@ shipyard completion powershell > shipyard.ps1
 ```
 
 and source this file from your PowerShell profile.
+
+## Model Context Protocol (MCP) Integration
+
+The Shipyard CLI provides an MCP server for AI assistant integration. This allows AI assistants like Claude to manage Shipyard environments directly.
+
+### Supported MCP Tools
+
+#### Environment Management (7 tools)
+- `get_environments` - List environments with filtering
+- `get_environment` - Get specific environment details
+- `stop_environment` - Stop a running environment
+- `restart_environment` - Restart a stopped environment
+- `rebuild_environment` - Rebuild with latest commit
+- `cancel_environment` - Cancel environment's latest build
+- `revive_environment` - Revive a deleted environment
+
+#### Service Management (2 tools)
+- `get_services` - List services in an environment
+- `get_logs` - Get logs from a service
+
+#### Volume Management (5 tools)
+- `get_volumes` - List volumes in an environment
+- `reset_volume` - Reset volume to initial state
+- `get_snapshots` - List volume snapshots
+- `create_snapshot` - Create volume snapshot
+- `load_snapshot` - Load volume snapshot
+
+#### Organization Management (3 tools)
+- `get_orgs` - List all organizations
+- `get_org` - Get current default organization
+- `set_org` - Set default organization
+
+#### Limited Tools
+These tools return help text directing users to use CLI commands instead:
+- `exec_service` - Execute commands in service containers
+- `port_forward` - Port forward services to local machine
+- `telepresence_connect` - Connect to telepresence
+
+### Adding to Claude
+
+With API token and org name:
+```bash
+claude mcp add shipyard --env SHIPYARD_API_TOKEN=your-token-here --env SHIPYARD_ORG=your-org-name -- shipyard mcp serve
+```
+
+If already configured with CLI:
+```bash
+claude mcp add shipyard -- shipyard mcp serve
+```
