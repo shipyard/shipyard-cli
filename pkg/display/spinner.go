@@ -42,10 +42,9 @@ func (s *Spinner) Start() {
 		return
 	}
 
-	// Only show spinner if we're in a terminal
-	if !isatty.IsTerminal(os.Stdout.Fd()) {
-		// For non-terminal output, just print the message once
-		fmt.Fprintf(s.writer, "%s\n", s.message)
+	// Only show spinner if we're in a terminal and not in test mode
+	if !isatty.IsTerminal(os.Stdout.Fd()) || isTestMode() {
+		// For non-terminal output or test mode, don't show anything
 		return
 	}
 
@@ -99,4 +98,21 @@ func (s *Spinner) SetMessage(message string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.message = message
+}
+
+// isTestMode detects if we're running in test mode
+func isTestMode() bool {
+	// Check for common test environment indicators
+	for _, env := range []string{"GO_TEST", "TESTING"} {
+		if os.Getenv(env) != "" {
+			return true
+		}
+	}
+	
+	// Check if the SHIPYARD_BUILD_URL is set to localhost (test server)
+	if buildURL := os.Getenv("SHIPYARD_BUILD_URL"); buildURL == "http://localhost:8000" {
+		return true
+	}
+	
+	return false
 }
