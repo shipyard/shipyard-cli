@@ -307,6 +307,8 @@ func getClusterPreflightConfig(c *client.Client, sync bool) (*ClusterPreflightRe
 	}
 	if sync {
 		params["sync"] = "true"
+	} else {
+		params["sync"] = "false"
 	}
 
 	// Use CreateResourceURI to build the URL
@@ -501,7 +503,14 @@ func createKubeconfigFromServiceAccount(namespace, serviceAccount, clusterName, 
 		"-o", fmt.Sprintf("jsonpath={.data.%s\\.crt}", strings.ReplaceAll(operatorFQDN, ".", "\\.")))
 	certOutput, err := certCmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to get TLS certificate: %w", err)
+		// Fallback: try to get certificate from k3s-serving secret in kube-system namespace
+		fmt.Printf("Failed to get TLS certificate from operator secret, trying k3s-serving secret...\n")
+		certCmd = exec.Command("kubectl", "-n", "kube-system", "get", "secret", "k3s-serving",
+			"-o", "jsonpath={.data.tls\\.crt}")
+		certOutput, err = certCmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to get TLS certificate from secrets: %w", err)
+		}
 	}
 
 	// Decode the certificate
