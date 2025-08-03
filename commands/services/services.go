@@ -34,7 +34,16 @@ func NewGetServicesCmd(c client.Client) *cobra.Command {
 
 func handleGetServicesCmd(c client.Client) error {
 	id := viper.GetString("env")
+	
+	// Start spinner
+	spinner := display.NewSpinner("Fetching info please standby...")
+	spinner.Start()
+	
 	svcs, err := c.AllServices(id)
+	
+	// Stop spinner immediately after API call
+	spinner.Stop()
+	
 	if err != nil {
 		return fmt.Errorf("failed to get services for environment %s: %w", id, err)
 	}
