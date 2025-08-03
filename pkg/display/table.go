@@ -159,16 +159,16 @@ func FormatColoredAppName(appName string) string {
 		return "-"
 	}
 
-	// Available colors (avoiding red and green which are used for Ready status)
+	// Available colors with black background (avoiding red and green which are used for Ready status)
 	colors := []*color.Color{
-		color.New(color.FgBlue),
-		color.New(color.FgMagenta),
-		color.New(color.FgCyan),
-		color.New(color.FgYellow),
-		color.New(color.FgHiBlue),
-		color.New(color.FgHiMagenta),
-		color.New(color.FgHiCyan),
-		color.New(color.FgHiYellow),
+		color.New(color.FgBlue, color.BgBlack),
+		color.New(color.FgMagenta, color.BgBlack),
+		color.New(color.FgCyan, color.BgBlack),
+		color.New(color.FgYellow, color.BgBlack),
+		color.New(color.FgHiBlue, color.BgBlack),
+		color.New(color.FgHiMagenta, color.BgBlack),
+		color.New(color.FgHiCyan, color.BgBlack),
+		color.New(color.FgHiYellow, color.BgBlack),
 	}
 
 	// Hash the app name to get consistent color assignment
@@ -176,7 +176,7 @@ func FormatColoredAppName(appName string) string {
 	h.Write([]byte(appName))
 	colorIndex := h.Sum32() % uint32(len(colors))
 
-	return colors[colorIndex].Sprint(appName)
+	return colors[colorIndex].Sprint(" " + appName + " ")
 }
 
 // FormatPRNumber formats PR numbers, using branch name for null values

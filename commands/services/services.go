@@ -47,13 +47,13 @@ func handleGetServicesCmd(c client.Client) error {
 		}
 
 		data = append(data, []string{
-			s.Name,
+			display.FormatColoredAppName(s.Name),
 			ports,
-			s.URL,
+			display.FormatClickableURL(s.URL),
 		})
 	}
 
-	columns := []string{"Name", "Ports", "URL"}
+	columns := []string{"Services", "Ports", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
 	return nil
 }
