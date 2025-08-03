@@ -214,7 +214,8 @@ func handleGetEnvironmentByID(c client.Client, id string) error {
 		return err
 	}
 
-	data := display.FormattedEnvironment(&r.Data)
+	var data [][]string
+	data = append(data, display.FormattedEnvironment(&r.Data)...)
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
 	return nil

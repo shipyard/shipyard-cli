@@ -84,10 +84,10 @@ func RenderTable(out io.Writer, columns []string, data [][]string) {
 func FormatReadyStatus(ready bool) string {
 	if ready {
 		green := color.New(color.FgGreen)
-		return green.Sprint("true")
+		return green.Sprint("Yes")
 	}
 	red := color.New(color.FgRed)
-	return red.Sprint("false")
+	return red.Sprint("No")
 }
 
 // supportsOSC8 detects if the current terminal supports OSC 8 hyperlinks
