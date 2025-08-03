@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/fatih/color"
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/completion"
 	"github.com/shipyard/shipyard-cli/pkg/display"
@@ -156,7 +157,38 @@ func handleGetAllEnvironments(c client.Client) error {
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
 	if r.Links.Next != "" {
-		display.Println(fmt.Sprintf("Table is truncated, fetch the next page %d.", r.Links.NextPage()))
+		nextPage := r.Links.NextPage()
+		cmd := " shipyard get environments --page " + strconv.Itoa(nextPage)
+
+		// Add current flags to the command
+		if name := viper.GetString("name"); name != "" {
+			cmd += " --name \"" + name + "\""
+		}
+		if orgName := viper.GetString("org-name"); orgName != "" {
+			cmd += " --org-name \"" + orgName + "\""
+		}
+		if repoName := viper.GetString("repo-name"); repoName != "" {
+			cmd += " --repo-name \"" + repoName + "\""
+		}
+		if branch := viper.GetString("branch"); branch != "" {
+			cmd += " --branch \"" + branch + "\""
+		}
+		if pullRequestNumber := viper.GetString("pull-request-number"); pullRequestNumber != "" {
+			cmd += " --pull-request-number \"" + pullRequestNumber + "\""
+		}
+		if deleted := viper.GetBool("deleted"); deleted {
+			cmd += " --deleted"
+		}
+		if pageSize := viper.GetInt("page-size"); pageSize != 0 && pageSize != 20 {
+			cmd += " --page-size " + strconv.Itoa(pageSize)
+		}
+		if viper.GetBool("json") {
+			cmd += " --json"
+		}
+		cmd += " "
+
+		styledCmd := color.New(color.FgHiWhite, color.BgBlue).Sprint(cmd)
+		display.Println(fmt.Sprintf("Table is truncated, fetch the next page %d. %s", nextPage, styledCmd))
 	}
 	return nil
 }
