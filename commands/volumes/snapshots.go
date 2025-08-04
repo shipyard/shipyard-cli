@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -83,7 +84,22 @@ func handleGetVolumeSnapshotsCmd(c client.Client) error {
 	columns := []string{"From", "Sequence", "Status", "Type"}
 	display.RenderTable(os.Stdout, columns, data)
 	if resp.Links.Next != "" {
-		display.Println(fmt.Sprintf("Table is truncated, fetch the next page %d.", resp.Links.NextPage()))
+		nextPage := resp.Links.NextPage()
+		cmd := " shipyard get volumes snapshots --page " + strconv.Itoa(nextPage) + " "
+
+		// Add current flags to the command
+		if env := viper.GetString("env"); env != "" {
+			cmd += " --env \"" + env + "\""
+		}
+		if pageSize := viper.GetInt("page-size"); pageSize != 0 && pageSize != 20 {
+			cmd += " --page-size " + strconv.Itoa(pageSize)
+		}
+		if viper.GetBool("json") {
+			cmd += " --json"
+		}
+
+		styledCmd := color.New(color.FgHiWhite, color.BgBlue).Sprint(cmd)
+		display.Println(fmt.Sprintf("Table is truncaed, fetch the next page %d. %s", nextPage, styledCmd))
 	}
 	return nil
 }
