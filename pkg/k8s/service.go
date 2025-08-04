@@ -123,7 +123,7 @@ func (c *Service) Logs(follow bool, tail int64) error {
 	if err != nil {
 		return err
 	}
-	defer podLogs.Close()
+	defer func() { _ = podLogs.Close() }()
 
 	if !follow {
 		var buf bytes.Buffer

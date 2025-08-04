@@ -34,7 +34,10 @@ func (handler) getEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler) rebuildEnvironment(w http.ResponseWriter, r *http.Request) {
-	_ = findEnvByID(w, r)
+	env := findEnvByID(w, r)
+	if env != nil {
+		_, _ = fmt.Fprint(w, "Environment queued for a rebuild.")
+	}
 }
 
 func findEnvByID(w http.ResponseWriter, r *http.Request) *types.Environment {
@@ -56,10 +59,10 @@ func findEnvByID(w http.ResponseWriter, r *http.Request) *types.Environment {
 
 func orgNotFound(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusBadRequest)
-	fmt.Fprintf(w, "user org not found")
+	_, _ = fmt.Fprintf(w, "user org not found")
 }
 
 func envNotFound(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNotFound)
-	fmt.Fprintf(w, "environment not found")
+	_, _ = fmt.Fprintf(w, "environment not found")
 }

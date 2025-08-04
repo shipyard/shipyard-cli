@@ -54,7 +54,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	yellow := color.New(color.FgHiYellow)
 	blue := color.New(color.FgHiBlue)
 
-	blue.Println("Checking for updates...")
+	_, _ = blue.Println("Checking for updates...")
 
 	// Get current version
 	currentVersion := version.Version
@@ -68,12 +68,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to fetch latest release: %w", err)
 	}
 
-	blue.Printf("Current version: %s\n", currentVersion)
-	blue.Printf("Latest version: %s\n", latestRelease.TagName)
+	_, _ = blue.Printf("Current version: %s\n", currentVersion)
+	_, _ = blue.Printf("Latest version: %s\n", latestRelease.TagName)
 
 	// Check if update is needed
 	if !force && !isNewerVersion(currentVersion, latestRelease.TagName) {
-		green.Println("✓ You're already running the latest version!")
+		_, _ = green.Println("✓ You're already running the latest version!")
 		return nil
 	}
 
@@ -83,14 +83,14 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to find compatible release asset: %w", err)
 	}
 
-	yellow.Printf("Downloading %s...\n", latestRelease.TagName)
+	_, _ = yellow.Printf("Downloading %s...\n", latestRelease.TagName)
 
 	// Download the new binary
 	tempFile, err := downloadBinary(assetURL)
 	if err != nil {
 		return fmt.Errorf("failed to download binary: %w", err)
 	}
-	defer os.Remove(tempFile)
+	defer func() { _ = os.Remove(tempFile) }()
 
 	// Get the current executable path
 	execPath, err := os.Executable()
@@ -112,15 +112,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Replace the current binary
 	if err := copyFile(tempFile, execPath); err != nil {
 		// Restore backup on failure
-		copyFile(backupPath, execPath)
+		_ = copyFile(backupPath, execPath)
 		return fmt.Errorf("failed to update binary: %w", err)
 	}
 
 	// Remove backup file
-	os.Remove(backupPath)
+	_ = os.Remove(backupPath)
 
-	green.Printf("✓ Successfully updated to %s!\n", latestRelease.TagName)
-	blue.Println("Please restart your terminal or run 'shipyard --version' to verify the update.")
+	_, _ = green.Printf("✓ Successfully updated to %s!\n", latestRelease.TagName)
+	_, _ = blue.Println("Please restart your terminal or run 'shipyard --version' to verify the update.")
 
 	return nil
 }
@@ -141,7 +141,7 @@ func getLatestRelease(includePrerelease bool) (*GitHubRelease, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
@@ -166,7 +166,7 @@ func getLatestRelease(includePrerelease bool) (*GitHubRelease, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
@@ -232,7 +232,7 @@ func downloadBinary(url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download failed with status %d", resp.StatusCode)
@@ -243,12 +243,12 @@ func downloadBinary(url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer tempFile.Close()
+	defer func() { _ = tempFile.Close() }()
 
 	// Download to temp file
 	_, err = io.Copy(tempFile, resp.Body)
 	if err != nil {
-		os.Remove(tempFile.Name())
+		_ = os.Remove(tempFile.Name())
 		return "", err
 	}
 
@@ -260,13 +260,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer sourceFile.Close()
+	defer func() { _ = sourceFile.Close() }()
 
 	destFile, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer destFile.Close()
+	defer func() { _ = destFile.Close() }()
 
 	_, err = io.Copy(destFile, sourceFile)
 	return err

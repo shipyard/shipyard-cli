@@ -45,7 +45,7 @@ func TestNextPage(t *testing.T) {
 				},
 			}
 			if got := r.Links.NextPage(); got != test.want {
-				t.Errorf(cmp.Diff(got, test.want))
+				t.Error(cmp.Diff(got, test.want))
 			}
 		})
 	}
@@ -121,7 +121,7 @@ func TestErrorFromResponse(t *testing.T) {
 			t.Parallel()
 			got := ErrorFromResponse(test.resp)
 			if got != test.want {
-				t.Errorf(cmp.Diff(got, test.want))
+				t.Error(cmp.Diff(got, test.want))
 			}
 		})
 	}

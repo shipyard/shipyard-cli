@@ -43,7 +43,7 @@ func login() error {
 			return
 		}
 		tokenChan <- t
-		fmt.Fprintln(w, "Authentication succeeded. You may close this browser tab.")
+		_, _ = fmt.Fprintln(w, "Authentication succeeded. You may close this browser tab.")
 	})
 	mux.Handle("/", handler)
 
@@ -52,7 +52,7 @@ func login() error {
 	if err != nil {
 		return fmt.Errorf("error creating a local callback server: %w", err)
 	}
-	listener.Close()
+	_ = listener.Close()
 	port := listener.Addr().(*net.TCPAddr).Port
 	server := &http.Server{
 		Addr:              net.JoinHostPort("localhost", strconv.Itoa(port)),
