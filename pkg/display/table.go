@@ -3,9 +3,11 @@ package display
 import (
 	"hash/fnv"
 	"io"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -207,6 +209,99 @@ func FormatClickableUUID(uuid string) string {
 	return uuid
 }
 
+// FormatClickableUUIDWithBackground formats a UUID with background color for duplicates
+func FormatClickableUUIDWithBackground(uuid string, bgColor *color.Color) string {
+	if uuid == "" {
+		return ""
+	}
+
+	detailsURL := "https://shipyard.build/application/" + uuid + "/detail"
+	
+	var formattedUUID string
+	if supportsOSC8() {
+		// OSC 8 escape sequence: \033]8;;URL\033\\TEXT\033]8;;\033\\
+		formattedUUID = "\033]8;;" + detailsURL + "\033\\" + uuid + "\033]8;;\033\\"
+	} else {
+		formattedUUID = uuid
+	}
+
+	if bgColor != nil {
+		if supportsOSC8() {
+			// For clickable links, apply color to the visible text only
+			coloredUUID := bgColor.Sprint(uuid)
+			return "\033]8;;" + detailsURL + "\033\\" + coloredUUID + "\033]8;;\033\\"
+		} else {
+			return bgColor.Sprint(formattedUUID)
+		}
+	}
+	return formattedUUID
+}
+
+// GetDuplicateUUIDs identifies UUIDs that appear more than once in the final table
+func GetDuplicateUUIDs(envs []types.Environment) map[string]bool {
+	uuidCounts := make(map[string]int)
+	
+	// Count occurrences of each UUID based on how many times they'll appear in the table
+	// Each environment UUID appears once per project in that environment
+	for _, env := range envs {
+		projectCount := len(env.Attributes.Projects)
+		if projectCount == 0 {
+			projectCount = 1 // Ensure at least one row per environment
+		}
+		uuidCounts[env.ID] += projectCount
+	}
+	
+	// Identify duplicates (UUIDs that appear more than once in the table)
+	duplicates := make(map[string]bool)
+	for uuid, count := range uuidCounts {
+		if count > 1 {
+			duplicates[uuid] = true
+		}
+	}
+	
+	return duplicates
+}
+
+// GenerateDuplicateColors creates consistent background colors for duplicate UUIDs
+func GenerateDuplicateColors(duplicateUUIDs map[string]bool) map[string]*color.Color {
+	if len(duplicateUUIDs) == 0 {
+		return nil
+	}
+	
+	// Available background colors (avoiding red/green used for Ready status)
+	backgroundColors := []color.Attribute{
+		color.BgBlue,
+		color.BgMagenta,
+		color.BgCyan,
+		color.BgYellow,
+		color.BgHiBlue,
+		color.BgHiMagenta,
+		color.BgHiCyan,
+		color.BgHiYellow,
+	}
+	
+	// Create seeded random generator for consistent colors
+	rand.Seed(time.Now().UnixNano())
+	
+	colorMap := make(map[string]*color.Color)
+	colorIndex := 0
+	
+	for uuid := range duplicateUUIDs {
+		// Use hash of UUID to get consistent color assignment
+		h := fnv.New32a()
+		h.Write([]byte(uuid))
+		selectedColorIndex := int(h.Sum32()) % len(backgroundColors)
+		
+		c := color.New(color.FgBlack, backgroundColors[selectedColorIndex])
+		// Force enable colors even if terminal detection fails
+		c.EnableColor()
+		colorMap[uuid] = c
+		colorIndex = (colorIndex + 1) % len(backgroundColors)
+	}
+	
+	return colorMap
+}
+
 // FormattedEnvironment takes an environment, extracts data from it, and prepares it
 // to be in tabular format. If the environment value is nil, the program will panic.
 func FormattedEnvironment(env *types.Environment) [][]string {
@@ -218,6 +313,33 @@ func FormattedEnvironment(env *types.Environment) [][]string {
 		data = append(data, []string{
 			FormatColoredAppName(env.Attributes.Name),
 			FormatClickableUUID(env.ID),
+			FormatReadyStatus(env.Attributes.Ready),
+			p.RepoName,
+			FormatPRNumber(pr, p.Branch),
+			FormatClickableURL(env.Attributes.URL),
+		})
+	}
+
+	return data
+}
+
+// FormattedEnvironmentWithDuplicateColors takes an environment and duplicate color mapping,
+// extracts data from it, and prepares it to be in tabular format with background colors for duplicate UUIDs.
+func FormattedEnvironmentWithDuplicateColors(env *types.Environment, duplicateColors map[string]*color.Color) [][]string {
+	data := make([][]string, 0, len(env.Attributes.Projects))
+
+	for _, p := range env.Attributes.Projects {
+		pr := strconv.Itoa(p.PullRequestNumber)
+		
+		// Get background color for UUID if it's a duplicate
+		var bgColor *color.Color
+		if duplicateColors != nil {
+			bgColor = duplicateColors[env.ID]
+		}
+
+		data = append(data, []string{
+			FormatColoredAppName(env.Attributes.Name),
+			FormatClickableUUIDWithBackground(env.ID, bgColor),
 			FormatReadyStatus(env.Attributes.Ready),
 			p.RepoName,
 			FormatPRNumber(pr, p.Branch),

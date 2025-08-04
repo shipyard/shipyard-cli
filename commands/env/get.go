@@ -157,10 +157,14 @@ func handleGetAllEnvironments(c client.Client) error {
 		return nil
 	}
 
+	// Detect duplicate UUIDs and generate colors
+	duplicateUUIDs := display.GetDuplicateUUIDs(r.Data)
+	duplicateColors := display.GenerateDuplicateColors(duplicateUUIDs)
+
 	var data [][]string
 	for i := range r.Data {
 		i := i
-		data = append(data, display.FormattedEnvironment(&r.Data[i])...)
+		data = append(data, display.FormattedEnvironmentWithDuplicateColors(&r.Data[i], duplicateColors)...)
 	}
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
