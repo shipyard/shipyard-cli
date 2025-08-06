@@ -14,8 +14,6 @@ import (
 )
 
 func TestEnvByID(t *testing.T) {
-	t.Parallel()
-
 	client, cleanup := setup()
 	defer cleanup()
 
@@ -31,8 +29,6 @@ func TestEnvByID(t *testing.T) {
 }
 
 func TestAllServices(t *testing.T) {
-	t.Parallel()
-
 	client, cleanup := setup()
 	defer cleanup()
 
@@ -48,8 +44,6 @@ func TestAllServices(t *testing.T) {
 }
 
 func TestFindService(t *testing.T) {
-	t.Parallel()
-
 	client, cleanup := setup()
 	defer cleanup()
 
