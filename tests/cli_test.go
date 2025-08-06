@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -25,16 +24,32 @@ func TestMain(m *testing.M) {
 		fmt.Printf("Setup failure: %s", stderr.String())
 		os.Exit(1)
 	}
+	
+	// Start test server on port 18081
 	srv := &http.Server{
-		Addr:              ":8000",
+		Addr:              ":18081",
 		ReadHeaderTimeout: time.Second,
 		Handler:           server.NewHandler(),
 	}
+	
+	// Channel to signal server startup status
+	serverReady := make(chan error, 1)
+	
 	go func() {
-		if err := srv.ListenAndServe(); err != nil {
-			log.Fatalf("Could not start server: %v\n", err)
-		}
+		// Signal that server is starting
+		serverReady <- srv.ListenAndServe()
 	}()
+	
+	// Wait a bit for server to start, then check if it failed
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case err := <-serverReady:
+		// Server failed to start immediately
+		fmt.Printf("Failed to start test server on port 18081: %v\n", err)
+		os.Exit(1)
+	default:
+		// Server appears to be running
+	}
 
 	code := m.Run()
 	if err := os.Remove("shipyard"); err != nil {
@@ -200,7 +215,7 @@ func newCmd(args []string) *cmdWrapper {
 		args: args,
 	}
 	c.cmd = exec.Command("./shipyard", commandLine(c.args)...)
-	c.cmd.Env = []string{"SHIPYARD_BUILD_URL=http://localhost:8000"}
+	c.cmd.Env = []string{"SHIPYARD_BUILD_URL=http://localhost:18081"}
 	stderr, stdout := new(bytes.Buffer), new(bytes.Buffer)
 	c.cmd.Stderr = stderr
 	c.cmd.Stdout = stdout

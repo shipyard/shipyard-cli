@@ -1,2 +1,3 @@
 api_token: test
+api_url: http://localhost:18081
 org: default

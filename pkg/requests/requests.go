@@ -46,6 +46,9 @@ func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error
 
 	var reqBody io.Reader
 	switch body := body.(type) {
+	case nil:
+		// For nil body (common with GET requests), use nil reader
+		reqBody = nil
 	case []byte:
 		reqBody = bytes.NewReader(body)
 	case *bytes.Buffer:
@@ -65,7 +68,10 @@ func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error
 		return nil, fmt.Errorf("error creating API request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", contentType)
+	// Only set Content-Type if there's a body
+	if reqBody != nil {
+		req.Header.Set("Content-Type", contentType)
+	}
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-%s-%s-%s", "shipyard-cli", version.Version, runtime.GOOS, runtime.GOARCH))
 	req.Header.Set("x-api-token", token)
 
