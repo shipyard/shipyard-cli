@@ -3,13 +3,14 @@ package uri
 import (
 	"fmt"
 	"net/url"
-	"os"
 	"sort"
+
+	"github.com/spf13/viper"
 )
 
 func CreateResourceURI(action, resource, id, subresource string, params map[string]string) string {
 	baseURL := "https://shipyard.build/api/v1"
-	if value := os.Getenv("SHIPYARD_BUILD_URL"); value != "" {
+	if value := viper.GetString("api_url"); value != "" {
 		baseURL = value
 	}
 

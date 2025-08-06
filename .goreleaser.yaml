@@ -1,8 +1,8 @@
+version: 2
+
 env:
   - GITHUB_TOKEN={{ if index .Env "GITHUB_TOKEN" }}{{ .Env.GITHUB_TOKEN }}{{else}}''{{end}}
-archives:
-  - format: binary
-    name_template: "shipyard-{{ .Os }}-{{ .Arch }}"
+
 builds:
   - env:
       - CGO_ENABLED=0
@@ -13,35 +13,33 @@ builds:
     goarch:
       - amd64
       - arm64
-    binary:
-      shipyard-{{.Os}}-{{.Arch}}
+    binary: shipyard-{{.Os}}-{{.Arch}}
     ldflags:
       - -s -w
       - -X github.com/shipyard/shipyard-cli/version.GitCommit={{.ShortCommit}}
       - -X github.com/shipyard/shipyard-cli/version.Version={{.Version}}
+archives:
+  - formats:
+      - binary
+    name_template: "{{ .Binary }}"
 checksum:
   name_template: 'checksums.txt'
 changelog:
   disable: true
-brews:
+homebrew_casks:
   - name: shipyard
     repository:
       owner: shipyard
       name: homebrew-tap
       branch: main
 
-    url_template: "https://github.com/shipyard/shipyard-cli/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
-
     commit_author:
       name: shipyard
       email: hello@shipyard.build
 
-    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
-    directory: Formula
+    commit_msg_template: "Cask update for {{ .ProjectName }} version {{ .Tag }}"
+    directory: Casks
 
     homepage: "https://shipyard.build"
     description: "A tool to manage Ephemeral Environments on the Shipyard platform"
-    license: "Apache2"
-
-    install: |
-      bin.install "shipyard-{{.Os}}-{{.Arch}}" => "shipyard"
+    license: "Apache-2.0"

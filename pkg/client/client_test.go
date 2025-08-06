@@ -3,7 +3,6 @@ package client
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -65,8 +64,8 @@ func TestFindService(t *testing.T) {
 func setup() (client Client, cleanup func()) {
 	handler := newMux()
 	server := httptest.NewServer(handler)
-	_ = os.Setenv("SHIPYARD_BUILD_URL", server.URL)
-	viper.Set("API_TOKEN", "fake-token")
+	viper.Set("api_url", server.URL)
+	viper.Set("api_token", "fake-token")
 	c := New(requests.New(), func() string { return "" })
 	return c, func() {
 		defer server.Close()

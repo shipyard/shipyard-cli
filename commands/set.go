@@ -42,6 +42,8 @@ func NewSetOrgCmd() *cobra.Command {
 }
 
 func NewSetTokenCmd() *cobra.Command {
+	var profile string
+
 	cmd := &cobra.Command{
 		Use:          "token",
 		Short:        "Set the API token in the config",
@@ -50,11 +52,14 @@ func NewSetTokenCmd() *cobra.Command {
 		Example:      `  shipyard set token <token>`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return setTokenInteractively(os.Stdin)
+				return setTokenInteractively(os.Stdin, profile)
 			}
-			return SetToken(args[0])
+			return SetToken(args[0], profile)
 		},
 	}
+
+	cmd.Flags().StringVar(&profile, "profile", "", "Profile name to save token under (hidden)")
+	cmd.Flags().MarkHidden("profile")
 
 	return cmd
 }
@@ -68,7 +73,7 @@ func setOrg(name string) error {
 	return viper.WriteConfig()
 }
 
-func setTokenInteractively(r io.Reader) error {
+func setTokenInteractively(r io.Reader, profile string) error {
 	display.Print("Your API token: ")
 
 	var token string
@@ -77,11 +82,32 @@ func setTokenInteractively(r io.Reader) error {
 		return err
 	}
 
-	return SetToken(token)
+	return SetToken(token, profile)
 }
 
-func SetToken(token string) error {
+func SetToken(token string, profile string) error {
 	viper.Set("api_token", token)
+
+	// If a profile is specified, save the token under that profile as well
+	if profile != "" {
+		profiles := viper.GetStringMap("profiles")
+		if profiles == nil {
+			profiles = make(map[string]interface{})
+		}
+
+		// Create or update the profile with the auth_token
+		profileData := make(map[string]interface{})
+		if existingProfile, exists := profiles[profile]; exists {
+			if profileMap, ok := existingProfile.(map[string]interface{}); ok {
+				profileData = profileMap
+			}
+		}
+		profileData["auth_token"] = token
+		profiles[profile] = profileData
+
+		viper.Set("profiles", profiles)
+	}
+
 	// TODO: find a better way to not persist the value of verbose globally.
 	viper.Set("verbose", false)
 	err := viper.MergeInConfig()

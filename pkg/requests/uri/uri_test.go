@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
+	"github.com/spf13/viper"
 )
 
 func TestMain(m *testing.M) {
 	// Set a consistent base URL for all tests
-	_ = os.Setenv("SHIPYARD_BUILD_URL", "http://localhost:8080/api/v1")
+	viper.Set("api_url", "http://localhost:8080/api/v1")
 	code := m.Run()
 	os.Exit(code)
 }
@@ -84,7 +85,8 @@ func TestCreateResourceURI(t *testing.T) {
 }
 
 func TestCreateResourceURIWithCustomBase(t *testing.T) {
-	// Test with the base URL set in TestMain
+	viper.Set("api_url", "http://localhost:8080/api/v1")
+
 	want := "http://localhost:8080/api/v1/environment/123abc"
 	got := uri.CreateResourceURI("", "environment", "123abc", "", nil)
 	if got != want {
