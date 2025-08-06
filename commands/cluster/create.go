@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"bufio"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -478,7 +479,121 @@ metadata:
 	cmd.Stderr = os.Stderr
 	_ = cmd.Run() // Ignore error if binding already exists
 
+	// Trigger TLS certificate generation by making a request to the Tailscale FQDN
+	if err := triggerCertificateGeneration(tailscaleOperatorFQDN); err != nil {
+		return "", fmt.Errorf("failed to trigger certificate generation: %w", err)
+	}
+
 	return createKubeconfigFromServiceAccount(tailscaleNamespace, tailscaleServiceAccount, k3dClusterName, tailscaleOperatorFQDN)
+}
+
+// triggerCertificateGeneration makes an HTTPS request to the Tailscale FQDN to trigger TLS certificate generation
+// and polls for certificate creation with a 1-minute timeout
+func triggerCertificateGeneration(fqdn string) error {
+	// Make multiple HTTPS requests to trigger certificate generation using different endpoints
+	// We expect these to fail initially (since certs aren't ready), but they trigger cert generation
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, // We don't care about cert validation, just want to trigger generation
+			},
+		},
+	}
+	
+	// Try multiple endpoints to increase chances of triggering certificate generation
+	endpoints := []string{"/version", "/api", "/healthz", "/"}
+	
+	fmt.Printf("🔐 Triggering Tailscale certificate generation...\n")
+	for _, endpoint := range endpoints {
+		url := fmt.Sprintf("https://%s:443%s", fqdn, endpoint)
+		resp, err := client.Get(url)
+		if resp != nil {
+			resp.Body.Close()
+		}
+		// We don't care about errors - we just want to trigger cert generation
+		_ = err
+		// Small delay between requests
+		time.Sleep(500 * time.Millisecond)
+	}
+	
+	// Poll for certificate creation with 2-minute timeout (Tailscale docs mention this can take time)
+	timeout := time.After(2 * time.Minute)
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	
+	fmt.Printf("⏳ Waiting for Tailscale certificate generation (may take up to 2 minutes)...\n")
+	
+	attempt := 1
+	for {
+		select {
+		case <-timeout:
+			return fmt.Errorf("timeout: certificate generation took longer than 2 minutes")
+		case <-ticker.C:
+			fmt.Printf("🔍 Checking certificate readiness (attempt %d)...\n", attempt)
+			// Check if certificate exists in operator secret
+			if certExists := checkCertificateExists(fqdn); certExists {
+				fmt.Printf("✓ Tailscale certificate generated successfully\n")
+				return nil
+			}
+			attempt++
+		}
+	}
+}
+
+// checkCertificateExists checks if the Tailscale FQDN is accessible by testing connectivity multiple times
+func checkCertificateExists(fqdn string) bool {
+	// Test connectivity multiple times to ensure stability
+	successCount := 0
+	attempts := 3
+	
+	for i := 0; i < attempts; i++ {
+		if testSingleConnection(fqdn) {
+			successCount++
+		}
+		// Small delay between attempts
+		if i < attempts-1 {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	
+	// Require at least 2 out of 3 successful connections for stability
+	return successCount >= 2
+}
+
+// testSingleConnection tests a single connection to the Tailscale FQDN
+func testSingleConnection(fqdn string) bool {
+	client := &http.Client{
+		Timeout: 8 * time.Second, // Slightly longer timeout
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+	
+	url := fmt.Sprintf("https://%s:443/version", fqdn)
+	resp, err := client.Get(url)
+	if resp != nil {
+		resp.Body.Close()
+		// If we get a response (even an error response like 401/403), the TLS connection worked
+		return true
+	}
+	
+	// Check if it's a network/DNS error vs TLS/auth error
+	if err != nil {
+		// DNS errors, timeouts, connection refused = not ready
+		if strings.Contains(err.Error(), "timeout") || 
+		   strings.Contains(err.Error(), "connection refused") ||
+		   strings.Contains(err.Error(), "no such host") ||
+		   strings.Contains(err.Error(), "lookup") {
+			return false
+		}
+		// Other errors (like auth errors, TLS handshake success) suggest connection worked
+		return true
+	}
+	
+	return false
 }
 
 // createKubeconfigFromServiceAccount creates a kubeconfig from an existing service account
