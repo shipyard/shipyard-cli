@@ -59,7 +59,7 @@ func NewSetTokenCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&profile, "profile", "", "Profile name to save token under (hidden)")
-	cmd.Flags().MarkHidden("profile")
+	_ = cmd.Flags().MarkHidden("profile")
 
 	return cmd
 }
