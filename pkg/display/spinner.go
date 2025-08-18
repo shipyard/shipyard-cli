@@ -69,7 +69,7 @@ func (s *Spinner) Stop() {
 	// Clear the line if we're in a terminal
 	if isatty.IsTerminal(os.Stdout.Fd()) {
 		// Simply clear the current line and move cursor to beginning
-		fmt.Fprint(s.writer, "\r\033[K")
+		_, _ = fmt.Fprint(s.writer, "\r\033[K")
 	}
 }
 
@@ -87,7 +87,7 @@ func (s *Spinner) animate() {
 			return
 		case <-ticker.C:
 			frame := s.frames[frameIndex%len(s.frames)]
-			fmt.Fprintf(s.writer, "\r%s %s", cyan.Sprint(frame), s.message)
+			_, _ = fmt.Fprintf(s.writer, "\r%s %s", cyan.Sprint(frame), s.message)
 			frameIndex++
 		}
 	}
