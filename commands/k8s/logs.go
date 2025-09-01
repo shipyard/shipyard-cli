@@ -17,7 +17,7 @@ func NewLogsCmd(c client.Client) *cobra.Command {
 		Short:   "Get logs from a service in an environment",
 		Example: `  # Get logs for service flask-backend:
   shipyard logs --env 12345 --service flask-backend
-  
+
   # Follow logs for the flask-backend service:
   shipyard logs --env 12345 --service flask-backend --follow
 

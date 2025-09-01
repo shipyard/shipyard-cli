@@ -84,51 +84,51 @@ func newMux() *http.ServeMux {
 		_, _ = w.Write([]byte(`{
   "data": {
     "attributes": {
-      "name": "flask-starter", 
+      "name": "flask-starter",
       "projects": [
         {
-          "branch": "master", 
-          "commit_hash": null, 
-          "pull_request_number": null, 
-          "repo_name": "flask-starter", 
+          "branch": "master",
+          "commit_hash": null,
+          "pull_request_number": null,
+          "repo_name": "flask-starter",
           "repo_owner": "maxsokolovsky"
         }
-      ], 
-      "ready": false, 
-      "retired": true, 
+      ],
+      "ready": false,
+      "retired": true,
       "services": [
 		{
-          "name": "web", 
+          "name": "web",
           "ports": [
             "8080"
-          ], 
-          "sanitized_name": "web", 
+          ],
+          "sanitized_name": "web",
           "url": ""
-        }, 
+        },
         {
-          "name": "flower", 
+          "name": "flower",
           "ports": [
             "8081"
-          ], 
-          "sanitized_name": "flower", 
+          ],
+          "sanitized_name": "flower",
           "url": ""
-        }, 
+        },
         {
-          "name": "worker", 
-          "ports": [], 
-          "sanitized_name": "worker", 
+          "name": "worker",
+          "ports": [],
+          "sanitized_name": "worker",
           "url": ""
         }
-      ], 
-      "since_last_visit": 180, 
-      "stopped": true, 
+      ],
+      "since_last_visit": 180,
+      "stopped": true,
       "url": "https://123abc.dev.maxsokolovsky.shipyard.host"
-    }, 
-    "id": "123abc", 
+    },
+    "id": "123abc",
     "links": {
-      "kubeconfig": "/api/v1/environment/123abc/kubeconfig", 
+      "kubeconfig": "/api/v1/environment/123abc/kubeconfig",
       "self": "/api/v1/environment/123abc"
-    }, 
+    },
     "type": "application"
   }
 }`))
