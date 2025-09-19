@@ -137,6 +137,6 @@ func initConfig() {
 
 func fail(kind string, err error) {
 	red := color.New(color.FgHiRed)
-	_, _ = red.Fprintf(os.Stderr, fmt.Sprintf("%s error: %s\n", kind, err))
+	_, _ = red.Fprintf(os.Stderr, "%s error: %s\n", kind, err)
 	os.Exit(1)
 }
