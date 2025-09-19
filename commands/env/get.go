@@ -75,6 +75,7 @@ func NewGetAllEnvironmentsCmd(c client.Client) *cobra.Command {
 			_ = viper.BindPFlag("branch", cmd.Flags().Lookup("branch"))
 			_ = viper.BindPFlag("pull-request-number", cmd.Flags().Lookup("pull-request-number"))
 			_ = viper.BindPFlag("deleted", cmd.Flags().Lookup("deleted"))
+			_ = viper.BindPFlag("active-last-2-months", cmd.Flags().Lookup("active-last-2-months"))
 			_ = viper.BindPFlag("page", cmd.Flags().Lookup("page"))
 			_ = viper.BindPFlag("page-size", cmd.Flags().Lookup("page-size"))
 			_ = viper.BindPFlag("json", cmd.Flags().Lookup("json"))
@@ -90,6 +91,7 @@ func NewGetAllEnvironmentsCmd(c client.Client) *cobra.Command {
 	cmd.Flags().String("branch", "", "Filter by branch name")
 	cmd.Flags().String("pull-request-number", "", "Filter by pull request number")
 	cmd.Flags().Bool("deleted", false, "Filter by deleted status (default false)")
+	cmd.Flags().Bool("active-last-2-months", false, "Filter environments active in the last 2 months")
 	cmd.Flags().Int("page", 1, "Page number requested")
 	cmd.Flags().Int("page-size", 20, "Page size requested")
 	cmd.Flags().Bool("json", false, "JSON output")
@@ -118,6 +120,9 @@ func handleGetAllEnvironments(c client.Client) error {
 	}
 	if deleted := viper.GetBool("deleted"); deleted {
 		params["deleted"] = "true"
+	}
+	if activeLast2Months := viper.GetBool("active-last-2-months"); activeLast2Months {
+		params["active_last_2_months"] = "true"
 	}
 	if page := viper.GetInt("page"); page != 0 {
 		params["page"] = strconv.Itoa(page)
