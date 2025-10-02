@@ -55,7 +55,7 @@ func TestDoMethodNilBodyHandling(t *testing.T) {
 				if reqBody != nil {
 					// Read to see what's in it
 					buf := new(bytes.Buffer)
-					buf.ReadFrom(reqBody)
+					_, _ = buf.ReadFrom(reqBody)
 					content := buf.String()
 					
 					// This should fail when fix is commented out!
