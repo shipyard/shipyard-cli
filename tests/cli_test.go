@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -25,16 +24,32 @@ func TestMain(m *testing.M) {
 		fmt.Printf("Setup failure: %s", stderr.String())
 		os.Exit(1)
 	}
+
+	// Start test server on port 18081
 	srv := &http.Server{
-		Addr:              ":8000",
+		Addr:              ":18081",
 		ReadHeaderTimeout: time.Second,
 		Handler:           server.NewHandler(),
 	}
+
+	// Channel to signal server startup status
+	serverReady := make(chan error, 1)
+
 	go func() {
-		if err := srv.ListenAndServe(); err != nil {
-			log.Fatalf("Could not start server: %v\n", err)
-		}
+		// Signal that server is starting
+		serverReady <- srv.ListenAndServe()
 	}()
+
+	// Wait a bit for server to start, then check if it failed
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case err := <-serverReady:
+		// Server failed to start immediately
+		fmt.Printf("Failed to start test server on port 18081: %v\n", err)
+		os.Exit(1)
+	default:
+		// Server appears to be running
+	}
 
 	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
@@ -87,13 +102,13 @@ func TestGetAllEnvironments(t *testing.T) {
 				}
 				return
 			}
-			
+
 			// If we expected an error but got success, that's wrong
 			if test.output != "" {
 				t.Errorf("Expected error %q but command succeeded", test.output)
 				return
 			}
-			
+
 			var resp types.RespManyEnvs
 			if err := json.Unmarshal(c.stdOut.Bytes(), &resp); err != nil {
 				t.Fatal(err)
@@ -156,13 +171,13 @@ func TestGetEnvironmentByID(t *testing.T) {
 				}
 				return
 			}
-			
+
 			// If we expected an error but got success, that's wrong
 			if test.output != "" {
 				t.Errorf("Expected error %q but command succeeded", test.output)
 				return
 			}
-			
+
 			var resp types.Response
 			if err := json.Unmarshal(c.stdOut.Bytes(), &resp); err != nil {
 				t.Fatal(err)
@@ -222,7 +237,7 @@ func TestRebuildEnvironment(t *testing.T) {
 				}
 				return
 			}
-			
+
 			// For rebuild tests, success cases have specific success messages
 			// Error cases should have failed above and not reach here
 			if diff := cmp.Diff(c.stdOut.String(), test.output); diff != "" {
@@ -238,7 +253,7 @@ func newCmd(args []string) *cmdWrapper {
 		args: args,
 	}
 	c.cmd = exec.Command("./shipyard", commandLine(c.args)...)
-	c.cmd.Env = append(os.Environ(), 
+	c.cmd.Env = append(os.Environ(),
 		"SHIPYARD_BUILD_URL=http://localhost:8000",
 		"SHIPYARD_API_TOKEN=test",
 	)
