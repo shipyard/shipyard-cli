@@ -90,6 +90,40 @@ func TestStdioTransport_ReadMessage(t *testing.T) {
 	}
 }
 
+func TestStdioTransport_StartInitializesChannels(t *testing.T) {
+	reader := bufio.NewReader(strings.NewReader("ping\n"))
+	transport := &StdioTransport{
+		reader: reader,
+		writer: bufio.NewWriter(&bytes.Buffer{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := transport.Start(ctx); err != nil {
+		t.Fatalf("Failed to start transport: %v", err)
+	}
+
+	if transport.msgChan == nil {
+		t.Fatal("msgChan should be initialized during Start")
+	}
+	if transport.errChan == nil {
+		t.Fatal("errChan should be initialized during Start")
+	}
+
+	msg, err := transport.ReadMessage()
+	if err != nil {
+		t.Fatalf("Unexpected error reading message: %v", err)
+	}
+	if string(msg) != "ping" {
+		t.Errorf("Expected 'ping', got '%s'", string(msg))
+	}
+
+	if err := transport.Stop(); err != nil {
+		t.Fatalf("Failed to stop transport: %v", err)
+	}
+}
+
 func TestStdioTransport_WriteMessage(t *testing.T) {
 	var output bytes.Buffer
 	writer := bufio.NewWriter(&output)

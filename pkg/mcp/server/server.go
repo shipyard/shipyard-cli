@@ -144,26 +144,26 @@ func (s *MCPServer) IsRunning() bool {
 // Handle MCP messages
 func (s *MCPServer) handleMessages() {
 	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		default:
-			msg, err := s.transport.ReadMessage()
-			if err != nil {
-				log.Printf("Error reading message: %v", err)
-				// If we get EOF or stdin is closed, stop the server
-				if err.Error() == "stdin closed" || err == io.EOF {
-					log.Println("Input stream closed, stopping server")
-					return
-				}
-				continue
+		msg, err := s.transport.ReadMessage()
+		if err != nil {
+			// Check if it's a context cancellation (normal shutdown)
+			if err == context.Canceled || err == context.DeadlineExceeded {
+				log.Println("Server shutting down")
+				return
 			}
+			// Check if stdin was closed
+			if err.Error() == "stdin closed" || err == io.EOF {
+				log.Println("Input stream closed, stopping server")
+				return
+			}
+			log.Printf("Error reading message: %v", err)
+			continue
+		}
 
-			response := s.processMessage(msg)
-			if response != nil {
-				if err := s.transport.WriteMessage(response); err != nil {
-					log.Printf("Error writing response: %v", err)
-				}
+		response := s.processMessage(msg)
+		if response != nil {
+			if err := s.transport.WriteMessage(response); err != nil {
+				log.Printf("Error writing response: %v", err)
 			}
 		}
 	}
