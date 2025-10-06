@@ -388,6 +388,8 @@ claude mcp add shipyard -- shipyard mcp serve
 
 ### Adding to Codex CLI
 
+Edit `~/.codex/config.toml` and add:
+
 ```
 [mcp_servers.shipyard]
 command = "shipyard"
