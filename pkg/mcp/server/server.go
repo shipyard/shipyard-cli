@@ -18,12 +18,7 @@ import (
 )
 
 // JSON-RPC 2.0 structures
-type JSONRPCRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}     `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
+type JSONRPCRequest = middleware.JSONRPCRequest
 
 type JSONRPCResponse struct {
 	JSONRPC string        `json:"jsonrpc"`
