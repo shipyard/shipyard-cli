@@ -385,3 +385,12 @@ If already configured with CLI:
 ```bash
 claude mcp add shipyard -- shipyard mcp serve
 ```
+
+### Adding to Codex CLI
+
+```
+[mcp_servers.shipyard]
+command = "shipyard"
+args = ["mcp", "serve"]
+env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-name" }
+```
