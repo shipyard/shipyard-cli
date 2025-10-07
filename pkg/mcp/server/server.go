@@ -192,10 +192,15 @@ func (s *MCPServer) processMessage(data []byte) []byte {
 	switch req.Method {
 	case "initialize":
 		return s.handleInitialize(&req)
+	case "notifications/initialized":
+		// Client notification - no response needed
+		return nil
 	case "tools/list":
 		return s.handleListTools(&req)
 	case "tools/call":
 		return s.handleCallTool(&req)
+	case "prompts/list":
+		return s.handleListPrompts(&req)
 	case "resources/list":
 		return s.handleListResources(&req)
 	case "resources/read":
@@ -212,6 +217,7 @@ func (s *MCPServer) handleInitialize(req *JSONRPCRequest) []byte {
 		"capabilities": map[string]interface{}{
 			"tools":     map[string]interface{}{},
 			"resources": map[string]interface{}{},
+			"prompts":   map[string]interface{}{},
 		},
 		"serverInfo": map[string]interface{}{
 			"name":    "shipyard-mcp-server",
@@ -231,6 +237,16 @@ func (s *MCPServer) handleListTools(req *JSONRPCRequest) []byte {
 
 	result := map[string]interface{}{
 		"tools": toolsList,
+	}
+
+	return s.successResponse(req.ID, result)
+}
+
+// Handle list prompts request
+func (s *MCPServer) handleListPrompts(req *JSONRPCRequest) []byte {
+	// Shipyard doesn't support prompts yet, return empty list
+	result := map[string]interface{}{
+		"prompts": []interface{}{},
 	}
 
 	return s.successResponse(req.ID, result)
