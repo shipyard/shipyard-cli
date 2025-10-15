@@ -64,7 +64,6 @@ func (t *OrgTool) Definition() ToolDefinition {
 // Execute runs the tool with given parameters
 func (t *OrgTool) Execute(ctx context.Context, params json.RawMessage) (string, error) {
 	log.Printf("MCP tool execution started: %s with params: %s", t.name, string(params))
-	fmt.Printf("DEBUG: MCP tool execution started: %s with params: %s\n", t.name, string(params))
 
 	switch t.name {
 	case "get_orgs":

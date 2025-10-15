@@ -375,7 +375,6 @@ func (s *MCPServer) validateRequest(req *JSONRPCRequest) error {
 
 // Register available tools
 func (s *MCPServer) registerTools() {
-	log.Printf("DEBUG: Registering MCP tools with updated binary")
 	// Register environment tools
 	s.tools["get_environments"] = tools.NewEnvironmentTool(s.client, "get_environments")
 	s.tools["get_environment"] = tools.NewEnvironmentTool(s.client, "get_environment")
@@ -407,16 +406,12 @@ func (s *MCPServer) registerTools() {
 
 	// Register telepresence tools
 	s.tools["telepresence_connect"] = tools.NewTelepresenceTool(s.client, "telepresence_connect")
-
-	log.Printf("DEBUG: Registered %d MCP tools", len(s.tools))
 }
 
 // Register available resources
 func (s *MCPServer) registerResources() {
-	log.Printf("DEBUG: Registering MCP resources")
 	// Register logs resource
 	s.resources = append(s.resources, resources.NewLogsResource(s.client))
-	log.Printf("DEBUG: Registered %d MCP resources", len(s.resources))
 }
 
 // Setup middleware chain
