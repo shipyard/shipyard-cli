@@ -48,7 +48,7 @@ func writeToArchive(tarWriter *tar.Writer, fileName string, fileInfo os.FileInfo
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	_, err = io.Copy(tarWriter, file)
 	return err
 }
@@ -58,16 +58,16 @@ func createArchive(targetName string, writeFunc func(*tar.Writer) error) error {
 	if err != nil {
 		return err
 	}
-	defer tarFile.Close()
+	defer func() { _ = tarFile.Close() }()
 
 	bz2Writer, err := bzip2.NewWriter(tarFile, &bzip2.WriterConfig{Level: bzip2.BestCompression})
 	if err != nil {
 		return err
 	}
-	defer bz2Writer.Close()
+	defer func() { _ = bz2Writer.Close() }()
 
 	tarWriter := tar.NewWriter(bz2Writer)
-	defer tarWriter.Close()
+	defer func() { _ = tarWriter.Close() }()
 
 	return writeFunc(tarWriter)
 }

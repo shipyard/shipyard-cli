@@ -88,7 +88,7 @@ func handleUploadVolumeCmd(c client.Client) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	subresource := fmt.Sprintf("volume/%s/upload", volume)
 	url := uri.CreateResourceURI("", "environment", envID, subresource, params)
@@ -107,7 +107,7 @@ func bz2File(path string) bool {
 func fileForm(file *os.File, formField string) (*bytes.Buffer, string, error) {
 	var bodyBuf bytes.Buffer
 	bodyWriter := multipart.NewWriter(&bodyBuf)
-	defer bodyWriter.Close()
+	defer func() { _ = bodyWriter.Close() }()
 
 	fileWriter, err := bodyWriter.CreateFormFile(formField, file.Name())
 	if err != nil {
