@@ -1,0 +1,118 @@
+package display
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/fatih/color"
+	"github.com/mattn/go-isatty"
+)
+
+// Spinner represents a terminal spinner animation
+type Spinner struct {
+	mu       sync.Mutex
+	writer   io.Writer
+	message  string
+	active   bool
+	stopCh   chan struct{}
+	frames   []string
+	interval time.Duration
+}
+
+// NewSpinner creates a new spinner with the given message
+func NewSpinner(message string) *Spinner {
+	return &Spinner{
+		writer:   os.Stdout,
+		message:  message,
+		frames:   []string{"*", "⋆", "✦", "✧", "✦", "⋆"},
+		interval: 150 * time.Millisecond,
+		stopCh:   make(chan struct{}),
+	}
+}
+
+// Start begins the spinner animation
+func (s *Spinner) Start() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.active {
+		return
+	}
+
+	// Only show spinner if we're in a terminal and not in test mode
+	if !isatty.IsTerminal(os.Stdout.Fd()) || isTestMode() {
+		// For non-terminal output or test mode, don't show anything
+		return
+	}
+
+	s.active = true
+	s.stopCh = make(chan struct{})
+
+	go s.animate()
+}
+
+// Stop ends the spinner animation and clears the line
+func (s *Spinner) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.active {
+		return
+	}
+
+	s.active = false
+	close(s.stopCh)
+
+	// Clear the line if we're in a terminal
+	if isatty.IsTerminal(os.Stdout.Fd()) {
+		// Simply clear the current line and move cursor to beginning
+		_, _ = fmt.Fprint(s.writer, "\r\033[K")
+	}
+}
+
+// animate runs the spinner animation loop
+func (s *Spinner) animate() {
+	ticker := time.NewTicker(s.interval)
+	defer ticker.Stop()
+
+	frameIndex := 0
+	cyan := color.New(color.FgCyan)
+
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			frame := s.frames[frameIndex%len(s.frames)]
+			_, _ = fmt.Fprintf(s.writer, "\r%s %s", cyan.Sprint(frame), s.message)
+			frameIndex++
+		}
+	}
+}
+
+// SetMessage updates the spinner message while it's running
+func (s *Spinner) SetMessage(message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.message = message
+}
+
+// isTestMode detects if we're running in test mode
+func isTestMode() bool {
+	// Check for common test environment indicators
+	for _, env := range []string{"GO_TEST", "TESTING"} {
+		if os.Getenv(env) != "" {
+			return true
+		}
+	}
+	
+	// Check if the SHIPYARD_BUILD_URL is set to localhost (test server)
+	if buildURL := os.Getenv("SHIPYARD_BUILD_URL"); buildURL == "http://localhost:8000" {
+		return true
+	}
+	
+	return false
+}

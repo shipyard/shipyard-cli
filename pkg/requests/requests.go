@@ -77,7 +77,7 @@ func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error
 		}
 		return nil, fmt.Errorf("error sending API request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
