@@ -52,6 +52,7 @@ type MCPServer struct {
 	mu         sync.RWMutex
 	ctx        context.Context
 	cancel     context.CancelFunc
+	done       chan struct{}
 }
 
 // Create new MCP server
@@ -65,6 +66,7 @@ func NewMCPServer(config MCPServerConfig, client client.Client) *MCPServer {
 		middleware: make([]middleware.Middleware, 0),
 		ctx:        ctx,
 		cancel:     cancel,
+		done:       make(chan struct{}),
 	}
 }
 
@@ -75,6 +77,14 @@ func (s *MCPServer) Start() error {
 
 	if s.running {
 		return fmt.Errorf("server already running")
+	}
+
+	// Recreate done channel if it was closed from a previous run
+	select {
+	case <-s.done:
+		s.done = make(chan struct{})
+	default:
+		// Channel is still open, nothing to do
 	}
 
 	// Initialize transport based on config
@@ -136,8 +146,18 @@ func (s *MCPServer) IsRunning() bool {
 	return s.running
 }
 
+// Done returns a channel that is closed when the server stops
+func (s *MCPServer) Done() <-chan struct{} {
+	return s.done
+}
+
 // Handle MCP messages
 func (s *MCPServer) handleMessages() {
+	defer func() {
+		// Signal that message handling has stopped
+		close(s.done)
+	}()
+
 	for {
 		msg, err := s.transport.ReadMessage()
 		if err != nil {
@@ -149,6 +169,8 @@ func (s *MCPServer) handleMessages() {
 			// Check if stdin was closed
 			if err.Error() == "stdin closed" || err == io.EOF {
 				log.Println("Input stream closed, stopping server")
+				// Trigger server shutdown when stdin closes
+				s.Stop()
 				return
 			}
 			log.Printf("Error reading message: %v", err)

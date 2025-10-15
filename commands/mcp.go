@@ -70,13 +70,17 @@ func runMCPServe(c client.Client) error {
 
 	log.Println("MCP server running. Press Ctrl+C to stop.")
 
-	// Wait for shutdown signal
-	<-sigChan
-	log.Println("Shutting down MCP server...")
-
-	// Stop server
-	if err := mcpServer.Stop(); err != nil {
-		return fmt.Errorf("error stopping MCP server: %w", err)
+	// Wait for shutdown signal or stdin closure
+	select {
+	case <-sigChan:
+		log.Println("Received shutdown signal...")
+		// Stop server
+		if err := mcpServer.Stop(); err != nil {
+			return fmt.Errorf("error stopping MCP server: %w", err)
+		}
+	case <-mcpServer.Done():
+		// Server already stopped (stdin closed)
+		log.Println("Server stopped")
 	}
 
 	log.Println("MCP server stopped successfully")
