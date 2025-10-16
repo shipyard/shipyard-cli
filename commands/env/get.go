@@ -26,7 +26,7 @@ func NewGetEnvironmentCmd(c client.Client) *cobra.Command {
 		Short:   "Get an environment's details by ID",
 		Example: `  # Get all the details for environment ID 12345:
   shipyard get environment 12345
-  
+
   # Get all the details for environment ID 12345 in JSON format:
   shipyard get environment 12345 --json`,
 		SilenceUsage: true,
@@ -58,13 +58,13 @@ func NewGetAllEnvironmentsCmd(c client.Client) *cobra.Command {
 		Short:        "Get details for all environments in an org",
 		Example: `  # Get details on all environments in your default org:
   shipyard get environments
-  
+
   # Get all the details in JSON format:
   shipyard get environments --json
-  
+
   # Get all the environments for a specific repo and branch:
   shipyard get environments --repo-name flask-backend --branch main
-  
+
   # Get all the environments based on specific PR:
   shipyard get environments --pull-request-number 1
   `,

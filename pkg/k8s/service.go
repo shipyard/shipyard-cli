@@ -153,6 +153,29 @@ func (c *Service) Logs(follow bool, tail int64) error {
 	return nil
 }
 
+// GetLogsAsString returns logs as a string instead of printing them
+// This is used by the MCP logs service to capture log output
+func (c *Service) GetLogsAsString(follow bool, tail int64) (string, error) {
+	opts := v1.PodLogOptions{
+		Follow:    follow,
+		TailLines: &tail,
+	}
+	req := c.clientSet.CoreV1().Pods(c.namespace).GetLogs(c.pod, &opts)
+
+	podLogs, err := req.Stream(context.TODO())
+	if err != nil {
+		return "", err
+	}
+	defer podLogs.Close()
+
+	var buf bytes.Buffer
+	if _, err = io.Copy(&buf, podLogs); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
 func (c *Service) PortForward(ports []string) error {
 	roundTripper, upgrader, err := spdy.RoundTripperFor(c.restConfig)
 	if err != nil {
