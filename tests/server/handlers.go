@@ -40,6 +40,42 @@ func (handler) rebuildEnvironment(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (handler) deployDetached(w http.ResponseWriter, r *http.Request) {
+	org := r.URL.Query().Get("org")
+	if _, ok := store[org]; !ok {
+		orgNotFound(w)
+		return
+	}
+	if r.PathValue("id") == "missing-build" {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprint(w, "application build not found")
+		return
+	}
+
+	var req struct {
+		DisplayName string `json:"display_name"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	name := req.DisplayName
+	if name == "" {
+		name = "detached"
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	resp := map[string]any{
+		"data": map[string]any{
+			"message":                fmt.Sprintf("Detached environment '%s' deployed successfully", name),
+			"application_uuid":       "new-app-uuid",
+			"application_build_uuid": "new-app-build-uuid",
+			"display_name":           name,
+		},
+	}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+	}
+}
+
 func findEnvByID(w http.ResponseWriter, r *http.Request) *types.Environment {
 	org := r.URL.Query().Get("org")
 	envs, ok := store[org]

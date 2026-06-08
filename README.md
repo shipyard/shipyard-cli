@@ -149,6 +149,25 @@ shipyard rebuild environment {environment_uuid}
 shipyard revive environment {environment_uuid}
 ```
 
+### Deploy a detached environment
+
+Create a new, independent ("detached") environment by cloning an existing application build.
+Requires detached environments to be enabled for your org.
+
+```bash
+shipyard detached deploy {application_build_uuid} --name my-detached-env
+```
+
+Override branches per-repo and control whether the detached environment rebuilds on new commits:
+
+```bash
+# Override the branch for a repo, and never rebuild on new commits
+shipyard detached deploy {application_build_uuid} --name my-detached-env --branch web=feature-x --build-on-commit never
+
+# Per-repo build-on-commit settings (always | inherit | never)
+shipyard detached deploy {application_build_uuid} --build-on-commit-for web=always --build-on-commit-for api=never
+```
+
 ### Get all services and exposed ports for an environment
 
 ```bash
