@@ -67,8 +67,14 @@ jobs:
 
       - name: Run smoke tests
         run: |
-          chmod +x dist/${{ matrix.binary }}
-          ./scripts/smoke-test.sh dist/${{ matrix.binary }}
+          BINARY=$(find dist -name "${{ matrix.binary }}" -type f | head -1)
+          if [[ -z "$BINARY" ]]; then
+            echo "Binary ${{ matrix.binary }} not found in dist/"
+            find dist -type f
+            exit 1
+          fi
+          chmod +x "$BINARY"
+          ./scripts/smoke-test.sh "$BINARY"
 
   release:
     name: Release
