@@ -52,6 +52,8 @@ jobs:
             binary: shipyard-linux-amd64
           - os: macos-latest
             binary: shipyard-darwin-arm64
+          - os: macos-13
+            binary: shipyard-darwin-amd64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout

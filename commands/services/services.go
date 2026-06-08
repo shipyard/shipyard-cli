@@ -34,7 +34,16 @@ func NewGetServicesCmd(c client.Client) *cobra.Command {
 
 func handleGetServicesCmd(c client.Client) error {
 	id := viper.GetString("env")
+	
+	// Start spinner
+	spinner := display.NewSpinner("Fetching info please standby...")
+	spinner.Start()
+	
 	svcs, err := c.AllServices(id)
+	
+	// Stop spinner immediately after API call
+	spinner.Stop()
+	
 	if err != nil {
 		return fmt.Errorf("failed to get services for environment %s: %w", id, err)
 	}
@@ -47,13 +56,13 @@ func handleGetServicesCmd(c client.Client) error {
 		}
 
 		data = append(data, []string{
-			s.Name,
+			display.FormatColoredAppName(s.Name),
 			ports,
-			s.URL,
+			display.FormatClickableURL(s.URL),
 		})
 	}
 
-	columns := []string{"Name", "Ports", "URL"}
+	columns := []string{"Services", "Ports", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
 	return nil
 }

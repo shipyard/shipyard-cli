@@ -15,6 +15,7 @@ type Environment struct {
 type Project struct {
 	PullRequestNumber int    `json:"pull_request_number"`
 	RepoName          string `json:"repo_name"`
+	Branch            string `json:"branch"`
 }
 
 type EnvironmentAttributes struct {

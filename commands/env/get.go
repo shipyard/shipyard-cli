@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/fatih/color"
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/completion"
 	"github.com/shipyard/shipyard-cli/pkg/display"
@@ -129,7 +130,15 @@ func handleGetAllEnvironments(c client.Client) error {
 		params["org"] = org
 	}
 
+	// Start spinner
+	spinner := display.NewSpinner("Fetching info please standby...")
+	spinner.Start()
+
 	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", "", "", params), "application/json", nil)
+	
+	// Stop spinner immediately after API call
+	spinner.Stop()
+	
 	if err != nil {
 		return err
 	}
@@ -148,15 +157,50 @@ func handleGetAllEnvironments(c client.Client) error {
 		return nil
 	}
 
+	// Detect duplicate UUIDs and generate colors
+	duplicateUUIDs := display.GetDuplicateUUIDs(r.Data)
+	duplicateColors := display.GenerateDuplicateColors(duplicateUUIDs)
+
 	var data [][]string
 	for i := range r.Data {
 		i := i
-		data = append(data, display.FormattedEnvironment(&r.Data[i])...)
+		data = append(data, display.FormattedEnvironmentWithDuplicateColors(&r.Data[i], duplicateColors)...)
 	}
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
 	if r.Links.Next != "" {
-		display.Println(fmt.Sprintf("Table is truncated, fetch the next page %d.", r.Links.NextPage()))
+		nextPage := r.Links.NextPage()
+		cmd := " shipyard get environments --page " + strconv.Itoa(nextPage)
+
+		// Add current flags to the command
+		if name := viper.GetString("name"); name != "" {
+			cmd += " --name \"" + name + "\""
+		}
+		if orgName := viper.GetString("org-name"); orgName != "" {
+			cmd += " --org-name \"" + orgName + "\""
+		}
+		if repoName := viper.GetString("repo-name"); repoName != "" {
+			cmd += " --repo-name \"" + repoName + "\""
+		}
+		if branch := viper.GetString("branch"); branch != "" {
+			cmd += " --branch \"" + branch + "\""
+		}
+		if pullRequestNumber := viper.GetString("pull-request-number"); pullRequestNumber != "" {
+			cmd += " --pull-request-number \"" + pullRequestNumber + "\""
+		}
+		if deleted := viper.GetBool("deleted"); deleted {
+			cmd += " --deleted"
+		}
+		if pageSize := viper.GetInt("page-size"); pageSize != 0 && pageSize != 20 {
+			cmd += " --page-size " + strconv.Itoa(pageSize)
+		}
+		if viper.GetBool("json") {
+			cmd += " --json"
+		}
+		cmd += " "
+
+		styledCmd := color.New(color.FgHiWhite, color.BgBlue).Sprint(cmd)
+		display.Println(fmt.Sprintf("Table is truncated, fetch the next page %d. %s", nextPage, styledCmd))
 	}
 	return nil
 }
@@ -167,7 +211,15 @@ func handleGetEnvironmentByID(c client.Client, id string) error {
 		params["org"] = org
 	}
 
+	// Start spinner
+	spinner := display.NewSpinner("Fetching info please standby...")
+	spinner.Start()
+
 	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", id, "", params), "application/json", nil)
+	
+	// Stop spinner immediately after API call
+	spinner.Stop()
+	
 	if err != nil {
 		return err
 	}
@@ -182,7 +234,8 @@ func handleGetEnvironmentByID(c client.Client, id string) error {
 		return err
 	}
 
-	data := display.FormattedEnvironment(&r.Data)
+	var data [][]string
+	data = append(data, display.FormattedEnvironment(&r.Data)...)
 	columns := []string{"App", "UUID", "Ready", "Repo", "PR#", "URL"}
 	display.RenderTable(os.Stdout, columns, data)
 	return nil
