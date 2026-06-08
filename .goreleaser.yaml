@@ -26,6 +26,8 @@ checksum:
   name_template: 'checksums.txt'
 changelog:
   disable: true
+release:
+  prerelease: auto
 homebrew_casks:
   - name: shipyard
     repository:
@@ -39,6 +41,8 @@ homebrew_casks:
 
     commit_msg_template: "Cask update for {{ .ProjectName }} version {{ .Tag }}"
     directory: Casks
+
+    skip_upload: "{{ if .Prerelease }}true{{ else }}false{{ end }}"
 
     homepage: "https://shipyard.build"
     description: "A tool to manage Ephemeral Environments on the Shipyard platform"
