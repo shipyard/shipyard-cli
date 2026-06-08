@@ -99,7 +99,7 @@ func handleGetVolumeSnapshotsCmd(c client.Client) error {
 		}
 
 		styledCmd := color.New(color.FgHiWhite, color.BgBlue).Sprint(cmd)
-		display.Println(fmt.Sprintf("Table is truncaed, fetch the next page %d. %s", nextPage, styledCmd))
+		display.Println(fmt.Sprintf("Table is truncated, fetch the next page %d. %s", nextPage, styledCmd))
 	}
 	return nil
 }

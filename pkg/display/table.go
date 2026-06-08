@@ -3,11 +3,9 @@ package display
 import (
 	"hash/fnv"
 	"io"
-	"math/rand"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/fatih/color"
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -280,23 +278,16 @@ func GenerateDuplicateColors(duplicateUUIDs map[string]bool) map[string]*color.C
 		color.BgHiYellow,
 	}
 	
-	// Create seeded random generator for consistent colors
-	rand.Seed(time.Now().UnixNano())
-	
 	colorMap := make(map[string]*color.Color)
-	colorIndex := 0
-	
+
 	for uuid := range duplicateUUIDs {
 		// Use hash of UUID to get consistent color assignment
 		h := fnv.New32a()
 		h.Write([]byte(uuid))
 		selectedColorIndex := int(h.Sum32()) % len(backgroundColors)
-		
+
 		c := color.New(color.FgBlack, backgroundColors[selectedColorIndex])
-		// Force enable colors even if terminal detection fails
-		c.EnableColor()
 		colorMap[uuid] = c
-		colorIndex = (colorIndex + 1) % len(backgroundColors)
 	}
 	
 	return colorMap

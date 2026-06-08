@@ -76,24 +76,22 @@ func TestGetAllEnvironments(t *testing.T) {
 			t.Parallel()
 			c := newCmd(test.args)
 			if err := c.cmd.Run(); err != nil {
-				t.Logf("Command failed: %v", err)
-				t.Logf("Stderr: %q", c.stdErr.String())
-				t.Logf("Expected output: %q", test.output)
-				// Only check stderr for error cases that have expected output
 				if test.output != "" {
 					if diff := cmp.Diff(c.stdErr.String(), test.output); diff != "" {
 						t.Error(diff)
 					}
+				} else {
+					t.Fatalf("command unexpectedly failed: %v\nstderr: %s", err, c.stdErr.String())
 				}
 				return
 			}
-			
+
 			// If we expected an error but got success, that's wrong
 			if test.output != "" {
 				t.Errorf("Expected error %q but command succeeded", test.output)
 				return
 			}
-			
+
 			var resp types.RespManyEnvs
 			if err := json.Unmarshal(c.stdOut.Bytes(), &resp); err != nil {
 				t.Fatal(err)
@@ -145,24 +143,22 @@ func TestGetEnvironmentByID(t *testing.T) {
 			t.Parallel()
 			c := newCmd(test.args)
 			if err := c.cmd.Run(); err != nil {
-				t.Logf("Command failed: %v", err)
-				t.Logf("Stderr: %q", c.stdErr.String())
-				t.Logf("Expected output: %q", test.output)
-				// Only check stderr for error cases that have expected output
 				if test.output != "" {
 					if diff := cmp.Diff(c.stdErr.String(), test.output); diff != "" {
 						t.Error(diff)
 					}
+				} else {
+					t.Fatalf("command unexpectedly failed: %v\nstderr: %s", err, c.stdErr.String())
 				}
 				return
 			}
-			
+
 			// If we expected an error but got success, that's wrong
 			if test.output != "" {
 				t.Errorf("Expected error %q but command succeeded", test.output)
 				return
 			}
-			
+
 			var resp types.Response
 			if err := json.Unmarshal(c.stdOut.Bytes(), &resp); err != nil {
 				t.Fatal(err)
@@ -211,20 +207,17 @@ func TestRebuildEnvironment(t *testing.T) {
 			c := newCmd(test.args)
 			err := c.cmd.Run()
 			if err != nil {
-				t.Logf("Rebuild command failed: %v", err)
-				t.Logf("Stderr: %q", c.stdErr.String())
-				t.Logf("Expected output: %q", test.output)
-				// Only check stderr for error cases that have expected output
 				if test.output != "" {
 					if diff := cmp.Diff(c.stdErr.String(), test.output); diff != "" {
 						t.Error(diff)
 					}
+				} else {
+					t.Fatalf("command unexpectedly failed: %v\nstderr: %s", err, c.stdErr.String())
 				}
 				return
 			}
-			
+
 			// For rebuild tests, success cases have specific success messages
-			// Error cases should have failed above and not reach here
 			if diff := cmp.Diff(c.stdOut.String(), test.output); diff != "" {
 				t.Error(diff)
 			}
