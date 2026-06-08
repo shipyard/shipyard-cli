@@ -49,11 +49,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            binary: shipyard-linux-amd64
+            platform: linux_amd64
           - os: macos-latest
-            binary: shipyard-darwin-arm64
+            platform: darwin_arm64
           - os: macos-latest
-            binary: shipyard-darwin-amd64
+            platform: darwin_amd64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -67,9 +67,9 @@ jobs:
 
       - name: Run smoke tests
         run: |
-          BINARY=$(find dist -name "${{ matrix.binary }}" -type f | head -1)
+          BINARY=$(find dist -path "*${{ matrix.platform }}*" -name "shipyard" -type f | head -1)
           if [[ -z "$BINARY" ]]; then
-            echo "Binary ${{ matrix.binary }} not found in dist/"
+            echo "Binary for ${{ matrix.platform }} not found in dist/"
             find dist -type f
             exit 1
           fi
