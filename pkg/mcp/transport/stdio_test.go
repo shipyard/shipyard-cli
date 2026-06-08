@@ -284,15 +284,27 @@ func TestStdioTransport_LargeMessage(t *testing.T) {
 
 func TestStdioTransport_ConcurrentReadWrite(t *testing.T) {
 	var output bytes.Buffer
-	testInput := "concurrent test\n"
+
+	// Use io.Pipe so the read loop blocks after the first line instead of
+	// hitting EOF immediately. A strings.NewReader returns EOF right after
+	// the data is consumed, which races with ReadMessage's select on
+	// msgChan vs errChan.
+	pr, pw := io.Pipe()
+	defer pr.Close()
 
 	transport := &StdioTransport{
-		reader: bufio.NewReader(strings.NewReader(testInput)),
+		reader: bufio.NewReader(pr),
 		writer: bufio.NewWriter(&output),
 	}
 
 	ctx := context.Background()
 	transport.Start(ctx)
+
+	// Write test input through the pipe
+	go func() {
+		_, _ = pw.Write([]byte("concurrent test\n"))
+		// Don't close pw — let readLoop block on the next read
+	}()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -331,6 +343,9 @@ func TestStdioTransport_ConcurrentReadWrite(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Timeout waiting for concurrent operations")
 	}
+
+	// Stop transport to unblock readLoop before checking output
+	transport.Stop()
 
 	if !strings.Contains(output.String(), "concurrent response") {
 		t.Error("Expected concurrent write to succeed")
