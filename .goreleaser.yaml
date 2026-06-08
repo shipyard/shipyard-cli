@@ -30,6 +30,7 @@ release:
   prerelease: auto
 homebrew_casks:
   - name: shipyard
+    binary_name: shipyard
     repository:
       owner: shipyard
       name: homebrew-tap
