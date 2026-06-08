@@ -23,8 +23,8 @@ main() {
 
     VERSION="$(last_version)"
     echo "Downloading the latest binary..."
-    URL="${RELEASES_URL}/download/v${VERSION}/shipyard-$(uname -s)-${ARCH}"
-    
+    URL="${RELEASES_URL}/download/v${VERSION}/shipyard-$(uname -s | tr '[:upper:]' '[:lower:]')-${ARCH}"
+
     curl --silent --show-error --location --fail --output "${PWD}/shipyard" "$URL"
     chmod +x shipyard
     sudo mv shipyard "$default_dir"

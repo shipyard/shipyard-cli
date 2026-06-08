@@ -74,6 +74,10 @@ func setupCommands() {
 		return viper.GetString("org")
 	}
 	c := client.New(requester, orgLookupFn)
+
+	// Create separate client for MCP with "mcp" user agent
+	mcpRequester := requests.NewWithUserAgent("mcp")
+	mcpClient := client.New(mcpRequester, orgLookupFn)
 	rootCmd.AddCommand(NewLoginCmd())
 	rootCmd.AddCommand(NewGetCmd(c))
 	rootCmd.AddCommand(NewSetCmd())
@@ -96,6 +100,7 @@ func setupCommands() {
 	rootCmd.AddCommand(k8s.NewLogsCmd(c))
 	rootCmd.AddCommand(k8s.NewPortForwardCmd(c))
 	rootCmd.AddCommand(telepresence.NewTelepresenceCmd(c))
+	rootCmd.AddCommand(NewMCPCmd(mcpClient))
 }
 
 func initConfig() {
@@ -137,6 +142,6 @@ func initConfig() {
 
 func fail(kind string, err error) {
 	red := color.New(color.FgHiRed)
-	_, _ = red.Fprintf(os.Stderr, fmt.Sprintf("%s error: %s\n", kind, err))
+	_, _ = red.Fprintf(os.Stderr, "%s error: %s\n", kind, err)
 	os.Exit(1)
 }

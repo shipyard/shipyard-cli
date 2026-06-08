@@ -126,15 +126,46 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 }
 
 func getLatestRelease(includePrerelease bool) (*GitHubRelease, error) {
-	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", githubAPIBaseURL, repoOwner, repoName)
-
 	client := &http.Client{}
+
+	if includePrerelease {
+		// Fetch all releases — the first entry is the most recent,
+		// which may be a pre-release or stable.
+		url := fmt.Sprintf("%s/repos/%s/%s/releases", githubAPIBaseURL, repoOwner, repoName)
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "shipyard-cli-updater")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+		}
+
+		var releases []GitHubRelease
+		if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+			return nil, err
+		}
+
+		if len(releases) == 0 {
+			return nil, fmt.Errorf("no releases found")
+		}
+
+		return &releases[0], nil
+	}
+
+	// Stable only — /releases/latest always excludes pre-releases.
+	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", githubAPIBaseURL, repoOwner, repoName)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	// Add User-Agent header to avoid rate limiting
 	req.Header.Set("User-Agent", "shipyard-cli-updater")
 
 	resp, err := client.Do(req)
@@ -152,40 +183,6 @@ func getLatestRelease(includePrerelease bool) (*GitHubRelease, error) {
 		return nil, err
 	}
 
-	// If we don't want prereleases and the latest is a prerelease, try to get the latest stable
-	if !includePrerelease && release.Prerelease {
-		// Get all releases and find the latest non-prerelease
-		url = fmt.Sprintf("%s/repos/%s/%s/releases", githubAPIBaseURL, repoOwner, repoName)
-		req, err = http.NewRequest("GET", url, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("User-Agent", "shipyard-cli-updater")
-
-		resp, err = client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
-		}
-
-		var releases []GitHubRelease
-		if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-			return nil, err
-		}
-
-		// Find the first non-prerelease release
-		for _, r := range releases {
-			if !r.Prerelease {
-				release = r
-				break
-			}
-		}
-	}
-
 	return &release, nil
 }
 
@@ -196,20 +193,8 @@ func findAssetForPlatform(assets []struct {
 	osName := runtime.GOOS
 	arch := runtime.GOARCH
 
-	// Map Go arch to common release asset arch names
-	archMap := map[string]string{
-		"amd64": "x86_64",
-		"arm64": "arm64",
-		"386":   "i386",
-	}
-
-	releaseArch := archMap[arch]
-	if releaseArch == "" {
-		releaseArch = arch
-	}
-
-	// Look for asset matching our platform
-	expectedName := fmt.Sprintf("shipyard-%s-%s", osName, releaseArch)
+	// Assets use Go's OS/arch naming (e.g. shipyard-darwin-amd64)
+	expectedName := fmt.Sprintf("shipyard-%s-%s", osName, arch)
 
 	for _, asset := range assets {
 		if strings.Contains(asset.Name, expectedName) {

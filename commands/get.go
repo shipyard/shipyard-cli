@@ -24,7 +24,7 @@ func NewGetCmd(c client.Client) *cobra.Command {
 
   # View all filters available
   shipyard get environments --help
-  
+
   # Get all services in an environment 12345
   shipyard get services --env 12345
 
