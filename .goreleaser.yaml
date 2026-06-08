@@ -47,6 +47,3 @@ brews:
     homepage: "https://shipyard.build"
     description: "A tool to manage Ephemeral Environments on the Shipyard platform"
     license: "Apache-2.0"
-
-    install: |
-      bin.install "shipyard"
