@@ -15,6 +15,29 @@ permissions:
   pull-requests: read
 
 jobs:
+  gitleaks:
+    name: secrets-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION="8.22.1"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Run gitleaks scan
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gitleaks git --config=.gitleaks.toml --log-opts="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" --verbose
+          else
+            gitleaks git --config=.gitleaks.toml --verbose
+          fi
+
   test:
     name: Test
     runs-on: ubuntu-latest
