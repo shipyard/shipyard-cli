@@ -1,0 +1,48 @@
+# Gitleaks configuration for shipyard-cli repo
+# Uses gitleaks' 150+ built-in rules; this file only adds allowlists for known safe patterns.
+
+[extend]
+# Use all built-in rules
+useDefault = true
+
+[allowlist]
+description = "Global allowlist for known safe patterns"
+
+paths = [
+    # Dependencies and lock files
+    '''node_modules/''',
+    '''vendor/''',
+    '''pnpm-lock\.yaml$''',
+    '''uv\.lock$''',
+    '''go\.sum$''',
+    '''package-lock\.json$''',
+    '''dist/''',
+    '''\.min\.js$''',
+    '''coverage/''',
+
+    # Generated protobuf code
+    '''_pb2\.py$''',
+
+    # Test files with intentionally fake secrets
+    '''tests/''',
+    '''_test\.go$''',
+    '''testdata/''',
+
+    # Env templates
+    '''\.envrc\.template$''',
+    '''\.envrc\.sample$''',
+    '''\.env\.example$''',
+    '''\.env\.template$''',
+]
+
+regexes = [
+    '''fake-aes-key''',
+    '''fake-secret-key''',
+    '''fake-salt''',
+    '''changeme''',
+    '''placeholder''',
+    '''prom-operator''',
+    '''EXAMPLE[_-]?KEY''',
+    '''(?i)test[_-]?secret''',
+    '''(?i)dummy[_-]?(key|secret|token|password)''',
+]
