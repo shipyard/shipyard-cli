@@ -90,6 +90,7 @@ func setupCommands() {
 
 	rootCmd.AddGroup(&cobra.Group{ID: constants.GroupEnvironments, Title: "Environments"})
 	rootCmd.AddCommand(env.NewCancelCmd(c))
+	rootCmd.AddCommand(env.NewDetachedCmd(c))
 	rootCmd.AddCommand(env.NewRebuildCmd(c))
 	rootCmd.AddCommand(env.NewRestartCmd(c))
 	rootCmd.AddCommand(env.NewReviveCmd(c))
