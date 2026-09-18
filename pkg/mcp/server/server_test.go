@@ -44,33 +44,68 @@ func TestNewMCPServer(t *testing.T) {
 }
 
 func TestMCPServer_HandleInitialize(t *testing.T) {
-	server := NewMCPServer(MCPServerConfig{}, newMockClient())
-	req := &JSONRPCRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "initialize",
+	tests := []struct {
+		name            string
+		params          string
+		wantProtocolVer string
+	}{
+		{
+			name:            "no params means no preference, so the latest is offered",
+			params:          "",
+			wantProtocolVer: LatestProtocolVersion,
+		},
+		{
+			name:            "a supported version is echoed back",
+			params:          `{"protocolVersion":"2024-11-05"}`,
+			wantProtocolVer: "2024-11-05",
+		},
+		{
+			name:            "an unsupported version is answered with the latest",
+			params:          `{"protocolVersion":"2099-01-01"}`,
+			wantProtocolVer: LatestProtocolVersion,
+		},
 	}
 
-	response := server.handleInitialize(req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := NewMCPServer(MCPServerConfig{}, newMockClient())
+			req := &JSONRPCRequest{
+				JSONRPC: "2.0",
+				ID:      1,
+				Method:  "initialize",
+			}
+			if tt.params != "" {
+				req.Params = json.RawMessage(tt.params)
+			}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(response, &result); err != nil {
-		t.Fatalf("Failed to unmarshal response: %v", err)
-	}
+			response := server.handleInitialize(req)
 
-	if result["jsonrpc"] != "2.0" {
-		t.Errorf("Expected JSON-RPC 2.0, got %v", result["jsonrpc"])
-	}
-	if result["id"] != float64(1) {
-		t.Errorf("Expected ID 1, got %v", result["id"])
-	}
+			var result map[string]interface{}
+			if err := json.Unmarshal(response, &result); err != nil {
+				t.Fatalf("Failed to unmarshal response: %v", err)
+			}
 
-	resultData, ok := result["result"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected result to be an object")
-	}
-	if resultData["protocolVersion"] != "2024-11-05" {
-		t.Errorf("Expected protocol version 2024-11-05, got %v", resultData["protocolVersion"])
+			if result["jsonrpc"] != "2.0" {
+				t.Errorf("Expected JSON-RPC 2.0, got %v", result["jsonrpc"])
+			}
+			if result["id"] != float64(1) {
+				t.Errorf("Expected ID 1, got %v", result["id"])
+			}
+
+			resultData, ok := result["result"].(map[string]interface{})
+			if !ok {
+				t.Fatal("Expected result to be an object")
+			}
+			if resultData["protocolVersion"] != tt.wantProtocolVer {
+				t.Errorf("Expected protocol version %s, got %v", tt.wantProtocolVer, resultData["protocolVersion"])
+			}
+
+			// Clients surface these to the model; an empty string is the bug
+			// this handler used to ship.
+			if instructions, _ := resultData["instructions"].(string); instructions == "" {
+				t.Error("Expected server instructions in the initialize result")
+			}
+		})
 	}
 }
 

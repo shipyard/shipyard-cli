@@ -221,8 +221,22 @@ func (s *MCPServer) processMessage(data []byte) []byte {
 
 // Handle initialize request
 func (s *MCPServer) handleInitialize(req *JSONRPCRequest) []byte {
+	// The client states which MCP revision it wants. Echo it back when this
+	// server speaks it, otherwise answer with the newest one it does.
+	var params struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+
+	if len(req.Params) > 0 {
+		// A malformed params object is not fatal here: an empty requested
+		// version negotiates to the latest, which is what the client gets.
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			log.Printf("MCP initialize: could not read requested protocolVersion: %v", err)
+		}
+	}
+
 	result := map[string]interface{}{
-		"protocolVersion": "2024-11-05",
+		"protocolVersion": negotiateProtocolVersion(params.ProtocolVersion),
 		"capabilities": map[string]interface{}{
 			"tools":     map[string]interface{}{},
 			"resources": map[string]interface{}{},
