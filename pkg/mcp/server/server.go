@@ -232,6 +232,7 @@ func (s *MCPServer) handleInitialize(req *JSONRPCRequest) []byte {
 			"name":    "shipyard-mcp-server",
 			"version": version.Version,
 		},
+		"instructions": Instructions(),
 	}
 
 	return s.successResponse(req.ID, result)
