@@ -11,9 +11,11 @@ import (
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/errors"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/middleware"
+	"github.com/shipyard/shipyard-cli/pkg/mcp/prompts"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/resources"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/tools"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/transport"
+	"github.com/shipyard/shipyard-cli/version"
 	"github.com/spf13/viper"
 )
 
@@ -47,6 +49,7 @@ type MCPServer struct {
 	client     client.Client
 	tools      map[string]tools.Tool
 	resources  []resources.Resource
+	prompts    map[string]prompts.Prompt
 	middleware []middleware.Middleware
 	running    bool
 	mu         sync.RWMutex
@@ -62,6 +65,7 @@ func NewMCPServer(config MCPServerConfig, client client.Client) *MCPServer {
 		client:     client,
 		tools:      make(map[string]tools.Tool),
 		resources:  make([]resources.Resource, 0),
+		prompts:    make(map[string]prompts.Prompt),
 		middleware: make([]middleware.Middleware, 0),
 		ctx:        ctx,
 		cancel:     cancel,
@@ -90,6 +94,9 @@ func (s *MCPServer) Start() error {
 
 	// Register resources
 	s.registerResources()
+
+	// Register prompts
+	s.registerPrompts()
 
 	// Setup middleware
 	s.setupMiddleware()
@@ -201,6 +208,8 @@ func (s *MCPServer) processMessage(data []byte) []byte {
 		return s.handleCallTool(&req)
 	case "prompts/list":
 		return s.handleListPrompts(&req)
+	case "prompts/get":
+		return s.handleGetPrompt(&req)
 	case "resources/list":
 		return s.handleListResources(&req)
 	case "resources/read":
@@ -221,7 +230,7 @@ func (s *MCPServer) handleInitialize(req *JSONRPCRequest) []byte {
 		},
 		"serverInfo": map[string]interface{}{
 			"name":    "shipyard-mcp-server",
-			"version": "1.0.0",
+			"version": version.Version,
 		},
 	}
 
@@ -244,9 +253,44 @@ func (s *MCPServer) handleListTools(req *JSONRPCRequest) []byte {
 
 // Handle list prompts request
 func (s *MCPServer) handleListPrompts(req *JSONRPCRequest) []byte {
-	// Shipyard doesn't support prompts yet, return empty list
+	promptsList := make([]interface{}, 0, len(s.prompts))
+	for _, prompt := range s.prompts {
+		promptsList = append(promptsList, prompt.Definition())
+	}
+
 	result := map[string]interface{}{
-		"prompts": []interface{}{},
+		"prompts": promptsList,
+	}
+
+	return s.successResponse(req.ID, result)
+}
+
+// Handle get prompt request
+func (s *MCPServer) handleGetPrompt(req *JSONRPCRequest) []byte {
+	var params struct {
+		Name      string            `json:"name"`
+		Arguments map[string]string `json:"arguments,omitempty"`
+	}
+
+	if len(req.Params) > 0 {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return s.errorResponse(req.ID, -32602, "Invalid params", err.Error())
+		}
+	}
+
+	if params.Name == "" {
+		return s.errorResponse(req.ID, -32602, "Invalid params", "prompt name is required")
+	}
+
+	prompt, ok := s.prompts[params.Name]
+	if !ok {
+		return s.errorResponse(req.ID, -32602, "Unknown prompt", params.Name)
+	}
+
+	result, err := prompt.Get(params.Arguments)
+	if err != nil {
+		log.Printf("MCP prompts/get error for %s: %v", params.Name, err)
+		return s.errorResponse(req.ID, -32603, "Internal error", err.Error())
 	}
 
 	return s.successResponse(req.ID, result)
@@ -412,6 +456,13 @@ func (s *MCPServer) registerTools() {
 func (s *MCPServer) registerResources() {
 	// Register logs resource
 	s.resources = append(s.resources, resources.NewLogsResource(s.client))
+}
+
+// Register prompts
+func (s *MCPServer) registerPrompts() {
+	// Register the verification loop prompt
+	verify := prompts.NewVerifyPrompt()
+	s.prompts[verify.Definition().Name] = verify
 }
 
 // Setup middleware chain
