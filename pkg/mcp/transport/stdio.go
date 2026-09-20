@@ -98,8 +98,20 @@ func (t *StdioTransport) Stop() error {
 	return nil
 }
 
-// ReadMessage reads a JSON-RPC message from stdin
+// ReadMessage reads a JSON-RPC message from stdin.
+//
+// A buffered message always wins over a terminal read error. readLoop can hand
+// off a message and then hit EOF before this runs, leaving msgChan and errChan
+// both ready; a single select over both would pick at random and drop roughly
+// half of the requests whose client closes stdin right after writing. Draining
+// msgChan first makes the last request before EOF arrive reliably.
 func (t *StdioTransport) ReadMessage() ([]byte, error) {
+	select {
+	case msg := <-t.msgChan:
+		return msg, nil
+	default:
+	}
+
 	select {
 	case msg := <-t.msgChan:
 		return msg, nil

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -685,4 +686,62 @@ func TestMCPServer_ContextTimeout(t *testing.T) {
 	default:
 		t.Error("Expected context to be timed out")
 	}
+}
+
+// ping is part of the base protocol: a client that uses it as a health check
+// drops a server that answers with an error.
+func TestProcessMessage_Ping(t *testing.T) {
+	server := NewMCPServer(MCPServerConfig{Transport: "stdio"}, newMockClient())
+
+	raw := server.processMessage([]byte(`{"jsonrpc":"2.0","id":7,"method":"ping"}`))
+	if raw == nil {
+		t.Fatal("Expected a response to ping, got none")
+	}
+
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("Could not decode ping response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("Expected no error in ping response, got %+v", resp.Error)
+	}
+	if resp.Result == nil {
+		t.Error("Expected an empty result object in the ping response, got none")
+	}
+}
+
+// Notifications carry no id, so answering one at all is a protocol violation.
+func TestProcessMessage_NotificationsAreNotAnswered(t *testing.T) {
+	server := NewMCPServer(MCPServerConfig{Transport: "stdio"}, newMockClient())
+
+	for _, method := range []string{"notifications/initialized", "notifications/cancelled"} {
+		if raw := server.processMessage([]byte(`{"jsonrpc":"2.0","method":"` + method + `"}`)); raw != nil {
+			t.Errorf("Expected no response to %s, got %s", method, raw)
+		}
+	}
+}
+
+// Closing the input stream has to end the process, or every client that
+// disconnects leaves a server behind.
+func TestServer_DoneClosesWhenInputStreamCloses(t *testing.T) {
+	server := NewMCPServer(MCPServerConfig{Transport: "stdio"}, newMockClient())
+	server.transport = &closedInputTransport{}
+
+	go server.handleMessages()
+
+	select {
+	case <-server.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done was never closed after the input stream closed")
+	}
+}
+
+// closedInputTransport stands in for a client that has gone away.
+type closedInputTransport struct{}
+
+func (c *closedInputTransport) Start(ctx context.Context) error { return nil }
+func (c *closedInputTransport) Stop() error                     { return nil }
+func (c *closedInputTransport) WriteMessage(data []byte) error  { return nil }
+func (c *closedInputTransport) ReadMessage() ([]byte, error) {
+	return nil, fmt.Errorf("stdin closed")
 }

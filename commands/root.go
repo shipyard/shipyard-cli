@@ -130,7 +130,10 @@ func initConfig() {
 			if err := config.CreateDefaultConfig(home); err != nil {
 				fail("Init", err)
 			}
-			_, _ = fmt.Fprintln(os.Stdout, "Creating a default config.yaml in $HOME/.shipyard")
+			// Stderr, not stdout: on a first run `shipyard mcp serve` would
+			// otherwise open its JSON-RPC stream with this line and the client
+			// would fail to parse the initialize response.
+			_, _ = fmt.Fprintln(os.Stderr, "Creating a default config.yaml in $HOME/.shipyard")
 			return
 		} else if errors.As(err, &viper.ConfigParseError{}) {
 			fail("Init", errConfigParse)

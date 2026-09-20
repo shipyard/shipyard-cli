@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
@@ -55,6 +56,8 @@ type MCPServer struct {
 	mu         sync.RWMutex
 	ctx        context.Context
 	cancel     context.CancelFunc
+	done       chan struct{}
+	doneOnce   sync.Once
 }
 
 // Create new MCP server
@@ -69,7 +72,15 @@ func NewMCPServer(config MCPServerConfig, client client.Client) *MCPServer {
 		middleware: make([]middleware.Middleware, 0),
 		ctx:        ctx,
 		cancel:     cancel,
+		done:       make(chan struct{}),
 	}
+}
+
+// Done is closed once the server stops handling messages, which happens when
+// the client closes the input stream. Callers wait on it so that a disconnected
+// client ends the process instead of leaving it running with nothing to read.
+func (s *MCPServer) Done() <-chan struct{} {
+	return s.done
 }
 
 // Start the MCP server
@@ -145,6 +156,8 @@ func (s *MCPServer) IsRunning() bool {
 
 // Handle MCP messages
 func (s *MCPServer) handleMessages() {
+	defer s.doneOnce.Do(func() { close(s.done) })
+
 	for {
 		msg, err := s.transport.ReadMessage()
 		if err != nil {
@@ -195,13 +208,22 @@ func (s *MCPServer) processMessage(data []byte) []byte {
 		}
 	}
 
+	// Notifications carry no id and must never be answered, not even with an
+	// error. Clients send lifecycle ones this server does not act on, such as
+	// notifications/initialized and notifications/cancelled.
+	if strings.HasPrefix(req.Method, "notifications/") {
+		return nil
+	}
+
 	// Handle MCP methods
 	switch req.Method {
 	case "initialize":
 		return s.handleInitialize(&req)
-	case "notifications/initialized":
-		// Client notification - no response needed
-		return nil
+	case "ping":
+		// The spec's ping utility: answer promptly with an empty result. A
+		// client that uses ping as a health check treats an error reply as a
+		// dead server and drops the connection.
+		return s.successResponse(req.ID, map[string]interface{}{})
 	case "tools/list":
 		return s.handleListTools(&req)
 	case "tools/call":
