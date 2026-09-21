@@ -449,7 +449,35 @@ env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-nam
   before reporting the change as working.
 
 Clients that support prompts show it as a slash command, for example
-`/shipyard_verify` in Claude Code.
+`/shipyard_verify` in Claude Code. All three arguments are optional: `branch`
+and `repo_name` default to the working directory, and `acceptance_command` is
+the check to run against the environment.
+
+#### The acceptance check
+
+The prompt confirms the environment is serving your exact commit, then runs the
+check that decides whether the change actually works. It never invents that
+check. It looks for one in two places:
+
+1. The `acceptance_command` argument, for a single run:
+
+   ```
+   /shipyard_verify acceptance_command="npm run test:e2e"
+   ```
+
+2. Whatever the repository documents, for every run. Put the command somewhere
+   the agent already reads, such as `CLAUDE.md` or `AGENTS.md`:
+
+   ```markdown
+   ## Verifying against Shipyard
+
+   Acceptance check: `npm run test:e2e -- --base-url=$SHIPYARD_URL`
+   Pass the bypass token as the `shipyard_token` cookie; never print it.
+   ```
+
+With neither, the prompt still runs. It reports that the environment is serving
+your commit and that no check ran, which is a narrower claim than verified and
+says so. Nothing has to be configured to use the prompt.
 
 ### Troubleshooting
 

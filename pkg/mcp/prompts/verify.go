@@ -28,7 +28,7 @@ func (p *VerifyPrompt) Definition() PromptDefinition {
 		Name: "shipyard_verify",
 		Description: "Verify a pushed change against the Shipyard preview environment for its branch: " +
 			"find the environment, wait until it serves that exact commit, reach it with the bypass " +
-			"token, run the repository's acceptance check, and report the result.",
+			"token, run the acceptance check if there is one, and report the result.",
 		Arguments: []PromptArgument{
 			{
 				Name:        "branch",
@@ -39,6 +39,13 @@ func (p *VerifyPrompt) Definition() PromptDefinition {
 				Name:        "repo_name",
 				Description: "Repository as Shipyard knows it. Defaults to the current repository when omitted.",
 				Required:    false,
+			},
+			{
+				Name: "acceptance_command",
+				Description: "Command that decides pass or fail, run against the environment URL. " +
+					"Defaults to whatever the repository documents. Omit it and document nothing to " +
+					"confirm the environment is serving the commit without running any check.",
+				Required: false,
 			},
 		},
 	}
@@ -81,20 +88,32 @@ func stripFrontmatter(doc string) string {
 	return strings.TrimLeft(rest[end+len(fence)+2:], "\n")
 }
 
-// knownTarget renders whichever of branch/repo_name the caller supplied.
+// knownTarget renders whichever of branch/repo_name/acceptance_command the
+// caller supplied.
 func knownTarget(args map[string]string) string {
 	branch := strings.TrimSpace(args["branch"])
 	repo := strings.TrimSpace(args["repo_name"])
+	command := strings.TrimSpace(args["acceptance_command"])
+
+	var lines []string
 
 	switch {
 	case branch != "" && repo != "":
-		return fmt.Sprintf("Verify branch `%s` of repository `%s`. Use these instead of reading them "+
-			"from the working directory.", branch, repo)
+		lines = append(lines, fmt.Sprintf("Verify branch `%s` of repository `%s`. Use these instead of "+
+			"reading them from the working directory.", branch, repo))
 	case branch != "":
-		return fmt.Sprintf("Verify branch `%s`. Read the repository name from the working directory.", branch)
+		lines = append(lines, fmt.Sprintf("Verify branch `%s`. Read the repository name from the working directory.", branch))
 	case repo != "":
-		return fmt.Sprintf("Verify repository `%s`. Read the branch from the working directory.", repo)
-	default:
-		return ""
+		lines = append(lines, fmt.Sprintf("Verify repository `%s`. Read the branch from the working directory.", repo))
 	}
+
+	// A command passed here outranks whatever the repository documents: the
+	// caller is looking at this run, the documentation was written for the
+	// general case.
+	if command != "" {
+		lines = append(lines, fmt.Sprintf("Run this as the acceptance check in Step 5, in place of anything "+
+			"the repository documents:\n\n```\n%s\n```", command))
+	}
+
+	return strings.Join(lines, "\n\n")
 }

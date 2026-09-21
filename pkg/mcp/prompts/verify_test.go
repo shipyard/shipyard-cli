@@ -16,13 +16,14 @@ func TestVerifyPromptDefinition(t *testing.T) {
 		t.Error("expected a description, got empty string")
 	}
 
-	if len(def.Arguments) != 2 {
-		t.Fatalf("expected 2 arguments, got %d", len(def.Arguments))
+	if len(def.Arguments) != 3 {
+		t.Fatalf("expected 3 arguments, got %d", len(def.Arguments))
 	}
 
 	for _, arg := range def.Arguments {
 		if arg.Required {
-			t.Errorf("argument %s should be optional: the loop reads branch and repo from the working directory", arg.Name)
+			t.Errorf("argument %s should be optional: the loop reads branch and repo from the working "+
+				"directory, and runs without an acceptance command when there is none", arg.Name)
 		}
 	}
 }
@@ -57,9 +58,24 @@ func TestVerifyPromptGet(t *testing.T) {
 		},
 		{
 			name:         "whitespace-only arguments are ignored",
-			args:         map[string]string{"branch": "   ", "repo_name": ""},
+			args:         map[string]string{"branch": "   ", "repo_name": "", "acceptance_command": "  "},
 			wantContains: []string{"# Shipyard Verification Loop"},
 			wantMissing:  []string{"## This invocation"},
+		},
+		{
+			name:         "acceptance command alone is enough to render the invocation",
+			args:         map[string]string{"acceptance_command": "npm run test:e2e"},
+			wantContains: []string{"## This invocation", "npm run test:e2e", "in place of anything"},
+			wantMissing:  []string{"Verify branch"},
+		},
+		{
+			name: "acceptance command rides along with the target",
+			args: map[string]string{
+				"branch":             "feat/x",
+				"repo_name":          "shipyard",
+				"acceptance_command": "make test.e2e",
+			},
+			wantContains: []string{"`feat/x`", "`shipyard`", "make test.e2e"},
 		},
 	}
 
@@ -177,4 +193,29 @@ func TestEmbeddedLoopCoversTheContract(t *testing.T) {
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
+}
+
+// An acceptance check is optional, so the loop has to tell the agent what to do
+// when there is none: report the narrower result rather than stop and ask.
+func TestEmbeddedLoopMakesTheAcceptanceCheckOptional(t *testing.T) {
+	text, _ := NewVerifyPrompt().Get(nil)
+	body := text.Messages[0].Content.Text
+
+	required := []string{
+		"acceptance_command",  // where a caller-supplied command comes from
+		"Serving your commit", // the report form when no check ran
+		"none configured",     // and what it says about the check
+		"do not stop",         // the old behaviour, now explicitly ruled out
+	}
+
+	for _, needle := range required {
+		if !strings.Contains(body, needle) {
+			t.Errorf("embedded loop is missing %q, which the optional-check path depends on", needle)
+		}
+	}
+
+	// The distinction the whole prompt exists to protect.
+	if !strings.Contains(body, "Never call") || !strings.Contains(body, "verified") {
+		t.Error("embedded loop must forbid calling an unchecked environment verified")
+	}
 }
