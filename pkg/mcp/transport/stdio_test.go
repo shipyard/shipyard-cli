@@ -390,3 +390,43 @@ func TestStdioTransport_Cleanup(t *testing.T) {
 		t.Errorf("Expected no error stopping already stopped transport, got: %v", err)
 	}
 }
+
+// A message that is already buffered must be delivered even though the read
+// loop has since hit EOF and queued its error. Both channels are ready here, so
+// before the fix a single select over the two dropped the message about half
+// the time and the client's last request went unanswered.
+func TestStdioTransport_ReadMessagePrefersBufferedMessageOverEOF(t *testing.T) {
+	const line = `{"jsonrpc":"2.0","id":1,"method":"ping"}`
+
+	for i := 0; i < 50; i++ {
+		tr := NewStdioTransport()
+		tr.reader = bufio.NewReader(strings.NewReader(line + "\n"))
+
+		if err := tr.Start(context.Background()); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+
+		// Wait until the read loop has queued both the message and the EOF
+		// that follows it, so the race this guards against is always live.
+		deadline := time.Now().Add(2 * time.Second)
+		for len(tr.errChan) == 0 && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		if len(tr.errChan) == 0 {
+			t.Fatal("read loop never reported EOF")
+		}
+
+		msg, err := tr.ReadMessage()
+		if err != nil {
+			t.Fatalf("iteration %d: expected the buffered message, got error: %v", i, err)
+		}
+		if string(msg) != line {
+			t.Fatalf("iteration %d: expected %q, got %q", i, line, msg)
+		}
+
+		// The EOF is still reported, just after the message.
+		if _, err := tr.ReadMessage(); err == nil {
+			t.Fatalf("iteration %d: expected EOF after the message", i)
+		}
+	}
+}

@@ -74,7 +74,11 @@ jobs:
             exit 1
           fi
           chmod +x "$BINARY"
+          echo "BINARY=$BINARY" >> "$GITHUB_ENV"
           ./scripts/smoke-test.sh "$BINARY"
+
+      - name: Run MCP smoke tests
+        run: ./scripts/mcp-smoke-test.sh "$BINARY"
 
   release:
     name: Release

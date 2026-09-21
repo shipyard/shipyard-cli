@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -44,33 +45,68 @@ func TestNewMCPServer(t *testing.T) {
 }
 
 func TestMCPServer_HandleInitialize(t *testing.T) {
-	server := NewMCPServer(MCPServerConfig{}, newMockClient())
-	req := &JSONRPCRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "initialize",
+	tests := []struct {
+		name            string
+		params          string
+		wantProtocolVer string
+	}{
+		{
+			name:            "no params means no preference, so the latest is offered",
+			params:          "",
+			wantProtocolVer: LatestProtocolVersion,
+		},
+		{
+			name:            "a supported version is echoed back",
+			params:          `{"protocolVersion":"2024-11-05"}`,
+			wantProtocolVer: "2024-11-05",
+		},
+		{
+			name:            "an unsupported version is answered with the latest",
+			params:          `{"protocolVersion":"2099-01-01"}`,
+			wantProtocolVer: LatestProtocolVersion,
+		},
 	}
 
-	response := server.handleInitialize(req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := NewMCPServer(MCPServerConfig{}, newMockClient())
+			req := &JSONRPCRequest{
+				JSONRPC: "2.0",
+				ID:      1,
+				Method:  "initialize",
+			}
+			if tt.params != "" {
+				req.Params = json.RawMessage(tt.params)
+			}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(response, &result); err != nil {
-		t.Fatalf("Failed to unmarshal response: %v", err)
-	}
+			response := server.handleInitialize(req)
 
-	if result["jsonrpc"] != "2.0" {
-		t.Errorf("Expected JSON-RPC 2.0, got %v", result["jsonrpc"])
-	}
-	if result["id"] != float64(1) {
-		t.Errorf("Expected ID 1, got %v", result["id"])
-	}
+			var result map[string]interface{}
+			if err := json.Unmarshal(response, &result); err != nil {
+				t.Fatalf("Failed to unmarshal response: %v", err)
+			}
 
-	resultData, ok := result["result"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected result to be an object")
-	}
-	if resultData["protocolVersion"] != "2024-11-05" {
-		t.Errorf("Expected protocol version 2024-11-05, got %v", resultData["protocolVersion"])
+			if result["jsonrpc"] != "2.0" {
+				t.Errorf("Expected JSON-RPC 2.0, got %v", result["jsonrpc"])
+			}
+			if result["id"] != float64(1) {
+				t.Errorf("Expected ID 1, got %v", result["id"])
+			}
+
+			resultData, ok := result["result"].(map[string]interface{})
+			if !ok {
+				t.Fatal("Expected result to be an object")
+			}
+			if resultData["protocolVersion"] != tt.wantProtocolVer {
+				t.Errorf("Expected protocol version %s, got %v", tt.wantProtocolVer, resultData["protocolVersion"])
+			}
+
+			// Clients surface these to the model; an empty string is the bug
+			// this handler used to ship.
+			if instructions, _ := resultData["instructions"].(string); instructions == "" {
+				t.Error("Expected server instructions in the initialize result")
+			}
+		})
 	}
 }
 
@@ -650,4 +686,62 @@ func TestMCPServer_ContextTimeout(t *testing.T) {
 	default:
 		t.Error("Expected context to be timed out")
 	}
+}
+
+// ping is part of the base protocol: a client that uses it as a health check
+// drops a server that answers with an error.
+func TestProcessMessage_Ping(t *testing.T) {
+	server := NewMCPServer(MCPServerConfig{Transport: "stdio"}, newMockClient())
+
+	raw := server.processMessage([]byte(`{"jsonrpc":"2.0","id":7,"method":"ping"}`))
+	if raw == nil {
+		t.Fatal("Expected a response to ping, got none")
+	}
+
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("Could not decode ping response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("Expected no error in ping response, got %+v", resp.Error)
+	}
+	if resp.Result == nil {
+		t.Error("Expected an empty result object in the ping response, got none")
+	}
+}
+
+// Notifications carry no id, so answering one at all is a protocol violation.
+func TestProcessMessage_NotificationsAreNotAnswered(t *testing.T) {
+	server := NewMCPServer(MCPServerConfig{Transport: "stdio"}, newMockClient())
+
+	for _, method := range []string{"notifications/initialized", "notifications/cancelled"} {
+		if raw := server.processMessage([]byte(`{"jsonrpc":"2.0","method":"` + method + `"}`)); raw != nil {
+			t.Errorf("Expected no response to %s, got %s", method, raw)
+		}
+	}
+}
+
+// Closing the input stream has to end the process, or every client that
+// disconnects leaves a server behind.
+func TestServer_DoneClosesWhenInputStreamCloses(t *testing.T) {
+	server := NewMCPServer(MCPServerConfig{Transport: "stdio"}, newMockClient())
+	server.transport = &closedInputTransport{}
+
+	go server.handleMessages()
+
+	select {
+	case <-server.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done was never closed after the input stream closed")
+	}
+}
+
+// closedInputTransport stands in for a client that has gone away.
+type closedInputTransport struct{}
+
+func (c *closedInputTransport) Start(ctx context.Context) error { return nil }
+func (c *closedInputTransport) Stop() error                     { return nil }
+func (c *closedInputTransport) WriteMessage(data []byte) error  { return nil }
+func (c *closedInputTransport) ReadMessage() ([]byte, error) {
+	return nil, fmt.Errorf("stdin closed")
 }

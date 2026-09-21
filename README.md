@@ -405,6 +405,32 @@ If already configured with CLI:
 claude mcp add shipyard -- shipyard mcp serve
 ```
 
+### Adding to Cursor
+
+Create `~/.cursor/mcp.json` for every project, or `.cursor/mcp.json` inside one
+project, and add:
+
+```json
+{
+  "mcpServers": {
+    "shipyard": {
+      "command": "shipyard",
+      "args": ["mcp", "serve"],
+      "env": {
+        "SHIPYARD_API_TOKEN": "your-token-here",
+        "SHIPYARD_ORG": "your-org-name"
+      }
+    }
+  }
+}
+```
+
+Drop the `env` block if the CLI is already configured: the server reads the same
+`~/.shipyard/config.yaml` the CLI does. Reload the window, then check
+Settings → MCP, where Shipyard should list its tools and the `shipyard_verify`
+prompt. `shipyard` has to be on the `PATH` Cursor itself sees; if it is not, use
+its absolute path (`which shipyard`) as `command`.
+
 ### Adding to Codex CLI
 
 Edit `~/.codex/config.toml` and add:
@@ -415,3 +441,26 @@ command = "shipyard"
 args = ["mcp", "serve"]
 env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-name" }
 ```
+
+### Prompts
+
+- `shipyard_verify` - Verify a pushed change against its Shipyard environment:
+  wait for the build of the pushed SHA, then check the running environment
+  before reporting the change as working.
+
+Clients that support prompts show it as a slash command, for example
+`/shipyard_verify` in Claude Code.
+
+### Troubleshooting
+
+- **The client reports a protocol or parse error on startup.** The server speaks
+  JSON-RPC over stdout and logs to stderr; anything else writing to stdout
+  breaks the session. Check with
+  `echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"c","version":"1"}}}' | shipyard mcp serve`,
+  whose first output line must be JSON.
+- **Tools fail with a missing token.** Set `SHIPYARD_API_TOKEN` in the client's
+  `env` block, or run `shipyard login` so the token lands in the config file.
+  The client's environment is not your shell's.
+- **A per-app firewall (LuLu, Little Snitch) is installed.** Approve the
+  `shipyard` binary once, otherwise calls stall until the CLI's 20s timeout.
+  Rules are keyed by path, so a Homebrew upgrade needs a fresh approval.
