@@ -87,13 +87,21 @@ func NewServiceToolWithExec(apiClient client.Client, name string, allowExec bool
 // Definition returns the tool definition for MCP
 func (t *ServiceTool) Definition() ToolDefinition {
 	if def, exists := serviceToolDefinitions[t.name]; exists {
-		// What the model is told has to match what the tool will do, or it
-		// spends turns calling something that only ever answers with advice.
-		if t.name == "exec_service" && t.allowExec {
-			def.Description = "Run a non-interactive command in a service container and return its " +
-				"stdout, stderr and exit code. There is no terminal: interactive programs such as " +
-				"'bash' or 'vim' will not work, and stdin is not attached. Commands are cut off after " +
-				"60 seconds and output is truncated past 64KB."
+		// What the model is told has to match what the tool will do, either way.
+		// A disabled tool that still advertises itself as running commands gets
+		// called, and the caller spends a turn learning it cannot.
+		if t.name == "exec_service" {
+			if t.allowExec {
+				def.Description = "Run a non-interactive command in a service container and return its " +
+					"stdout, stderr and exit code. There is no terminal: interactive programs such as " +
+					"'bash' or 'vim' will not work, and stdin is not attached. Commands are cut off " +
+					"after 60 seconds and output is truncated past 64KB."
+			} else {
+				def.Description = "DISABLED on this server: calling this returns setup instructions, " +
+					"not command output. Running commands in containers is off until the user sets " +
+					"'mcp.allow_exec: true' in ~/.shipyard/config.yaml or SHIPYARD_MCP_ALLOW_EXEC=true " +
+					"in this client's environment. Tell them that rather than calling this tool."
+			}
 		}
 
 		return def

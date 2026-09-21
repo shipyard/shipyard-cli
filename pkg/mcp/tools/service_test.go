@@ -27,10 +27,15 @@ func TestServiceTool_Definition(t *testing.T) {
 			expectedDesc: "List services in an environment",
 		},
 		{
-			name:         "exec_service tool definition",
+			// NewServiceTool leaves exec disabled, and the description says so:
+			// a model that reads it stops instead of calling the tool.
+			name:         "exec_service tool definition, disabled",
 			toolName:     "exec_service",
 			expectedName: "exec_service",
-			expectedDesc: "Execute commands in service containers",
+			expectedDesc: "DISABLED on this server: calling this returns setup instructions, " +
+				"not command output. Running commands in containers is off until the user sets " +
+				"'mcp.allow_exec: true' in ~/.shipyard/config.yaml or SHIPYARD_MCP_ALLOW_EXEC=true " +
+				"in this client's environment. Tell them that rather than calling this tool.",
 		},
 		{
 			name:         "port_forward tool definition",
@@ -324,6 +329,15 @@ func TestServiceTool_ExecService_DescriptionFollowsTheGate(t *testing.T) {
 
 	if disabled == enabled {
 		t.Fatal("expected the enabled tool to describe itself differently")
+	}
+
+	// A disabled tool has to say so, or a model calls it and spends a turn
+	// reading setup instructions it could have read here.
+	if !strings.Contains(disabled, "DISABLED") {
+		t.Errorf("disabled description should say so up front, got: %s", disabled)
+	}
+	if !strings.Contains(disabled, "mcp.allow_exec") || !strings.Contains(disabled, "SHIPYARD_MCP_ALLOW_EXEC") {
+		t.Errorf("disabled description should name both ways to enable it, got: %s", disabled)
 	}
 	if !strings.Contains(enabled, "non-interactive") {
 		t.Errorf("enabled description should say it is non-interactive, got: %s", enabled)
