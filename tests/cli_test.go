@@ -225,6 +225,82 @@ func TestRebuildEnvironment(t *testing.T) {
 	}
 }
 
+func TestDetachedDeploy(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		args   []string
+		output string
+		isErr  bool
+	}{
+		{
+			name:   "default org success",
+			args:   []string{"detached", "deploy", "default-1", "--name", "qa-detached"},
+			output: "Detached environment \"qa-detached\" deployed (application UUID: new-app-uuid).\n",
+		},
+		{
+			name:   "non default org success",
+			args:   []string{"detached", "deploy", "pug-1", "--org", "pugs", "--name", "pug-detached"},
+			output: "Detached environment \"pug-detached\" deployed (application UUID: new-app-uuid).\n",
+		},
+		{
+			name:   "with branch and build-on-commit overrides",
+			args:   []string{"detached", "deploy", "default-1", "--name", "ovr", "--branch", "web=feature-x", "--build-on-commit", "never"},
+			output: "Detached environment \"ovr\" deployed (application UUID: new-app-uuid).\n",
+		},
+		{
+			name:   "missing build returns 404",
+			args:   []string{"detached", "deploy", "missing-build", "--name", "x"},
+			output: "Command error: application build not found\n",
+			isErr:  true,
+		},
+		{
+			name:   "non existent org",
+			args:   []string{"detached", "deploy", "default-1", "--org", "cats"},
+			output: "Command error: user org not found\n",
+			isErr:  true,
+		},
+		{
+			name:   "invalid build-on-commit value (client-side)",
+			args:   []string{"detached", "deploy", "default-1", "--build-on-commit", "sometimes"},
+			output: "Command error: invalid --build-on-commit \"sometimes\": must be always, inherit, or never\n",
+			isErr:  true,
+		},
+		{
+			name:   "mutually exclusive build-on-commit flags (client-side)",
+			args:   []string{"detached", "deploy", "default-1", "--build-on-commit", "never", "--build-on-commit-for", "web=always"},
+			output: "Command error: --build-on-commit and --build-on-commit-for are mutually exclusive\n",
+			isErr:  true,
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			c := newCmd(test.args)
+			err := c.cmd.Run()
+			if test.isErr {
+				if err == nil {
+					t.Errorf("expected error %q but command succeeded", test.output)
+					return
+				}
+				if diff := cmp.Diff(c.stdErr.String(), test.output); diff != "" {
+					t.Error(diff)
+				}
+				return
+			}
+			if err != nil {
+				t.Logf("Detached deploy failed: %v", err)
+				t.Logf("Stderr: %q", c.stdErr.String())
+				t.Fatalf("unexpected error")
+			}
+			if diff := cmp.Diff(c.stdOut.String(), test.output); diff != "" {
+				t.Error(diff)
+			}
+		})
+	}
+}
+
 // nolint:gosec // Bad arguments can't be passed in.
 func newCmd(args []string) *cmdWrapper {
 	c := cmdWrapper{
