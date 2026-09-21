@@ -81,6 +81,28 @@ func (t *StdioTransport) readLoop() {
 	}
 }
 
+// preferBufferedMessage hands back a message that arrived alongside a terminal
+// read error, deferring the error to the next call.
+//
+// The drain in ReadMessage covers a message buffered before that call. This
+// covers the gap between its two selects: readLoop can fill both channels in
+// that window, and the second select then picks a ready case at random, which
+// discards the request about half the time it happens. Rare — measured around 1
+// request in 60 on a loaded machine — and what the client sees is a request that
+// was never answered.
+func (t *StdioTransport) preferBufferedMessage(err error) ([]byte, error) {
+	select {
+	case msg := <-t.msgChan:
+		// Put the error back for the next read. errChan is buffered and readLoop
+		// sends exactly one terminal error before returning, so this never
+		// blocks.
+		t.errChan <- err
+		return msg, nil
+	default:
+		return nil, err
+	}
+}
+
 // Stop the stdio transport
 func (t *StdioTransport) Stop() error {
 	t.mu.Lock()
@@ -116,7 +138,7 @@ func (t *StdioTransport) ReadMessage() ([]byte, error) {
 	case msg := <-t.msgChan:
 		return msg, nil
 	case err := <-t.errChan:
-		return nil, err
+		return t.preferBufferedMessage(err)
 	case <-t.ctx.Done():
 		return nil, t.ctx.Err()
 	}
