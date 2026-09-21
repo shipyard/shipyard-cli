@@ -41,6 +41,11 @@ type MCPServerConfig struct {
 	Transport    string `yaml:"transport" mapstructure:"transport"`
 	Port         int    `yaml:"port" mapstructure:"port"`
 	AuditLogging bool   `yaml:"audit_logging" mapstructure:"audit_logging"`
+
+	// AllowExec lets exec_service run commands inside a customer's containers.
+	// Off by default: it is the one tool here that executes arbitrary code in a
+	// running environment, so it is the operator's call, not the assistant's.
+	AllowExec bool `yaml:"allow_exec" mapstructure:"allow_exec"`
 }
 
 // MCP Server
@@ -475,7 +480,7 @@ func (s *MCPServer) registerTools() {
 
 	// Register service tools
 	s.tools["get_services"] = tools.NewServiceTool(s.client, "get_services")
-	s.tools["exec_service"] = tools.NewServiceTool(s.client, "exec_service")
+	s.tools["exec_service"] = tools.NewServiceToolWithExec(s.client, "exec_service", s.config.AllowExec)
 	s.tools["port_forward"] = tools.NewServiceTool(s.client, "port_forward")
 
 	// Register volume tools
@@ -540,9 +545,25 @@ func LoadMCPServerConfig() MCPServerConfig {
 	viper.SetDefault("mcp.transport", "stdio")
 	viper.SetDefault("mcp.port", 8080)
 	viper.SetDefault("mcp.audit_logging", true)
+	viper.SetDefault("mcp.allow_exec", false)
+
+	// Bound explicitly because the global env prefix does not map dots to
+	// underscores, and an MCP client configures the server through its env block
+	// rather than through the config file.
+	if err := viper.BindEnv("mcp.allow_exec", "SHIPYARD_MCP_ALLOW_EXEC"); err != nil {
+		log.Printf("MCP config: could not bind SHIPYARD_MCP_ALLOW_EXEC: %v", err)
+	}
 
 	// Unmarshal config
-	viper.UnmarshalKey("mcp", &config)
+	if err := viper.UnmarshalKey("mcp", &config); err != nil {
+		log.Printf("MCP config: could not read the mcp section, using defaults: %v", err)
+	}
+
+	// UnmarshalKey builds the struct from config file and defaults only: a value
+	// that exists solely as a bound environment variable does not appear in the
+	// map it reads, so SHIPYARD_MCP_ALLOW_EXEC would be silently ignored. Get
+	// honours the binding, so read this one directly.
+	config.AllowExec = viper.GetBool("mcp.allow_exec")
 
 	return config
 }
