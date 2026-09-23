@@ -80,9 +80,45 @@ jobs:
       - name: Run MCP smoke tests
         run: ./scripts/mcp-smoke-test.sh "$BINARY"
 
+  vuln-scan:
+    name: Vulnerability Scan
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '^1.24.x'
+          cache: true
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      # Every platform from this one runner: govulncheck reads ELF, Mach-O and
+      # PE, so the Windows and macOS artifacts are scanned here too.
+      - name: Scan release binaries
+        run: |
+          BINARIES=()
+          while IFS= read -r binary; do
+            BINARIES+=("$binary")
+          done < <(find dist -type f \( -name "shipyard" -o -name "shipyard.exe" \))
+          if [[ "${#BINARIES[@]}" -eq 0 ]]; then
+            echo "No binaries found in dist/"
+            find dist -type f
+            exit 1
+          fi
+          printf 'Scanning %d binaries\n' "${#BINARIES[@]}"
+          ./scripts/vuln-scan.sh "${BINARIES[@]}"
+
   release:
     name: Release
-    needs: smoke-test
+    needs: [smoke-test, vuln-scan]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

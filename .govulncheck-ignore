@@ -1,0 +1,9 @@
+# Vulnerability findings excepted from the release gate (scripts/vuln-scan.sh).
+#
+# Add an entry only when a finding genuinely does not apply to the shipped
+# binaries, never to get a release out. One per line:
+#
+#   <GO-ID> <expires YYYY-MM-DD> <reason>
+#
+# The exception applies through its expiry date and is then ignored, so the
+# finding blocks releases again until it is fixed or re-justified.
