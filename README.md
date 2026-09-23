@@ -449,9 +449,10 @@ env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-nam
   before reporting the change as working.
 
 Clients that support prompts show it as a slash command, for example
-`/shipyard_verify` in Claude Code. All three arguments are optional: `branch`
-and `repo_name` default to the working directory, and `acceptance_command` is
-the check to run against the environment.
+`/mcp__shipyard__shipyard_verify` in Claude Code. It takes three optional
+arguments, in this order: `acceptance_command`, the check to run against the
+environment, then `branch` and `repo_name`, which default to the working
+directory.
 
 #### The acceptance check
 
@@ -459,10 +460,11 @@ The prompt confirms the environment is serving your exact commit, then runs the
 check that decides whether the change actually works. It never invents that
 check. It looks for one in two places:
 
-1. The `acceptance_command` argument, for a single run:
+1. The `acceptance_command` argument, for a single run. Quote it when it has
+   spaces:
 
    ```
-   /shipyard_verify acceptance_command="npm run test:e2e"
+   /mcp__shipyard__shipyard_verify "npm run test:e2e"
    ```
 
 2. Whatever the repository documents, for every run. Put the command somewhere
@@ -472,8 +474,12 @@ check. It looks for one in two places:
    ## Verifying against Shipyard
 
    Acceptance check: `npm run test:e2e -- --base-url=$SHIPYARD_URL`
-   Pass the bypass token as the `shipyard_token` cookie; never print it.
    ```
+
+   The agent runs the check with `SHIPYARD_URL` set to the environment URL and
+   `SHIPYARD_TOKEN` set to its bypass token. Send the token as the
+   `shipyard_token` cookie and never print it. The check has to hit the
+   environment; a unit-test command doesn't count.
 
 With neither, the prompt still runs. It reports that the environment is serving
 your commit and that no check ran, which is a narrower claim than verified and

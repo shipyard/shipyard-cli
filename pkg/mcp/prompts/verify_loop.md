@@ -134,12 +134,22 @@ Two things to know:
 
 Take the command from the first of these that has one:
 
-1. The `acceptance_command` argument, when this prompt was invoked with it.
-2. Whatever the repository documents — `CLAUDE.md`, `AGENTS.md`, a README section.
+1. The `acceptance_command` argument, when this prompt was invoked with it. It appears under
+   "This invocation" at the end of these instructions.
+2. Whatever the repository documents in `CLAUDE.md`, `AGENTS.md` or a README section. Prefer a
+   line labelled `Acceptance check:`. It only counts if it exercises the running environment:
+   a unit-test command that never touches `url` is not an acceptance check.
 3. Nothing. That is a valid answer; see below.
 
-**With a command:** run it against `url`. The command decides pass or fail, not you. "The page
-returned 200" is not verification. Pass the bypass token through an environment variable.
+**With a command:** run it with the environment in two variables, set only for that command:
+
+```
+SHIPYARD_URL=<url> SHIPYARD_TOKEN=<bypass_token> <acceptance command>
+```
+
+The command decides pass or fail, not you. "The page returned 200" is not verification. A command
+that cannot run at all (not found, or it crashes before reaching `url`) is a **FAILED** result with
+that error, never a reason to fall back to the Serving report below.
 
 **Without one:** do not invent a check, do not stop, and do not ask the user to configure one
 mid-run. You still know something worth reporting — the environment is serving this exact commit
@@ -190,7 +200,8 @@ Serving your commit on Shipyard. No acceptance check ran, so this is not verifie
 Add one line after it, once, so the user knows the option exists: a check can be passed as
 `acceptance_command` when invoking this prompt, or documented in `CLAUDE.md` or `AGENTS.md`.
 
-Omit any line you do not have. Never report PASS for a run you had to discard.
+Omit any line you do not have, except `Check:` in every form and `Result:` on success: a
+success report without them is not verification. Never report PASS for a run you had to discard.
 
 ## Failure handling
 

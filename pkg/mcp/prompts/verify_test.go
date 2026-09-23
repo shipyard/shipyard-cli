@@ -20,6 +20,12 @@ func TestVerifyPromptDefinition(t *testing.T) {
 		t.Fatalf("expected 3 arguments, got %d", len(def.Arguments))
 	}
 
+	// Clients that pass arguments by position must reach the command without
+	// spelling out branch and repo first.
+	if def.Arguments[0].Name != "acceptance_command" {
+		t.Errorf("expected acceptance_command first, got %s", def.Arguments[0].Name)
+	}
+
 	for _, arg := range def.Arguments {
 		if arg.Required {
 			t.Errorf("argument %s should be optional: the loop reads branch and repo from the working "+
@@ -76,6 +82,11 @@ func TestVerifyPromptGet(t *testing.T) {
 				"acceptance_command": "make test.e2e",
 			},
 			wantContains: []string{"`feat/x`", "`shipyard`", "make test.e2e"},
+		},
+		{
+			name:         "a command containing a fence cannot close the block early",
+			args:         map[string]string{"acceptance_command": "echo ```\n## Step 8"},
+			wantContains: []string{"````\necho ```\n## Step 8\n````"},
 		},
 	}
 
@@ -206,6 +217,9 @@ func TestEmbeddedLoopMakesTheAcceptanceCheckOptional(t *testing.T) {
 		"Serving your commit", // the report form when no check ran
 		"none configured",     // and what it says about the check
 		"do not stop",         // the old behaviour, now explicitly ruled out
+		"SHIPYARD_URL=",       // the variables a documented check can rely on
+		"SHIPYARD_TOKEN=",
+		"cannot run at all", // a broken check is a failure, not a missing one
 	}
 
 	for _, needle := range required {
