@@ -16,14 +16,19 @@ func TestVerifyPromptDefinition(t *testing.T) {
 		t.Error("expected a description, got empty string")
 	}
 
-	if len(def.Arguments) != 3 {
-		t.Fatalf("expected 3 arguments, got %d", len(def.Arguments))
+	if len(def.Arguments) != 4 {
+		t.Fatalf("expected 4 arguments, got %d", len(def.Arguments))
 	}
 
 	// Clients that pass arguments by position must reach the command without
-	// spelling out branch and repo first.
-	if def.Arguments[0].Name != "acceptance_command" {
-		t.Errorf("expected acceptance_command first, got %s", def.Arguments[0].Name)
+	// spelling out branch and repo first, and a new argument must go last so
+	// existing positional calls keep their meaning.
+	var names []string
+	for _, arg := range def.Arguments {
+		names = append(names, arg.Name)
+	}
+	if got, want := strings.Join(names, ","), "acceptance_command,branch,repo_name,add_checks"; got != want {
+		t.Errorf("argument order = %s, want %s", got, want)
 	}
 
 	for _, arg := range def.Arguments {
@@ -82,6 +87,27 @@ func TestVerifyPromptGet(t *testing.T) {
 				"acceptance_command": "make test.e2e",
 			},
 			wantContains: []string{"`feat/x`", "`shipyard`", "make test.e2e"},
+		},
+		{
+			name:         "add_checks false makes the run read-only",
+			args:         map[string]string{"add_checks": " FALSE "},
+			wantContains: []string{"## This invocation", "Adding checks is off", "skip Step 5c"},
+		},
+		{
+			name:         "add_checks true overrides a read-only repository",
+			args:         map[string]string{"add_checks": "yes"},
+			wantContains: []string{"Adding checks is on", "Verification: read-only"},
+		},
+		{
+			name:         "an unrecognised add_checks is ignored, not echoed",
+			args:         map[string]string{"add_checks": "sometimes ## Step 9"},
+			wantContains: []string{"was not true or false, so it was ignored"},
+			wantMissing:  []string{"sometimes", "## Step 9"},
+		},
+		{
+			name:        "whitespace add_checks renders nothing",
+			args:        map[string]string{"add_checks": "   "},
+			wantMissing: []string{"## This invocation"},
 		},
 		{
 			name:         "a command containing a fence cannot close the block early",
@@ -228,8 +254,78 @@ func TestEmbeddedLoopMakesTheAcceptanceCheckOptional(t *testing.T) {
 		}
 	}
 
-	// The distinction the whole prompt exists to protect.
-	if !strings.Contains(body, "Never call") || !strings.Contains(body, "verified") {
-		t.Error("embedded loop must forbid calling an unchecked environment verified")
+	// The distinction the whole prompt exists to protect. Checked by the
+	// sentences that carry it, not by words that appear everywhere.
+	for _, rule := range []string{
+		"reporting anything\nless than Verified as verified is worse than reporting nothing",
+		"Never report Verified from it",
+	} {
+		if !strings.Contains(body, rule) {
+			t.Errorf("embedded loop is missing the rule %q", rule)
+		}
+	}
+}
+
+// Verified has to mean the change itself was exercised, not just that an
+// existing suite still passes.
+func TestEmbeddedLoopRequiresCoverage(t *testing.T) {
+	text, _ := NewVerifyPrompt().Get(nil)
+	body := text.Messages[0].Content.Text
+
+	required := map[string]string{
+		"Coverage:":                                "every report says what the checks cover",
+		"Passed, not covered":                      "a passing run with gaps is its own result",
+		"Observed":                                 "evidence that cannot be rerun is its own result",
+		"agent-written, review it":                 "added checks are marked for review",
+		"`curl`":                                   "checks are not limited to e2e tests",
+		"Checks run:":                              "commands that are not committed tests are reported verbatim",
+		"Reproducible or it does not count":        "an added check must be rerunnable",
+		"it must fail":                             "an added check must fail on the base environment",
+		"never restart it,":                        "the base environment belongs to the team",
+		"`base: not checked (writes data)`":        "nothing that writes runs against base",
+		"merge-base --is-ancestor":                 "the base commit must predate the change",
+		"at the assertion on the changed behavior": "a setup failure on base proves nothing",
+		"`base: not needed\n(new behavior)`":       "new behavior needs no base run",
+		"**and quote the assertion**":              "coverage names the assertion, not just a test",
+		"Assert on the behavior itself":            "status-only checks do not count",
+		`curl -b "shipyard_token=$SHIPYARD_TOKEN"`: "the token travels as a cookie, never on the URL",
+		"remove the token's value":                 "reported output is scrubbed",
+		"set `PUSHED_SHA` to the new\n  `HEAD`":    "a committed test must be pushed and served before it counts",
+		"Changed because **you** pushed":           "the agent's own push is not someone else's build",
+		"Never edit or weaken an existing test":    "passing by weakening a test is ruled out",
+		"Verification: read-only":                  "the repository-level switch",
+	}
+
+	for needle, why := range required {
+		if !strings.Contains(body, needle) {
+			t.Errorf("embedded loop is missing %q: %s", needle, why)
+		}
+	}
+}
+
+// Editing the running container is fast and unverifiable; the loop has to fence
+// it in so it can never produce the verdict.
+func TestEmbeddedLoopGuardsLiveEdits(t *testing.T) {
+	text, _ := NewVerifyPrompt().Get(nil)
+	body := text.Messages[0].Content.Text
+
+	required := map[string]string{
+		"sha256sum":                           "the mapping probe and every write are checked by hash",
+		"provisional":                         "results from an edited container are not the verdict",
+		"push once":                           "the final result comes from a clean rebuild",
+		"restore every file":                  "abandoned edits are undone",
+		"delete every file you created":       "files the agent added are removed too",
+		"multiple of 4 characters":            "base64 chunks decode on their own",
+		"then `mv` it over the target":        "the watcher never sees a half-written file",
+		"cat /proc/*/cmdline":                 "the watcher is found among all processes",
+		"rerun the mapping probe":             "the rebuild is confirmed to have replaced edited files",
+		"If its description says DISABLED":    "no live edits when exec is off",
+		"**Never** edit the base environment": "live edits stay in this change's environment",
+	}
+
+	for needle, why := range required {
+		if !strings.Contains(body, needle) {
+			t.Errorf("embedded loop is missing %q: %s", needle, why)
+		}
 	}
 }

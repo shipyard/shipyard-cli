@@ -482,10 +482,10 @@ env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-nam
   before reporting the change as working.
 
 Clients that support prompts show it as a slash command, for example
-`/mcp__shipyard__shipyard_verify` in Claude Code. It takes three optional
+`/mcp__shipyard__shipyard_verify` in Claude Code. It takes four optional
 arguments, in this order: `acceptance_command`, the check to run against the
-environment, then `branch` and `repo_name`, which default to the working
-directory.
+environment; `branch` and `repo_name`, which default to the working directory;
+and `add_checks` (see [Checking the change itself](#checking-the-change-itself)).
 
 #### The acceptance check
 
@@ -514,9 +514,62 @@ check. It looks for one in two places:
    `shipyard_token` cookie and never print it. The check has to hit the
    environment; a unit-test command doesn't count.
 
-With neither, the prompt still runs. It reports that the environment is serving
-your commit and that no check ran, which is a narrower claim than verified and
-says so. Nothing has to be configured to use the prompt.
+With neither, the prompt still runs. It checks the change directly (below), or
+reports that the environment is serving your commit and nothing was checked.
+Nothing has to be configured to use the prompt.
+
+#### Checking the change itself
+
+A passing suite shows nothing regressed. It doesn't show the new behavior
+works, because a new feature usually has no test yet. So the prompt also:
+
+1. **Assesses coverage.** It reads the diff against the base branch and names
+   the test that exercises each changed behavior: full, partial or none.
+2. **Adds a check for anything uncovered**, using whatever tool reaches the
+   change: an e2e test for UI work, an API test or `curl` requests for a
+   backend change, a CLI call or a query through `exec_service` for a worker or
+   migration. A check has to be reproducible: a test committed with the change,
+   or every command quoted in the report with its expected and actual output.
+   Something the agent only looked at is reported as Observed, never Verified.
+3. **Proves checks for fixes are real.** For a bug fix or any change to
+   behavior that already existed, a lazy check would pass before and after the
+   change. So each new check for such a change must pass on this environment and
+   fail on the base branch's environment, at its assertion. The base environment
+   is used only if it's ready and its commit predates the change, only with
+   checks that don't write, and is never restarted or edited. A brand-new feature
+   skips this: base can't have it, so the check's quoted assertion on the new
+   behavior is the proof instead.
+
+The result is one of:
+
+| Result | Meaning |
+|---|---|
+| Verified | Everything passed, every changed behavior is covered, and every added check for a fix failed on base |
+| Passed, not covered | Everything passed, but some changed behavior has no proven check |
+| Observed | The only evidence is something the agent looked at |
+| Serving | The environment is up on your commit; nothing ran |
+| FAILED | A check failed |
+
+To keep verification read-only (no added checks, no edits to the running
+container), add this line to `CLAUDE.md` or `AGENTS.md`:
+
+```markdown
+Verification: read-only
+```
+
+or pass `add_checks` as `false` for one run. `true` turns added checks and
+container edits back on for one run in a read-only repository.
+
+#### Fixing without a rebuild per attempt
+
+When `exec_service` is enabled (`mcp.allow_exec`) and the service runs a dev
+server that reloads code, the agent can try a fix by writing changed files into
+the running container, rerun its checks in seconds, and push once they pass. It
+does this only after confirming the container serves the repository's files (by
+comparing hashes) and runs a known reloading process. Results from an edited
+container are never the verdict: after the push, the environment rebuilds and
+the checks run again on the clean commit. If the agent stops without pushing, it
+restores the files it changed.
 
 ### Troubleshooting
 

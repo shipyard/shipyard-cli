@@ -28,7 +28,8 @@ func (p *VerifyPrompt) Definition() PromptDefinition {
 		Name: "shipyard_verify",
 		Description: "Verify a pushed change against the Shipyard preview environment for its branch: " +
 			"find the environment, wait until it serves that exact commit, reach it with the bypass " +
-			"token, run the acceptance check if there is one, and report the result.",
+			"token, run the acceptance check if there is one, check that the change itself is covered, " +
+			"and report the result.",
 		Arguments: []PromptArgument{
 			// First, because clients that pass prompt arguments by position would
 			// otherwise make callers spell out branch and repo just to reach it.
@@ -48,6 +49,15 @@ func (p *VerifyPrompt) Definition() PromptDefinition {
 				Name:        "repo_name",
 				Description: "Repository as Shipyard knows it. Defaults to the current repository when omitted.",
 				Required:    false,
+			},
+			// Last, so existing positional calls keep their meaning.
+			{
+				Name: "add_checks",
+				Description: "Whether to add checks for changed behavior the acceptance check does not cover, " +
+					"and to edit the running container while iterating. 'false' keeps the run read-only; " +
+					"'true' overrides a repository's 'Verification: read-only'. Defaults to what the " +
+					"repository documents, else on.",
+				Required: false,
 			},
 		},
 	}
@@ -90,8 +100,8 @@ func stripFrontmatter(doc string) string {
 	return strings.TrimLeft(rest[end+len(fence)+2:], "\n")
 }
 
-// knownTarget renders whichever of branch/repo_name/acceptance_command the
-// caller supplied.
+// knownTarget renders whichever of branch/repo_name/acceptance_command/add_checks
+// the caller supplied.
 func knownTarget(args map[string]string) string {
 	branch := strings.TrimSpace(args["branch"])
 	repo := strings.TrimSpace(args["repo_name"])
@@ -118,7 +128,30 @@ func knownTarget(args map[string]string) string {
 			"the repository documents:\n\n%s\n%s\n%s", fence, command, fence))
 	}
 
+	if line := addChecksLine(args["add_checks"]); line != "" {
+		lines = append(lines, line)
+	}
+
 	return strings.Join(lines, "\n\n")
+}
+
+// addChecksLine renders the add_checks argument. Like acceptance_command, a
+// value passed for this run outranks what the repository documents. A value
+// that is neither true nor false is not echoed back: it is caller input headed
+// for a model's instructions, and saying it was ignored is enough.
+func addChecksLine(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return ""
+	case "false", "no", "0", "off":
+		return "Adding checks is off for this run: skip Step 5c and do not edit the running container. " +
+			"Still assess and report coverage. This outranks anything the repository documents."
+	case "true", "yes", "1", "on":
+		return "Adding checks is on for this run, even if the repository says `Verification: read-only`."
+	default:
+		return "The `add_checks` argument was not true or false, so it was ignored. Follow what the " +
+			"repository documents, else add checks."
+	}
 }
 
 // codeFence returns a backtick fence longer than any backtick run in s, so a

@@ -1,8 +1,8 @@
 ---
 name: "shipyard-verify"
-description: "Verify your pushed changes against the Shipyard preview environment for this branch before handing work back. Covers: finding the environment, waiting for your exact commit, authenticated access, running the acceptance check when the repository has one, and reporting the result."
+description: "Verify your pushed changes against the Shipyard preview environment for this branch before handing work back. Covers: finding the environment, waiting for your exact commit, authenticated access, running the acceptance check when the repository has one, checking that the change itself is covered, and reporting the result."
 keywords: ["shipyard", "preview environment", "verify", "test", "pr", "deploy", "e2e"]
-version: "0.1.0"
+version: "0.2.0"
 ---
 
 # Shipyard Verification Loop
@@ -56,6 +56,10 @@ configuration problem.
 git rev-parse HEAD        # PUSHED_SHA — every check below is against this value
 git branch --show-current # BRANCH
 ```
+
+`BASE` is the branch this change will merge into: the pull request's target
+(`gh pr view --json baseRefName -q .baseRefName`), else the remote's default branch
+(`git symbolic-ref refs/remotes/origin/HEAD`). Step 5 compares against it.
 
 Also note the repo name as Shipyard knows it (the `repo_name` in the environment payload, usually
 the GitHub repo name without the org prefix).
@@ -130,7 +134,9 @@ Two things to know:
 - **Never** print the token, paste it into chat, commit it, put it in a PR comment, or write it to
   a log. Pass it through an environment variable to the acceptance command.
 
-## Step 5 — Run the acceptance check, if there is one
+## Step 5 — Check the change, not just the build
+
+### 5a — Run the acceptance check, if there is one
 
 Take the command from the first of these that has one:
 
@@ -151,64 +157,231 @@ The command decides pass or fail, not you. "The page returned 200" is not verifi
 that cannot run at all (not found, or it crashes before reaching `url`) is a **FAILED** result with
 that error, never a reason to fall back to the Serving report below.
 
-**Without one:** do not invent a check, do not stop, and do not ask the user to configure one
-mid-run. You still know something worth reporting — the environment is serving this exact commit
-and is ready — so go to Step 6 and report that with the **Serving** form in Step 7. Never call
-that outcome verified, and never describe an unchecked environment as working.
+**Without one:** do not invent a replacement suite, do not stop, and do not ask the user to
+configure one mid-run. Go on to 5b: the change can still be checked directly.
+
+### 5b — Is the change itself covered?
+
+A passing suite proves nothing regressed. It does not prove the new behavior works, because a new
+feature usually has no test yet. Read `git diff BASE...HEAD` and list the behavior it changes.
+Mark each item **new** (it did not exist on `BASE`: a new endpoint, page, field or command) or
+**changed** (it existed and now behaves differently: a bug fix, a changed response, changed UI).
+For each item, name the test in the acceptance check that exercises it **and quote the assertion**
+that checks the behavior.
+
+- **full** — every changed behavior has a named test with a quoted assertion.
+- **partial** — some do.
+- **none** — none do, or there is no acceptance check.
+
+A test whose name sounds related but whose assertions do not touch the behavior does not count.
+"Coverage looks fine" is not an assessment.
+
+### 5c — Add a check for what is not covered
+
+Skip this step when adding checks is off: `add_checks=false` under "This invocation", or a
+`Verification: read-only` line in the repository. Coverage is still reported.
+
+Otherwise, check each uncovered behavior with whatever tool actually exercises it. A check is not
+limited to end-to-end tests:
+
+| The change | A check that exercises it |
+|---|---|
+| UI | An e2e test in the repository's own framework |
+| API or backend | An API test in the repository's test framework, or `curl` requests against `SHIPYARD_URL` with the expected status and body |
+| No HTTP surface (worker, migration, cron) | A CLI call, or a query or log read inside the service through `exec_service`, with the expected output |
+
+Rules:
+
+- **Assert on the behavior itself.** Check the new field's value, the fixed message, the changed
+  status: something only the change produces. "Returns 200" or "the page loads" is not a check of
+  the change.
+- **Reproducible or it does not count.** Prefer a test committed in the repository's framework.
+  Otherwise put every command in the report verbatim, with the expected and actual output, so a
+  reviewer can rerun it. A check that exists only in your reasoning ("I looked, it worked") is
+  **Observed**, never part of Verified.
+- **Keep the token out of everything you report.** Send it only as a cookie from the variable,
+  for example `curl -b "shipyard_token=$SHIPYARD_TOKEN" "$SHIPYARD_URL/..."`, never on the URL
+  and never with `-v`. Before quoting any command or output, remove the token's value and any
+  application credentials.
+- **Cover only what is uncovered.** Never edit or weaken an existing test to make it pass.
+- **A committed test is part of the change.** Commit it, push, set `PUSHED_SHA` to the new
+  `HEAD`, and go back to Step 3. The environment has to serve the commit that contains the test
+  before that test can count.
+
+### 5d — Prove checks for changed behavior are real
+
+A check for a **new** behavior cannot pass on `BASE`, because the behavior is not there; its
+quoted assertion is the proof. A check for a **changed** behavior can: a check that passes both
+before and after the change is not testing it. Run each new check for a changed behavior against
+two environments:
+
+- **This environment** — it must pass.
+- **The base environment** — it must fail, at the assertion on the changed behavior.
+
+Find the base environment with `get_environments(branch=BASE)` and the same `repo_name` filter.
+Use it only if all of these hold, otherwise report `base: not checked` with the reason:
+
+- Exactly one environment comes back, and it is `ready` and not `stopped` or `retired`.
+- Its `commit_hash` for this repo is an ancestor of your change and does not contain it:
+  `git merge-base --is-ancestor <base commit> PUSHED_SHA` succeeds, and the diff is not in it.
+- The check does not change state. The base environment belongs to the team: **never restart it,
+  never edit it, and never run anything against it that writes** (no POSTs, signups, form posts,
+  or exec writes). A check that writes is reported `base: not checked (writes data)`.
+
+For HTTP checks, point `SHIPYARD_URL` at the base environment and use its own `bypass_token`.
+
+| Result | Meaning |
+|---|---|
+| Fails on base at the assertion, passes here | Proven. Quote the failing assertion and record the base commit |
+| Fails on base before the assertion (404 on setup, auth, missing data, connection) | Not proven: the failure says nothing about the change. Report `base: not checked` |
+| Passes on both | It does not test the change. Rewrite it once; if it still passes on both, report it as not proven |
+| Fails here | A real failure: go to Failure handling. Do not edit the check to make it pass, unless it is provably wrong about the intended behavior, and then say why in the report |
 
 ## Step 6 — Re-check the commit before you report
 
 Call `get_environments` once more and compare `commit_hash` against `PUSHED_SHA`.
 
 - Unchanged → your result is valid, go to Step 7.
-- Changed → someone else's build landed mid-run and your result describes neither commit.
+- Changed because **you** pushed (a test in 5c, or a fix) → not a conflict. Set `PUSHED_SHA` to
+  your new commit and return to Step 3.
+- Changed by anyone else → their build landed mid-run and your result describes neither commit.
   **Discard it and return to Step 3.** Do this at most twice, then stop and tell the user the
   environment is too busy to verify against right now.
 
+If you edited the running container at any point, the final result must come from after a rebuild
+of your pushed commit: rerun the mapping probe (below) on every file you edited and confirm each
+now matches `PUSHED_SHA`. A file that still differs means the container keeps source across
+rebuilds; report that instead of a result.
+
 ## Step 7 — Report
 
-On success:
+Every form carries a `Coverage:` line. Mark each check you added `(agent-written, review it)` and
+give its base result: `base: failed ✓ @ <base sha>` (changed behavior, proven), `base: not needed
+(new behavior)`, or `base: not checked (<reason>)`. List checks that are not committed tests
+(`curl`, CLI, `exec_service`) under `Checks run:`, verbatim, token removed, with expected and
+actual output.
+
+**Verified** — the acceptance check passed (if there is one), coverage is full, every check you
+added is reproducible, and every one for a changed behavior failed on base:
 
 ```
 Verified on Shipyard.
   Environment: <url>
   Commit:      <PUSHED_SHA>  (confirmed serving before and after the run)
-  Check:       <acceptance command>
+  Check:       <acceptance command, or none configured>
   Result:      PASS
+  Coverage:    full — <named tests and checks>
+  Checks run:  <verbatim commands, expected and actual output>
 ```
 
-On failure:
+**Passed, not covered** — everything that ran passed, but some changed behavior has no proven
+check (adding checks was off, a new check could not be proven on base, or none could be written):
+
+```
+Passed on Shipyard, but the change is not fully covered, so this is not verified.
+  Environment: <url>
+  Commit:      <PUSHED_SHA>
+  Check:       <acceptance command, or none configured>
+  Result:      PASS
+  Coverage:    partial — <what is covered>; not covered: <what is not, and why>
+```
+
+**FAILED**:
 
 ```
 Verification FAILED on Shipyard.
   Environment: <url>
   Commit:      <PUSHED_SHA>
-  Check:       <acceptance command>
+  Check:       <acceptance command or the failing check>
   Failing:     <test names, or the first real error>
   Logs:        <the relevant lines, not the whole dump>
 ```
 
-With no acceptance command (Step 5), the claim is narrower and says so:
+**Observed** — the only evidence is something you looked at and could not capture as a
+reproducible command, such as a UI with no e2e framework:
+
+```
+Observed on Shipyard. No reproducible check covers this, so it is not verified.
+  Environment: <url>
+  Commit:      <PUSHED_SHA>
+  Check:       none configured
+  Observed:    <what you looked at and what you saw>
+```
+
+**Serving** — nothing ran: no acceptance check, and no check was added:
 
 ```
 Serving your commit on Shipyard. No acceptance check ran, so this is not verified.
   Environment: <url>
   Commit:      <PUSHED_SHA>  (confirmed ready and serving)
   Check:       none configured
+  Coverage:    none
 ```
 
-Add one line after it, once, so the user knows the option exists: a check can be passed as
-`acceptance_command` when invoking this prompt, or documented in `CLAUDE.md` or `AGENTS.md`.
+After Serving or Passed, not covered, add one line, once, so the user knows the options: a check
+can be passed as `acceptance_command` when invoking this prompt, or documented in `CLAUDE.md` or
+`AGENTS.md`.
 
-Omit any line you do not have, except `Check:` in every form and `Result:` on success: a
-success report without them is not verification. Never report PASS for a run you had to discard.
+Omit any line you do not have, except `Check:` and `Coverage:` in every form and `Result:` on
+success: a success report without them is not verification. Never report PASS for a run you had
+to discard, and never report Verified from a container you edited (see below).
 
 ## Failure handling
 
-**Fix once, retry once, then stop.** After a failed acceptance check: read the failure and the
-environment logs, make one targeted fix, push, and return to Step 2 with the new SHA. **Stop after
-3 failed attempts** and report what you tried, what failed each time, and the environment URL.
-Looping past that burns build capacity and rarely converges.
+**Three attempts, then stop.** After a failed check: read the failure and the environment logs,
+make one targeted fix, and try again. An attempt is one fix, whether you pushed it or tried it in
+the running container. **Stop after 3 failed attempts** and report what you tried, what failed
+each time, and the environment URL. Looping past that burns build capacity and rarely converges.
+
+Each attempt normally means push, return to Step 2 with the new SHA, and wait for a rebuild. When
+the container can be edited in place (next section), try the fix there first and push once it
+passes. That makes attempts cheaper; it does not raise the limit.
+
+## Iterating in the running container
+
+A rebuild per attempt takes minutes. If the service runs a dev server that reloads code, you can
+write changed files straight into the running container, rerun the checks in seconds, and push
+once everything passes.
+
+**Only when all of these hold:**
+
+- `exec_service` is enabled. If its description says DISABLED, skip this section.
+- The environment is this change's own. **Never** edit the base environment. Others reviewing this
+  change may be using its environment; edits there are visible to them until the rebuild.
+- `add_checks` is not off and the repository does not say `Verification: read-only`.
+- Both probes below pass. They fail closed: any doubt means push per attempt instead.
+
+`exec_service` takes the environment, a `service_name` (list them with `get_services`) and the
+command as an argument array. It has no stdin, stops waiting after 60 seconds, and cuts output at
+64KB. Pipes and redirects need a shell: `["sh", "-c", "..."]`. If the image has no `sh`,
+`base64` or `sha256sum`, stop here.
+
+**Mapping probe.** Find where the repository lives in the container, then look for two or three
+files the diff touches. Compare each file's `sha256sum` in the container with
+`git show <PUSHED_SHA>:<path> | sha256sum` locally. Every one must match. A mismatch or a missing
+file means the container does not serve these files from source; stop here.
+
+**Reload probe.** Scan every process (`cat /proc/*/cmdline`), not only process 1, which is often
+`tini`, `sh -c` or `npm`. One of them must be a known watcher: `nodemon`, `vite`, `next dev`,
+`webpack serve`, `flask --debug`, `uvicorn --reload`, `air`, `rails server` in development. If
+none is, stop here; do not stretch the list to fit.
+
+**Writing a file.** Base64-encode it locally and split the encoded text into chunks of at most
+32KB, each a multiple of 4 characters. Append each chunk to a temporary file next to the target,
+decode it, compare its `sha256sum` with the local file, then `mv` it over the target, so the
+watcher never reloads a half-written file. A mismatch means the write failed: remove the temporary
+file and push per attempt instead.
+
+**Rules:**
+
+- Results from an edited container are **provisional**. The code there matches no commit, and
+  Shipyard still reports the old `commit_hash`. Never report Verified from it.
+- When the checks pass, commit the fix and any new tests, push once, and continue from Step 3 on
+  the new commit. Step 6 confirms the rebuild replaced every file you edited.
+- If an edit does not change the behavior although the probes passed, the reload is not working.
+  Stop editing, push per attempt, and say so.
+- If you stop without pushing, restore every file you edited to its `PUSHED_SHA` content with the
+  same write and check, delete every file you created, and say the container was restored.
 
 ## Troubleshooting
 
@@ -224,12 +397,21 @@ Looping past that burns build capacity and rarely converges.
 
 ## What counts as done
 
-**Verified** means all three: the environment served **your** commit, the acceptance command ran
-against it, and the commit had not changed when the run finished.
+**Verified** means all of these, on the commit you finally pushed: the environment served **your**
+commit and it had not changed when the run finished; the acceptance check, if there is one,
+passed; every behavior the change touches is covered by a named test or check with a quoted
+assertion; every check you added is reproducible; and every added check for a changed behavior
+failed on the base environment at that assertion. Nothing from an edited container counts.
 
-**Serving** means the first and third without a check, because the repository documents none and
-none was passed in. Report it in those words. It is a useful, honest answer — the build landed
-and the environment is up — and it is not verification.
+**Passed, not covered** means everything that ran passed, but some changed behavior has no proven
+check. Say what is missing.
 
-Anything less than one of those two is neither, and reporting it as verified is worse than
-reporting nothing.
+**Observed** means the only evidence is something you looked at and could not capture as a
+command.
+
+**Serving** means the build landed and the environment is up, and nothing ran.
+
+**FAILED** means a check failed on the pushed commit.
+
+Report the one that is true, in those words. Each is a useful, honest answer; reporting anything
+less than Verified as verified is worse than reporting nothing.
