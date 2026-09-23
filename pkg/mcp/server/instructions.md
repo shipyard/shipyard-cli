@@ -9,7 +9,7 @@ environment before reporting it as working. Record the pushed SHA (`git rev-pars
 
 - `commit_hash` equals your pushed SHA AND `ready` is true — the environment is serving your
   commit. Use `url` and `bypass_token` from that same response; send the token as the
-  `shipyard_token` cookie or as `?shipyard_token=` on the URL.
+  `shipyard_token` cookie, never on the URL.
 - `commit_hash` matches but `ready` is false — keep polling. The commit lands roughly 40 seconds
   before the environment serves it, so matching on the commit alone tests the previous build.
 - `stopped` or `retired` is true, or `commit_hash` is null — the environment is not running and

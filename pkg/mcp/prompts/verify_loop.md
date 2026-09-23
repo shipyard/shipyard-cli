@@ -126,7 +126,8 @@ stopped, and that restarting it (`restart_environment` / `revive_environment`) w
 ## Step 4 — Reach the environment
 
 Take `url` and `bypass_token` **from the same response** that confirmed the match. Send the token
-as the `shipyard_token` cookie, or as `?shipyard_token=<token>` on the URL.
+as the `shipyard_token` cookie. The `?shipyard_token=` query parameter also works, but it lands in
+server logs and shell history, so do not use it.
 
 Two things to know:
 - This gets you past Shipyard's gate. It does **not** log you into the application. If the app has
@@ -205,8 +206,8 @@ Rules:
   application credentials.
 - **Cover only what is uncovered.** Never edit or weaken an existing test to make it pass.
 - **A committed test is part of the change.** Commit it, push, set `PUSHED_SHA` to the new
-  `HEAD`, and go back to Step 3. The environment has to serve the commit that contains the test
-  before that test can count.
+  `HEAD`, and go back to Step 3. The environment has to serve the commit that contains the test,
+  and the test has to be run again there: a result from before the push does not count.
 
 ### 5d — Prove checks for changed behavior are real
 
@@ -222,8 +223,10 @@ Find the base environment with `get_environments(branch=BASE)` and the same `rep
 Use it only if all of these hold, otherwise report `base: not checked` with the reason:
 
 - Exactly one environment comes back, and it is `ready` and not `stopped` or `retired`.
-- Its `commit_hash` for this repo is an ancestor of your change and does not contain it:
-  `git merge-base --is-ancestor <base commit> PUSHED_SHA` succeeds, and the diff is not in it.
+- Its `commit_hash` for this repo contains nothing from your branch: it must be an ancestor of the
+  point where your branch left `BASE`, so
+  `git merge-base --is-ancestor <base commit> $(git merge-base origin/BASE PUSHED_SHA)` succeeds.
+  If `BASE` has moved on since, this fails; report `base: not checked (base is ahead)`.
 - The check does not change state. The base environment belongs to the team: **never restart it,
   never edit it, and never run anything against it that writes** (no POSTs, signups, form posts,
   or exec writes). A check that writes is reported `base: not checked (writes data)`.
@@ -393,7 +396,7 @@ file and push per attempt instead.
 | Multi-repo environment, wrong code tested | Matched the wrong `projects[]` entry | Always filter by `repo_name` before reading `commit_hash` |
 | Build failed instead of completing | Real build failure | Read build logs, fix the cause, push; do not rebuild unchanged code |
 | Polling never finishes, flags look inert | `stopped` or `retired` is true, or `commit_hash` is null | The environment is not running. Tell the user; do not restart it yourself |
-| 302 to `/oauth2/sign_in` | The bypass token was not sent, or was sent on the wrong host | Send it as the `shipyard_token` cookie, or `?shipyard_token=` on the URL. Verified working both ways |
+| 302 to `/oauth2/sign_in` | The bypass token was not sent, or was sent on the wrong host | Send it as the `shipyard_token` cookie on the environment's own host |
 
 ## What counts as done
 
