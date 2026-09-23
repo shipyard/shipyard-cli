@@ -21,8 +21,11 @@ environment before reporting it as working. Record the pushed SHA (`git rev-pars
 After the check runs, call `get_environments` once more. If `commit_hash` changed, a rebuild
 landed mid-run and the result describes neither commit: discard it and re-run.
 
-Report a change as verified only when the environment served your commit, the repository's own
-acceptance check ran against it, and the commit had not changed when that check finished.
+Report a change as verified only when the environment served your commit, an acceptance check the
+repository documents or that was given to you ran against it, and the commit had not changed when
+that check finished. Never invent a check. When there is none, do not stop: say the environment is
+serving that commit and that nothing was checked. That is a narrower claim than verified, and the
+difference matters.
 
 ## Notes
 

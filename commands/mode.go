@@ -6,6 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/shipyard/shipyard-cli/config"
 )
 
 func NewModeCmd() *cobra.Command {
@@ -65,7 +67,7 @@ func getBuildURLForMode(mode string) (string, error) {
 
 func setPermanentMode(mode, buildURL string) error {
 	// Save the API URL to the config file
-	viper.Set("api_url", buildURL)
+	values := map[string]any{"api_url": buildURL}
 
 	// Copy token from profile to auth_token field if profile exists
 	profiles := viper.GetStringMap("profiles")
@@ -74,20 +76,15 @@ func setPermanentMode(mode, buildURL string) error {
 		if profileMap, ok := profileData.(map[string]interface{}); ok {
 			if token, hasToken := profileMap["auth_token"]; hasToken {
 				if tokenStr, ok := token.(string); ok {
-					viper.Set("api_token", tokenStr)
+					values["api_token"] = tokenStr
 					profileFound = true
 				}
 			}
 		}
 	}
 
-	err := viper.MergeInConfig()
-	if err != nil {
-		return fmt.Errorf("failed to merge config: %w", err)
-	}
-
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("failed to write config: %w", err)
+	if err := config.Save(values); err != nil {
+		return err
 	}
 
 	fmt.Printf("Mode set to %s.\n", mode)

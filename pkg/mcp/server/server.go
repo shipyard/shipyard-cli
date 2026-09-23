@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -41,6 +43,11 @@ type MCPServerConfig struct {
 	Transport    string `yaml:"transport" mapstructure:"transport"`
 	Port         int    `yaml:"port" mapstructure:"port"`
 	AuditLogging bool   `yaml:"audit_logging" mapstructure:"audit_logging"`
+
+	// AllowExec lets exec_service run commands inside a customer's containers.
+	// Off by default: it is the one tool here that executes arbitrary code in a
+	// running environment, so it is the operator's call, not the assistant's.
+	AllowExec bool `yaml:"allow_exec" mapstructure:"allow_exec"`
 }
 
 // MCP Server
@@ -171,8 +178,11 @@ func (s *MCPServer) handleMessages() {
 				log.Println("Input stream closed, stopping server")
 				return
 			}
-			log.Printf("Error reading message: %v", err)
-			continue
+			// Any other read error is terminal too: the stdio reader has already
+			// exited, so reading again would block forever and leave the process
+			// running with no client.
+			log.Printf("Error reading message, stopping server: %v", err)
+			return
 		}
 
 		response := s.processMessage(msg)
@@ -475,7 +485,7 @@ func (s *MCPServer) registerTools() {
 
 	// Register service tools
 	s.tools["get_services"] = tools.NewServiceTool(s.client, "get_services")
-	s.tools["exec_service"] = tools.NewServiceTool(s.client, "exec_service")
+	s.tools["exec_service"] = tools.NewServiceToolWithExec(s.client, "exec_service", s.config.AllowExec)
 	s.tools["port_forward"] = tools.NewServiceTool(s.client, "port_forward")
 
 	// Register volume tools
@@ -555,7 +565,33 @@ func LoadMCPServerConfig() MCPServerConfig {
 	viper.SetDefault("mcp.audit_logging", true)
 
 	// Unmarshal config
-	viper.UnmarshalKey("mcp", &config)
+	if err := viper.UnmarshalKey("mcp", &config); err != nil {
+		log.Printf("MCP config: could not read the mcp section, using defaults: %v", err)
+	}
+
+	config.AllowExec = allowExecFromEnv(config.AllowExec)
 
 	return config
+}
+
+// allowExecFromEnv applies SHIPYARD_MCP_ALLOW_EXEC over the config file value.
+//
+// It reads the environment directly instead of binding it into viper. Anything
+// viper knows about is written back by viper.WriteConfig, which set_org calls:
+// a bound SHIPYARD_MCP_ALLOW_EXEC=true in one client's env block would land in
+// ~/.shipyard/config.yaml and turn exec on for every client on the machine,
+// permanently. An unparseable value turns exec off rather than guessing.
+func allowExecFromEnv(fromFile bool) bool {
+	raw, set := os.LookupEnv("SHIPYARD_MCP_ALLOW_EXEC")
+	if !set {
+		return fromFile
+	}
+
+	allow, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
+		log.Printf("MCP config: SHIPYARD_MCP_ALLOW_EXEC=%q is not true or false; exec stays off", raw)
+		return false
+	}
+
+	return allow
 }

@@ -387,11 +387,44 @@ The Shipyard CLI provides an MCP server for AI assistant integration. This allow
 - `get_org` - Get current default organization
 - `set_org` - Set default organization
 
+#### Running commands in a container (opt-in)
+- `exec_service` - Run a non-interactive command in a service container
+
+Disabled by default, because it is the only tool here that runs arbitrary code
+inside a running environment. Turn it on per machine:
+
+```yaml
+# ~/.shipyard/config.yaml
+mcp:
+  allow_exec: true
+```
+
+Or in the MCP client's own environment, which is usually easier since that is
+where the rest of the server's settings live:
+
+```
+SHIPYARD_MCP_ALLOW_EXEC=true
+```
+
+Restart the client afterwards. While it is off, `exec_service` explains how to
+enable it and hands back the equivalent `shipyard exec` command.
+
+Once on, it returns stdout, stderr and the exit code. A command that exits
+non-zero is a result, not an error. There is no terminal and no stdin, so
+interactive programs (`bash`, `vim`, `psql` without `-c`) will not work — use
+`shipyard exec` for those. After 60 seconds the tool closes the stream and
+returns what the command printed so far, with a null `exit_code`. Closing the
+stream does not kill the process in the container: one that keeps writing dies
+on the closed pipe, one that never writes again runs until it exits. Each stream
+is truncated past 64KB, with `truncated: true` in the response when that happens.
+
 #### Limited Tools
 These tools return help text directing users to use CLI commands instead:
-- `exec_service` - Execute commands in service containers
 - `port_forward` - Port forward services to local machine
 - `telepresence_connect` - Connect to telepresence
+
+Both need a connection that outlives a single request, so the CLI is the right
+place for them.
 
 ### Adding to Claude
 
@@ -449,7 +482,41 @@ env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-nam
   before reporting the change as working.
 
 Clients that support prompts show it as a slash command, for example
-`/shipyard_verify` in Claude Code.
+`/mcp__shipyard__shipyard_verify` in Claude Code. It takes three optional
+arguments, in this order: `acceptance_command`, the check to run against the
+environment, then `branch` and `repo_name`, which default to the working
+directory.
+
+#### The acceptance check
+
+The prompt confirms the environment is serving your exact commit, then runs the
+check that decides whether the change actually works. It never invents that
+check. It looks for one in two places:
+
+1. The `acceptance_command` argument, for a single run. Quote it when it has
+   spaces:
+
+   ```
+   /mcp__shipyard__shipyard_verify "npm run test:e2e"
+   ```
+
+2. Whatever the repository documents, for every run. Put the command somewhere
+   the agent already reads, such as `CLAUDE.md` or `AGENTS.md`:
+
+   ```markdown
+   ## Verifying against Shipyard
+
+   Acceptance check: `npm run test:e2e -- --base-url=$SHIPYARD_URL`
+   ```
+
+   The agent runs the check with `SHIPYARD_URL` set to the environment URL and
+   `SHIPYARD_TOKEN` set to its bypass token. Send the token as the
+   `shipyard_token` cookie and never print it. The check has to hit the
+   environment; a unit-test command doesn't count.
+
+With neither, the prompt still runs. It reports that the environment is serving
+your commit and that no check ran, which is a narrower claim than verified and
+says so. Nothing has to be configured to use the prompt.
 
 ### Troubleshooting
 

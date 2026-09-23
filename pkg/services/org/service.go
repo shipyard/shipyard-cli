@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/shipyard/shipyard-cli/config"
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/shipyard/shipyard-cli/pkg/types"
@@ -55,14 +56,5 @@ func (s *OrganizationManager) SetCurrent(name string) error {
 		return fmt.Errorf("organization name cannot be empty")
 	}
 
-	viper.Set("org", name)
-	if err := viper.MergeInConfig(); err != nil {
-		return fmt.Errorf("failed to merge config: %w", err)
-	}
-
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("failed to write config: %w", err)
-	}
-
-	return nil
+	return config.Save(map[string]any{"org": name})
 }
