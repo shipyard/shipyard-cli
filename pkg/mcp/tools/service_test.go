@@ -311,6 +311,8 @@ func TestShellJoin(t *testing.T) {
 		{[]string{"echo", "it's"}, `echo 'it'\''s'`},
 		{[]string{"echo", "$HOME; rm -rf /"}, "echo '$HOME; rm -rf /'"},
 		{[]string{"echo", ""}, "echo ''"},
+		{[]string{"echo", "=ls"}, "echo '=ls'"},
+		{[]string{"env", "A=b"}, "env 'A=b'"},
 	}
 
 	for _, tt := range tests {

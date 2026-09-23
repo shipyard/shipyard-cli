@@ -236,6 +236,11 @@ func (t *ServiceTool) executeExecService(ctx context.Context, params json.RawMes
 			return formatExecResult(toolParams.EnvironmentID, toolParams.ServiceName, toolParams.Command, out, true)
 		}
 
+		// The client gave up on the request; nothing will read a suggestion.
+		if goerrors.Is(err, context.Canceled) {
+			return "", fmt.Errorf("exec_service cancelled by the client: %w", err)
+		}
+
 		log.Printf("MCP exec_service error: %v", err)
 
 		return "", errors.NewMCPError("exec_service",
@@ -319,11 +324,12 @@ func shellJoin(args []string) string {
 }
 
 // shellQuote leaves plain words alone and single-quotes anything else, so the
-// shell passes it through as one literal argument.
+// shell passes it through as one literal argument. `=` is not plain: zsh, the
+// macOS default, expands a leading `=ls` to the path of ls.
 func shellQuote(s string) string {
 	plain := func(r rune) bool {
 		return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
-			strings.ContainsRune("_-./:=@%+,", r)
+			strings.ContainsRune("_-./:@%+,", r)
 	}
 	if s != "" && strings.IndexFunc(s, func(r rune) bool { return !plain(r) }) == -1 {
 		return s
