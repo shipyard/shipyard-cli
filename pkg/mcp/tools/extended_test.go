@@ -114,6 +114,57 @@ func TestExtendedTool_CreateApplication(t *testing.T) {
 	}
 }
 
+func TestExtendedTool_UpdateApplication(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"data":{"id":"app-1","type":"application"}}`)}
+	tool := NewExtendedTool(client.Client{Requester: rec, OrgLookupFn: func() string { return "acme" }}, "update_application")
+
+	out, err := tool.Execute(context.Background(), json.RawMessage(`{
+		"application_id":"app-1",
+		"projects":[{
+			"repo_owner":"sks",
+			"repo_name":"python-utility-fastapi-boto3-aws",
+			"branch":"main",
+			"services":["web"],
+			"compose_filename":"docker-compose.yml"
+		}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "app-1") {
+		t.Fatalf("unexpected body: %s", out)
+	}
+	if rec.method != "PATCH" || !strings.Contains(rec.uri, "/application/app-1") {
+		t.Fatalf("unexpected request %s %s", rec.method, rec.uri)
+	}
+	payload, ok := rec.body.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map body, got %T", rec.body)
+	}
+	projects, ok := payload["projects"].([]map[string]any)
+	if !ok || len(projects) != 1 {
+		t.Fatalf("unexpected projects: %#v", payload["projects"])
+	}
+	if projects[0]["compose_filename"] != "docker-compose.yml" {
+		t.Fatalf("unexpected project payload: %#v", projects[0])
+	}
+}
+
+func TestExtendedTool_UpdateApplication_RequiresID(t *testing.T) {
+	rec := &recordingRequester{}
+	tool := NewExtendedTool(client.Client{Requester: rec, OrgLookupFn: func() string { return "" }}, "update_application")
+
+	_, err := tool.Execute(context.Background(), json.RawMessage(`{
+		"projects":[{"repo_owner":"sks","repo_name":"web","branch":"main","services":["web"]}]
+	}`))
+	if err == nil {
+		t.Fatal("expected validation error for missing application_id")
+	}
+	if rec.method != "" {
+		t.Fatalf("should not call API on validation failure, got %s", rec.method)
+	}
+}
+
 func TestExtendedTool_UpdateBranches(t *testing.T) {
 	rec := &recordingRequester{}
 	tool := NewExtendedTool(client.Client{Requester: rec, OrgLookupFn: func() string { return "" }}, "update_branches")

@@ -497,6 +497,7 @@ func (s *MCPServer) registerTools() {
 		"restart_service",
 		"deploy_detached",
 		"create_application",
+		"update_application",
 		"update_branches",
 	} {
 		s.tools[name] = tools.NewExtendedTool(s.client, name)

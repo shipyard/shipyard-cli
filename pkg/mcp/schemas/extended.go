@@ -223,3 +223,61 @@ func CreateApplicationSchema() map[string]interface{} {
 		"required": []string{"application_name", "projects"},
 	}
 }
+
+// UpdateApplicationSchema is the input for update_application (PATCH /api/v1/application/<id>).
+func UpdateApplicationSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"application_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Application UUID returned by create_application (alias: environment_id)",
+			},
+			"environment_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Alias for application_id (same UUID)",
+			},
+			"projects": map[string]interface{}{
+				"type":        "array",
+				"description": "Full desired repo set. Omitted repos are unlinked. Compose apps need services; use after a bad create to fix compose_filename, services, or branch.",
+				"items": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"repo_owner": map[string]interface{}{
+							"type":        "string",
+							"description": "GitHub/GitLab namespace or org",
+						},
+						"repo_name": map[string]interface{}{
+							"type":        "string",
+							"description": "Repository name",
+						},
+						"branch": map[string]interface{}{
+							"type":        "string",
+							"description": "Branch to track",
+						},
+						"services": map[string]interface{}{
+							"type":        "array",
+							"description": "Compose service names to enable",
+							"items":       map[string]interface{}{"type": "string"},
+						},
+						"compose_filename": map[string]interface{}{
+							"type":        "string",
+							"description": "Compose file path (default docker-compose.yml)",
+						},
+						"provider_uuid": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional git provider UUID; org default used when omitted",
+						},
+					},
+					"required": []string{"repo_owner", "repo_name", "branch"},
+				},
+			},
+			"settings": map[string]interface{}{
+				"type":                 "object",
+				"description":          "Optional application settings (same keys as the dashboard configure form)",
+				"additionalProperties": true,
+			},
+		},
+		"required": []string{"projects"},
+	}
+}

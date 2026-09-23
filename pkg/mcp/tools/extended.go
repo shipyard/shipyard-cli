@@ -52,6 +52,13 @@ var extendedToolDefinitions = map[string]ToolDefinition{
 		Description: "Link a GitHub/GitLab repo as a new Shipyard application (POST /api/v1/application). Requires application_name and projects with repo_owner, repo_name, branch, and services (Compose). Optional compose_filename (defaults to docker-compose.yml) and provider_uuid.",
 		InputSchema: schemas.CreateApplicationSchema(),
 	},
+	"update_application": {
+		Name: "update_application",
+		Description: "Fix or reconfigure an existing application after a bad create (PATCH /api/v1/application/<id>). " +
+			"Send the full projects list (repo_owner, repo_name, branch, services; optional compose_filename). " +
+			"Repos omitted from projects are unlinked. Prefer this over update_branches when changing compose file, services, or settings.",
+		InputSchema: schemas.UpdateApplicationSchema(),
+	},
 	"update_branches": {
 		Name:        "update_branches",
 		Description: "Change branches for an environment. You must include every repo in projects (repo_name + branch); partial lists fail.",
@@ -100,6 +107,8 @@ func (t *ExtendedTool) Execute(ctx context.Context, params json.RawMessage) (str
 		return t.executeDeployDetached(params)
 	case "create_application":
 		return t.executeCreateApplication(params)
+	case "update_application":
+		return t.executeUpdateApplication(params)
 	case "update_branches":
 		return t.executeUpdateBranches(params)
 	default:
@@ -391,6 +400,76 @@ func (t *ExtendedTool) executeCreateApplication(params json.RawMessage) (string,
 	body, err := t.client.Requester.Do(
 		http.MethodPost,
 		uri.CreateResourceURI("", "application", "", "", t.orgParams()),
+		"application/json",
+		payload,
+	)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+func (t *ExtendedTool) executeUpdateApplication(params json.RawMessage) (string, error) {
+	var toolParams struct {
+		ApplicationID string `json:"application_id"`
+		EnvironmentID string `json:"environment_id"`
+		Projects      []struct {
+			RepoOwner       string   `json:"repo_owner"`
+			RepoName        string   `json:"repo_name"`
+			Branch          string   `json:"branch"`
+			Services        []string `json:"services"`
+			ComposeFilename string   `json:"compose_filename,omitempty"`
+			ProviderUUID    string   `json:"provider_uuid,omitempty"`
+		} `json:"projects"`
+		Settings map[string]any `json:"settings,omitempty"`
+	}
+	if err := json.Unmarshal(params, &toolParams); err != nil {
+		return "", errors.ValidationError("update_application", "parameters", err.Error())
+	}
+	appID := strings.TrimSpace(toolParams.ApplicationID)
+	if appID == "" {
+		appID = strings.TrimSpace(toolParams.EnvironmentID)
+	}
+	if err := validation.ValidateEnvironmentID(appID); err != nil {
+		return "", errors.ValidationError("update_application", "application_id", err.Error())
+	}
+	if len(toolParams.Projects) == 0 {
+		return "", errors.ValidationError("update_application", "projects", "projects array is required and must not be empty")
+	}
+
+	projects := make([]map[string]any, 0, len(toolParams.Projects))
+	for i, p := range toolParams.Projects {
+		if strings.TrimSpace(p.RepoOwner) == "" || strings.TrimSpace(p.RepoName) == "" || strings.TrimSpace(p.Branch) == "" {
+			return "", errors.ValidationError("update_application", "projects", fmt.Sprintf("projects[%d] requires repo_owner, repo_name, and branch", i))
+		}
+		if len(p.Services) == 0 {
+			return "", errors.ValidationError("update_application", "projects", fmt.Sprintf("projects[%d].services is required for Compose apps", i))
+		}
+		entry := map[string]any{
+			"repo_owner": p.RepoOwner,
+			"repo_name":  p.RepoName,
+			"branch":     p.Branch,
+			"services":   p.Services,
+		}
+		if p.ComposeFilename != "" {
+			entry["compose_filename"] = p.ComposeFilename
+		}
+		if p.ProviderUUID != "" {
+			entry["provider_uuid"] = p.ProviderUUID
+		}
+		projects = append(projects, entry)
+	}
+
+	payload := map[string]any{
+		"projects": projects,
+	}
+	if len(toolParams.Settings) > 0 {
+		payload["settings"] = toolParams.Settings
+	}
+
+	body, err := t.client.Requester.Do(
+		http.MethodPatch,
+		uri.CreateResourceURI("", "application", appID, "", t.orgParams()),
 		"application/json",
 		payload,
 	)
