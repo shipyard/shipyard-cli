@@ -1,6 +1,6 @@
 ---
 name: "shipyard-verify"
-description: "Verify your pushed changes against the Shipyard preview environment for this branch before handing work back. Covers: finding the environment, waiting for your exact commit, authenticated access, running the acceptance check, and reporting the result."
+description: "Verify your pushed changes against the Shipyard preview environment for this branch before handing work back. Covers: finding the environment, waiting for your exact commit, authenticated access, running the acceptance check when the repository has one, and reporting the result."
 keywords: ["shipyard", "preview environment", "verify", "test", "pr", "deploy", "e2e"]
 version: "0.1.0"
 ---
@@ -130,13 +130,31 @@ Two things to know:
 - **Never** print the token, paste it into chat, commit it, put it in a PR comment, or write it to
   a log. Pass it through an environment variable to the acceptance command.
 
-## Step 5 — Run the acceptance check
+## Step 5 — Run the acceptance check, if there is one
 
-Run the command agreed with this repo's owners against `url`. The command decides pass or fail,
-not you. "The page returned 200" is not verification.
+Take the command from the first of these that has one:
 
-If no acceptance command is configured, stop and ask for one. Do not invent a check and report
-its result as verification.
+1. The `acceptance_command` argument, when this prompt was invoked with it. It appears under
+   "This invocation" at the end of these instructions.
+2. Whatever the repository documents in `CLAUDE.md`, `AGENTS.md` or a README section. Prefer a
+   line labelled `Acceptance check:`. It only counts if it exercises the running environment:
+   a unit-test command that never touches `url` is not an acceptance check.
+3. Nothing. That is a valid answer; see below.
+
+**With a command:** run it with the environment in two variables, set only for that command:
+
+```
+SHIPYARD_URL=<url> SHIPYARD_TOKEN=<bypass_token> <acceptance command>
+```
+
+The command decides pass or fail, not you. "The page returned 200" is not verification. A command
+that cannot run at all (not found, or it crashes before reaching `url`) is a **FAILED** result with
+that error, never a reason to fall back to the Serving report below.
+
+**Without one:** do not invent a check, do not stop, and do not ask the user to configure one
+mid-run. You still know something worth reporting — the environment is serving this exact commit
+and is ready — so go to Step 6 and report that with the **Serving** form in Step 7. Never call
+that outcome verified, and never describe an unchecked environment as working.
 
 ## Step 6 — Re-check the commit before you report
 
@@ -170,7 +188,20 @@ Verification FAILED on Shipyard.
   Logs:        <the relevant lines, not the whole dump>
 ```
 
-Omit any line you do not have. Never report PASS for a run you had to discard.
+With no acceptance command (Step 5), the claim is narrower and says so:
+
+```
+Serving your commit on Shipyard. No acceptance check ran, so this is not verified.
+  Environment: <url>
+  Commit:      <PUSHED_SHA>  (confirmed ready and serving)
+  Check:       none configured
+```
+
+Add one line after it, once, so the user knows the option exists: a check can be passed as
+`acceptance_command` when invoking this prompt, or documented in `CLAUDE.md` or `AGENTS.md`.
+
+Omit any line you do not have, except `Check:` in every form and `Result:` on success: a
+success report without them is not verification. Never report PASS for a run you had to discard.
 
 ## Failure handling
 
@@ -193,6 +224,12 @@ Looping past that burns build capacity and rarely converges.
 
 ## What counts as done
 
-The environment served **your** commit, the repo's acceptance command ran against it, and the
-commit had not changed when the run finished. Anything less is not verified, and reporting it as
-verified is worse than reporting nothing.
+**Verified** means all three: the environment served **your** commit, the acceptance command ran
+against it, and the commit had not changed when the run finished.
+
+**Serving** means the first and third without a check, because the repository documents none and
+none was passed in. Report it in those words. It is a useful, honest answer — the build landed
+and the environment is up — and it is not verification.
+
+Anything less than one of those two is neither, and reporting it as verified is worse than
+reporting nothing.

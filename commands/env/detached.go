@@ -65,7 +65,7 @@ env vars) and then runs on its own, with no link back to the source.`,
 
 	cmd.Flags().String("name", "", "Display name for the new detached environment")
 	cmd.Flags().StringToString("branch", nil, "Per-repo branch override, as repo=branch (repeatable)")
-	cmd.Flags().String("build-on-commit", "", "Rebuild on new commits for all repos: always, inherit, or never (default never)")
+	cmd.Flags().String("build-on-commit", "", "Rebuild on new commits for all repos: always, inherit, or never")
 	cmd.Flags().StringToString("build-on-commit-for", nil, "Per-repo build-on-commit setting, as repo=setting (repeatable)")
 
 	return cmd
