@@ -18,3 +18,8 @@ build-docker:
 test:
 	@go test ./... -cover
 	golangci-lint run
+
+# Scans the binary as released: build first, since a stripped build is what the
+# gate in CI checks.
+vuln: build
+	./scripts/vuln-scan.sh bin/$(NAME)
