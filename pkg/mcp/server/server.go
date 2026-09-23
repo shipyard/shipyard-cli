@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -545,25 +547,35 @@ func LoadMCPServerConfig() MCPServerConfig {
 	viper.SetDefault("mcp.transport", "stdio")
 	viper.SetDefault("mcp.port", 8080)
 	viper.SetDefault("mcp.audit_logging", true)
-	viper.SetDefault("mcp.allow_exec", false)
-
-	// Bound explicitly because the global env prefix does not map dots to
-	// underscores, and an MCP client configures the server through its env block
-	// rather than through the config file.
-	if err := viper.BindEnv("mcp.allow_exec", "SHIPYARD_MCP_ALLOW_EXEC"); err != nil {
-		log.Printf("MCP config: could not bind SHIPYARD_MCP_ALLOW_EXEC: %v", err)
-	}
 
 	// Unmarshal config
 	if err := viper.UnmarshalKey("mcp", &config); err != nil {
 		log.Printf("MCP config: could not read the mcp section, using defaults: %v", err)
 	}
 
-	// UnmarshalKey builds the struct from config file and defaults only: a value
-	// that exists solely as a bound environment variable does not appear in the
-	// map it reads, so SHIPYARD_MCP_ALLOW_EXEC would be silently ignored. Get
-	// honours the binding, so read this one directly.
-	config.AllowExec = viper.GetBool("mcp.allow_exec")
+	config.AllowExec = allowExecFromEnv(config.AllowExec)
 
 	return config
+}
+
+// allowExecFromEnv applies SHIPYARD_MCP_ALLOW_EXEC over the config file value.
+//
+// It reads the environment directly instead of binding it into viper. Anything
+// viper knows about is written back by viper.WriteConfig, which set_org calls:
+// a bound SHIPYARD_MCP_ALLOW_EXEC=true in one client's env block would land in
+// ~/.shipyard/config.yaml and turn exec on for every client on the machine,
+// permanently. An unparseable value turns exec off rather than guessing.
+func allowExecFromEnv(fromFile bool) bool {
+	raw, set := os.LookupEnv("SHIPYARD_MCP_ALLOW_EXEC")
+	if !set {
+		return fromFile
+	}
+
+	allow, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
+		log.Printf("MCP config: SHIPYARD_MCP_ALLOW_EXEC=%q is not true or false; exec stays off", raw)
+		return false
+	}
+
+	return allow
 }

@@ -94,8 +94,9 @@ func (t *ServiceTool) Definition() ToolDefinition {
 			if t.allowExec {
 				def.Description = "Run a non-interactive command in a service container and return its " +
 					"stdout, stderr and exit code. There is no terminal: interactive programs such as " +
-					"'bash' or 'vim' will not work, and stdin is not attached. Commands are cut off " +
-					"after 60 seconds and output is truncated past 64KB."
+					"'bash' or 'vim' will not work, and stdin is not attached. After 60 seconds the tool " +
+					"stops waiting and returns the output so far, but the process may keep running in " +
+					"the container, so do not start long-lived commands. Output is truncated past 64KB."
 			} else {
 				def.Description = "DISABLED on this server: calling this returns setup instructions, " +
 					"not command output. Running commands in containers is off until the user sets " +
@@ -192,8 +193,10 @@ func (t *ServiceTool) executeExecService(ctx context.Context, params json.RawMes
 		return "", errors.ValidationError("exec_service", "command", "command is required. Example: ['ls', '-la'] or ['cat', '/app/config.json']")
 	}
 
+	// Quoted, because the user pastes this into a shell: ["sh", "-c", "echo hi"]
+	// joined bare would run `sh -c echo` instead.
 	cliCommand := fmt.Sprintf("shipyard exec --env %s --service %s -- %s",
-		toolParams.EnvironmentID, toolParams.ServiceName, strings.Join(toolParams.Command, " "))
+		shellQuote(toolParams.EnvironmentID), shellQuote(toolParams.ServiceName), shellJoin(toolParams.Command))
 
 	if !t.allowExec {
 		return fmt.Sprintf("Running commands in containers is disabled for this MCP server. "+
@@ -230,8 +233,7 @@ func (t *ServiceTool) executeExecService(ctx context.Context, params json.RawMes
 		// A timeout still carries whatever the command printed first, which is
 		// usually the useful part.
 		if goerrors.Is(err, context.DeadlineExceeded) {
-			return formatExecResult(toolParams.EnvironmentID, toolParams.ServiceName, toolParams.Command, out,
-				fmt.Sprintf("timed out after %s and was cut off", execTimeout))
+			return formatExecResult(toolParams.EnvironmentID, toolParams.ServiceName, toolParams.Command, out, true)
 		}
 
 		log.Printf("MCP exec_service error: %v", err)
@@ -242,11 +244,11 @@ func (t *ServiceTool) executeExecService(ctx context.Context, params json.RawMes
 				"Check that the container is running and that the binary exists in it")
 	}
 
-	return formatExecResult(toolParams.EnvironmentID, toolParams.ServiceName, toolParams.Command, out, "")
+	return formatExecResult(toolParams.EnvironmentID, toolParams.ServiceName, toolParams.Command, out, false)
 }
 
 // formatExecResult renders one exec as JSON, the shape the other tools use.
-func formatExecResult(envID, serviceName string, command []string, out k8s.ExecOutput, note string) (string, error) {
+func formatExecResult(envID, serviceName string, command []string, out k8s.ExecOutput, timedOut bool) (string, error) {
 	response := map[string]interface{}{
 		"environment_id": envID,
 		"service_name":   serviceName,
@@ -261,8 +263,11 @@ func formatExecResult(envID, serviceName string, command []string, out k8s.ExecO
 		response["truncated_at_bytes"] = execMaxOutputBytes
 	}
 
-	if note != "" {
-		response["note"] = note
+	// A command cut off by the timeout never exited, so it has no exit code.
+	// Reporting the zero value would read as success.
+	if timedOut {
+		response["exit_code"] = nil
+		response["note"] = fmt.Sprintf("timed out after %s and was cut off; it did not exit", execTimeout)
 	}
 
 	jsonData, err := json.MarshalIndent(response, "", "  ")
@@ -301,4 +306,28 @@ func (t *ServiceTool) executePortForward(params json.RawMessage) (string, error)
 	// Return information about the limitation and CLI command to use
 	return fmt.Sprintf("Cannot start port forwarding via MCP as it requires a persistent connection. To port-forward '%v' for service '%s' in environment '%s', use the CLI command:\n\nshipyard port-forward --env %s --service %s --ports %v",
 		toolParams.Ports, toolParams.ServiceName, toolParams.EnvironmentID, toolParams.EnvironmentID, toolParams.ServiceName, toolParams.Ports), nil
+}
+
+// shellJoin renders args as one POSIX shell command line.
+func shellJoin(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = shellQuote(arg)
+	}
+
+	return strings.Join(quoted, " ")
+}
+
+// shellQuote leaves plain words alone and single-quotes anything else, so the
+// shell passes it through as one literal argument.
+func shellQuote(s string) string {
+	plain := func(r rune) bool {
+		return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
+			strings.ContainsRune("_-./:=@%+,", r)
+	}
+	if s != "" && strings.IndexFunc(s, func(r rune) bool { return !plain(r) }) == -1 {
+		return s
+	}
+
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

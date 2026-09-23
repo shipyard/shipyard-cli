@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/docker/cli/cli/streams"
 	v1 "k8s.io/api/core/v1"
@@ -107,7 +108,8 @@ func (c *Service) Exec(args []string) error {
 	}
 	defer in.RestoreTerminal()
 
-	return exec.Stream(remotecommand.StreamOptions{
+	// No deadline: an interactive session lasts as long as the user wants it.
+	return exec.StreamWithContext(context.Background(), remotecommand.StreamOptions{
 		Stdin:             in,
 		Stdout:            os.Stdout,
 		Stderr:            os.Stderr,
@@ -155,27 +157,23 @@ func (c *Service) ExecCapture(ctx context.Context, args []string, maxBytes int) 
 	stdout := &cappedBuffer{limit: maxBytes}
 	stderr := &cappedBuffer{limit: maxBytes}
 
-	// client-go v0.25's Executor has no context-aware Stream, so the copy runs
-	// in a goroutine and ctx bounds the wait rather than the stream. A timed-out
-	// exec can leave that goroutine writing, which is why the buffers are
-	// mutex-guarded: reading them here races with it otherwise.
-	done := make(chan error, 1)
-	go func() {
-		done <- executor.Stream(remotecommand.StreamOptions{
-			Stdout: stdout,
-			Stderr: stderr,
-		})
-	}()
-
-	var streamErr error
-	select {
-	case streamErr = <-done:
-	case <-ctx.Done():
+	// StreamWithContext closes the connection when ctx ends, so a timeout frees
+	// the stream instead of leaving it copying in the background. It does not
+	// kill the process in the pod: with no TTY to hang up, a process that writes
+	// again dies on the closed pipe, and one that never writes runs until it
+	// exits. The copy can still be mid-write as this returns, which is why the
+	// buffers are mutex-guarded.
+	streamErr := executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: stdout,
+		Stderr: stderr,
+	})
+	// A command that finished as the deadline passed still has a real result.
+	if ctxErr := ctx.Err(); streamErr != nil && ctxErr != nil {
 		return ExecOutput{
 			Stdout:    stdout.String(),
 			Stderr:    stderr.String(),
 			Truncated: stdout.Truncated() || stderr.Truncated(),
-		}, ctx.Err()
+		}, ctxErr
 	}
 
 	out := ExecOutput{
@@ -232,7 +230,7 @@ func (w *cappedBuffer) Write(p []byte) (int, error) {
 	}
 
 	room := w.limit - w.buf.Len()
-	if room <= 0 {
+	if w.truncated || room <= 0 {
 		// Report the whole write as accepted: the caller is a stream copy that
 		// treats a short write as an error and would abort the exec.
 		w.truncated = true
@@ -241,7 +239,14 @@ func (w *cappedBuffer) Write(p []byte) (int, error) {
 
 	if len(p) > room {
 		w.truncated = true
-		if _, err := w.buf.Write(p[:room]); err != nil {
+
+		// Cut at a character boundary: half a UTF-8 sequence becomes U+FFFD
+		// once the output is marshalled to JSON.
+		cut := room
+		for cut > 0 && !utf8.RuneStart(p[cut]) {
+			cut--
+		}
+		if _, err := w.buf.Write(p[:cut]); err != nil {
 			return 0, err
 		}
 		return len(p), nil

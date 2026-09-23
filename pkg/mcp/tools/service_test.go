@@ -295,6 +295,29 @@ func TestServiceTool_ExecService_TimeoutKeepsPartialOutput(t *testing.T) {
 	if !strings.Contains(note, "timed out") {
 		t.Errorf("note = %q, want it to say the command was cut off", note)
 	}
+	// The command never exited; a zero exit code would read as success.
+	if code, present := got["exit_code"]; !present || code != nil {
+		t.Errorf("exit_code = %v, want null for a command that timed out", code)
+	}
+}
+
+func TestShellJoin(t *testing.T) {
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"ls", "-la"}, "ls -la"},
+		{[]string{"sh", "-c", "echo hi"}, "sh -c 'echo hi'"},
+		{[]string{"echo", "it's"}, `echo 'it'\''s'`},
+		{[]string{"echo", "$HOME; rm -rf /"}, "echo '$HOME; rm -rf /'"},
+		{[]string{"echo", ""}, "echo ''"},
+	}
+
+	for _, tt := range tests {
+		if got := shellJoin(tt.args); got != tt.want {
+			t.Errorf("shellJoin(%q) = %s, want %s", tt.args, got, tt.want)
+		}
+	}
 }
 
 func TestServiceTool_ExecService_TruncationIsReported(t *testing.T) {

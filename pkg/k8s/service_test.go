@@ -39,6 +39,20 @@ func TestCappedBufferHoldsTheLimit(t *testing.T) {
 			wantTruncated: true,
 		},
 		{
+			name:          "a multi-byte character is not split at the limit",
+			limit:         4,
+			writes:        []string{"ab", "éé"},
+			want:          "abé",
+			wantTruncated: true,
+		},
+		{
+			name:          "nothing lands after the cut, even with room left",
+			limit:         4,
+			writes:        []string{"abc", "é", "d"},
+			want:          "abc",
+			wantTruncated: true,
+		},
+		{
 			name:   "no limit keeps everything",
 			limit:  0,
 			writes: []string{"abc", "def", "ghi"},

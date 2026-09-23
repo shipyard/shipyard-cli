@@ -412,7 +412,10 @@ enable it and hands back the equivalent `shipyard exec` command.
 Once on, it returns stdout, stderr and the exit code. A command that exits
 non-zero is a result, not an error. There is no terminal and no stdin, so
 interactive programs (`bash`, `vim`, `psql` without `-c`) will not work — use
-`shipyard exec` for those. Commands are cut off after 60 seconds and each stream
+`shipyard exec` for those. After 60 seconds the tool closes the stream and
+returns what the command printed so far, with a null `exit_code`. Closing the
+stream does not kill the process in the container: one that keeps writing dies
+on the closed pipe, one that never writes again runs until it exits. Each stream
 is truncated past 64KB, with `truncated: true` in the response when that happens.
 
 #### Limited Tools

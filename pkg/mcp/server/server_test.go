@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
+	"github.com/spf13/viper"
 )
 
 // Mock requester for testing
@@ -745,3 +748,70 @@ func (c *closedInputTransport) WriteMessage(data []byte) error  { return nil }
 func (c *closedInputTransport) ReadMessage() ([]byte, error) {
 	return nil, fmt.Errorf("stdin closed")
 }
+
+func TestAllowExecFromEnv(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      *string
+		fromFile bool
+		want     bool
+	}{
+		{name: "unset keeps the file value off", fromFile: false, want: false},
+		{name: "unset keeps the file value on", fromFile: true, want: true},
+		{name: "env true enables", env: ptr("true"), want: true},
+		{name: "env false overrides the file", env: ptr("false"), fromFile: true, want: false},
+		{name: "unparseable fails closed", env: ptr("yes"), fromFile: true, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != nil {
+				t.Setenv("SHIPYARD_MCP_ALLOW_EXEC", *tt.env)
+			} else {
+				t.Setenv("SHIPYARD_MCP_ALLOW_EXEC", "")
+				os.Unsetenv("SHIPYARD_MCP_ALLOW_EXEC")
+			}
+
+			if got := allowExecFromEnv(tt.fromFile); got != tt.want {
+				t.Errorf("allowExecFromEnv(%v) = %v, want %v", tt.fromFile, got, tt.want)
+			}
+		})
+	}
+}
+
+// set_org rewrites the config file from everything viper knows. The env-only
+// exec switch must not be part of that, or one client's env block turns exec on
+// for every client on the machine.
+func TestAllowExecEnvIsNotPersistedByWriteConfig(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfg, []byte("org: a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.SetConfigFile(cfg)
+	if err := viper.ReadInConfig(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SHIPYARD_MCP_ALLOW_EXEC", "true")
+	if !LoadMCPServerConfig().AllowExec {
+		t.Fatal("expected SHIPYARD_MCP_ALLOW_EXEC=true to enable exec")
+	}
+
+	viper.Set("org", "b")
+	if err := viper.WriteConfig(); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(written), "allow_exec") {
+		t.Errorf("WriteConfig persisted the env-only exec switch:\n%s", written)
+	}
+}
+
+func ptr(s string) *string { return &s }
