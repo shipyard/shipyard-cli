@@ -736,6 +736,37 @@ func TestServer_DoneClosesWhenInputStreamCloses(t *testing.T) {
 	}
 }
 
+// A read error other than EOF ends the input just the same. Looping on it would
+// block on a reader that has already exited, and the process would outlive its
+// client.
+func TestServer_DoneClosesOnAnyReadError(t *testing.T) {
+	server := NewMCPServer(MCPServerConfig{Transport: "stdio"}, newMockClient())
+	server.transport = &failedInputTransport{}
+
+	go server.handleMessages()
+
+	select {
+	case <-server.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done was never closed after a read error")
+	}
+}
+
+// failedInputTransport fails its first read the way a broken stdin does, then
+// blocks like a transport whose reader has exited.
+type failedInputTransport struct{ reads int }
+
+func (f *failedInputTransport) Start(ctx context.Context) error { return nil }
+func (f *failedInputTransport) Stop() error                     { return nil }
+func (f *failedInputTransport) WriteMessage(data []byte) error  { return nil }
+func (f *failedInputTransport) ReadMessage() ([]byte, error) {
+	f.reads++
+	if f.reads == 1 {
+		return nil, fmt.Errorf("failed to read from stdin: read /dev/stdin: input/output error")
+	}
+	select {}
+}
+
 // closedInputTransport stands in for a client that has gone away.
 type closedInputTransport struct{}
 
