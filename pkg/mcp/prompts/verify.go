@@ -28,8 +28,17 @@ func (p *VerifyPrompt) Definition() PromptDefinition {
 		Name: "shipyard_verify",
 		Description: "Verify a pushed change against the Shipyard preview environment for its branch: " +
 			"find the environment, wait until it serves that exact commit, reach it with the bypass " +
-			"token, run the repository's acceptance check, and report the result.",
+			"token, run the acceptance check if there is one, and report the result.",
 		Arguments: []PromptArgument{
+			// First, because clients that pass prompt arguments by position would
+			// otherwise make callers spell out branch and repo just to reach it.
+			{
+				Name: "acceptance_command",
+				Description: "Command that decides pass or fail, run against the environment URL. " +
+					"Defaults to whatever the repository documents. Omit it and document nothing to " +
+					"confirm the environment is serving the commit without running any check.",
+				Required: false,
+			},
 			{
 				Name:        "branch",
 				Description: "Branch to verify. Defaults to the current branch when omitted.",
@@ -81,20 +90,50 @@ func stripFrontmatter(doc string) string {
 	return strings.TrimLeft(rest[end+len(fence)+2:], "\n")
 }
 
-// knownTarget renders whichever of branch/repo_name the caller supplied.
+// knownTarget renders whichever of branch/repo_name/acceptance_command the
+// caller supplied.
 func knownTarget(args map[string]string) string {
 	branch := strings.TrimSpace(args["branch"])
 	repo := strings.TrimSpace(args["repo_name"])
+	command := strings.TrimSpace(args["acceptance_command"])
+
+	var lines []string
 
 	switch {
 	case branch != "" && repo != "":
-		return fmt.Sprintf("Verify branch `%s` of repository `%s`. Use these instead of reading them "+
-			"from the working directory.", branch, repo)
+		lines = append(lines, fmt.Sprintf("Verify branch `%s` of repository `%s`. Use these instead of "+
+			"reading them from the working directory.", branch, repo))
 	case branch != "":
-		return fmt.Sprintf("Verify branch `%s`. Read the repository name from the working directory.", branch)
+		lines = append(lines, fmt.Sprintf("Verify branch `%s`. Read the repository name from the working directory.", branch))
 	case repo != "":
-		return fmt.Sprintf("Verify repository `%s`. Read the branch from the working directory.", repo)
-	default:
-		return ""
+		lines = append(lines, fmt.Sprintf("Verify repository `%s`. Read the branch from the working directory.", repo))
 	}
+
+	// A command passed here outranks whatever the repository documents: the
+	// caller is looking at this run, the documentation was written for the
+	// general case.
+	if command != "" {
+		fence := codeFence(command)
+		lines = append(lines, fmt.Sprintf("Run this as the acceptance check in Step 5, in place of anything "+
+			"the repository documents:\n\n%s\n%s\n%s", fence, command, fence))
+	}
+
+	return strings.Join(lines, "\n\n")
+}
+
+// codeFence returns a backtick fence longer than any backtick run in s, so a
+// command that contains ``` cannot close the block early and spill into the
+// prompt as instructions.
+func codeFence(s string) string {
+	longest, run := 0, 0
+	for _, r := range s {
+		if r == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+
+	return strings.Repeat("`", max(3, longest+1))
 }
