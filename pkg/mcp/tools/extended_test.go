@@ -82,6 +82,38 @@ func TestExtendedTool_DeployDetached(t *testing.T) {
 	}
 }
 
+func TestExtendedTool_CreateApplication(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"data":{"id":"app-new","type":"application"}}`)}
+	tool := NewExtendedTool(client.Client{Requester: rec, OrgLookupFn: func() string { return "acme" }}, "create_application")
+
+	out, err := tool.Execute(context.Background(), json.RawMessage(`{
+		"application_name":"demo-app",
+		"projects":[{
+			"repo_owner":"sks",
+			"repo_name":"python-utility-fastapi-boto3-aws",
+			"branch":"main",
+			"services":["web"],
+			"compose_filename":"docker-compose.yml"
+		}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "app-new") {
+		t.Fatalf("unexpected body: %s", out)
+	}
+	if rec.method != "POST" || !strings.Contains(rec.uri, "/application") {
+		t.Fatalf("unexpected request %s %s", rec.method, rec.uri)
+	}
+	payload, ok := rec.body.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map body, got %T", rec.body)
+	}
+	if payload["application_name"] != "demo-app" {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}
+
 func TestExtendedTool_UpdateBranches(t *testing.T) {
 	rec := &recordingRequester{}
 	tool := NewExtendedTool(client.Client{Requester: rec, OrgLookupFn: func() string { return "" }}, "update_branches")

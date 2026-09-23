@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/errors"
@@ -45,6 +46,11 @@ var extendedToolDefinitions = map[string]ToolDefinition{
 		Name:        "deploy_detached",
 		Description: "Deploy a detached environment by cloning an existing application build. Optional display_name, project_branch_overrides, and build_on_commit.",
 		InputSchema: schemas.DeployDetachedSchema(),
+	},
+	"create_application": {
+		Name:        "create_application",
+		Description: "Link a GitHub/GitLab repo as a new Shipyard application (POST /api/v1/application). Requires application_name and projects with repo_owner, repo_name, branch, and services (Compose). Optional compose_filename (defaults to docker-compose.yml) and provider_uuid.",
+		InputSchema: schemas.CreateApplicationSchema(),
 	},
 	"update_branches": {
 		Name:        "update_branches",
@@ -92,6 +98,8 @@ func (t *ExtendedTool) Execute(ctx context.Context, params json.RawMessage) (str
 		return t.executeRestartService(params)
 	case "deploy_detached":
 		return t.executeDeployDetached(params)
+	case "create_application":
+		return t.executeCreateApplication(params)
 	case "update_branches":
 		return t.executeUpdateBranches(params)
 	default:
@@ -313,6 +321,76 @@ func (t *ExtendedTool) executeDeployDetached(params json.RawMessage) (string, er
 	body, err := t.client.Requester.Do(
 		http.MethodPost,
 		uri.CreateResourceURI("", "application-build", toolParams.ApplicationBuildID, "detached-app-build", t.orgParams()),
+		"application/json",
+		payload,
+	)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+func (t *ExtendedTool) executeCreateApplication(params json.RawMessage) (string, error) {
+	var toolParams struct {
+		ApplicationName string `json:"application_name"`
+		SourceType      string `json:"source_type,omitempty"`
+		Projects        []struct {
+			RepoOwner       string   `json:"repo_owner"`
+			RepoName        string   `json:"repo_name"`
+			Branch          string   `json:"branch"`
+			Services        []string `json:"services"`
+			ComposeFilename string   `json:"compose_filename,omitempty"`
+			ProviderUUID    string   `json:"provider_uuid,omitempty"`
+		} `json:"projects"`
+		Settings map[string]any `json:"settings,omitempty"`
+	}
+	if err := json.Unmarshal(params, &toolParams); err != nil {
+		return "", errors.ValidationError("create_application", "parameters", err.Error())
+	}
+	if strings.TrimSpace(toolParams.ApplicationName) == "" {
+		return "", errors.ValidationError("create_application", "application_name", "application_name is required")
+	}
+	if len(toolParams.Projects) == 0 {
+		return "", errors.ValidationError("create_application", "projects", "projects array is required and must not be empty")
+	}
+
+	projects := make([]map[string]any, 0, len(toolParams.Projects))
+	for i, p := range toolParams.Projects {
+		if strings.TrimSpace(p.RepoOwner) == "" || strings.TrimSpace(p.RepoName) == "" || strings.TrimSpace(p.Branch) == "" {
+			return "", errors.ValidationError("create_application", "projects", fmt.Sprintf("projects[%d] requires repo_owner, repo_name, and branch", i))
+		}
+		if len(p.Services) == 0 && strings.ToUpper(toolParams.SourceType) != "K8S" {
+			return "", errors.ValidationError("create_application", "projects", fmt.Sprintf("projects[%d].services is required for Compose apps", i))
+		}
+		entry := map[string]any{
+			"repo_owner": p.RepoOwner,
+			"repo_name":  p.RepoName,
+			"branch":     p.Branch,
+			"services":   p.Services,
+		}
+		if p.ComposeFilename != "" {
+			entry["compose_filename"] = p.ComposeFilename
+		}
+		if p.ProviderUUID != "" {
+			entry["provider_uuid"] = p.ProviderUUID
+		}
+		projects = append(projects, entry)
+	}
+
+	payload := map[string]any{
+		"application_name": toolParams.ApplicationName,
+		"projects":         projects,
+	}
+	if toolParams.SourceType != "" {
+		payload["source_type"] = toolParams.SourceType
+	}
+	if len(toolParams.Settings) > 0 {
+		payload["settings"] = toolParams.Settings
+	}
+
+	body, err := t.client.Requester.Do(
+		http.MethodPost,
+		uri.CreateResourceURI("", "application", "", "", t.orgParams()),
 		"application/json",
 		payload,
 	)

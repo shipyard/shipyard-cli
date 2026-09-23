@@ -165,3 +165,61 @@ func UpdateBranchesSchema() map[string]interface{} {
 		"required": []string{"environment_id", "projects"},
 	}
 }
+
+// CreateApplicationSchema is the input for create_application (POST /api/v1/application).
+func CreateApplicationSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"application_name": map[string]interface{}{
+				"type":        "string",
+				"description": "Display name for the new application (alphanumeric, dashes, underscores, spaces)",
+			},
+			"source_type": map[string]interface{}{
+				"type":        "string",
+				"description": "COMPOSE (default) or K8S",
+			},
+			"projects": map[string]interface{}{
+				"type":        "array",
+				"description": "Repos to link. Compose apps need services; provider_uuid optional when the org has a default Git provider.",
+				"items": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"repo_owner": map[string]interface{}{
+							"type":        "string",
+							"description": "GitHub/GitLab namespace or org",
+						},
+						"repo_name": map[string]interface{}{
+							"type":        "string",
+							"description": "Repository name",
+						},
+						"branch": map[string]interface{}{
+							"type":        "string",
+							"description": "Branch to track",
+						},
+						"services": map[string]interface{}{
+							"type":        "array",
+							"description": "Compose service names to enable",
+							"items":       map[string]interface{}{"type": "string"},
+						},
+						"compose_filename": map[string]interface{}{
+							"type":        "string",
+							"description": "Compose file path (default docker-compose.yml)",
+						},
+						"provider_uuid": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional git provider UUID; org default used when omitted",
+						},
+					},
+					"required": []string{"repo_owner", "repo_name", "branch"},
+				},
+			},
+			"settings": map[string]interface{}{
+				"type":                 "object",
+				"description":          "Optional application settings (same keys as the dashboard create form)",
+				"additionalProperties": true,
+			},
+		},
+		"required": []string{"application_name", "projects"},
+	}
+}
