@@ -178,8 +178,11 @@ func (s *MCPServer) handleMessages() {
 				log.Println("Input stream closed, stopping server")
 				return
 			}
-			log.Printf("Error reading message: %v", err)
-			continue
+			// Any other read error is terminal too: the stdio reader has already
+			// exited, so reading again would block forever and leave the process
+			// running with no client.
+			log.Printf("Error reading message, stopping server: %v", err)
+			return
 		}
 
 		response := s.processMessage(msg)

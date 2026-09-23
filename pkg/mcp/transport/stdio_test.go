@@ -430,3 +430,43 @@ func TestStdioTransport_ReadMessagePrefersBufferedMessageOverEOF(t *testing.T) {
 		}
 	}
 }
+
+// ReadMessage's drain covers a message buffered before the call; this covers the
+// gap between its two selects, where readLoop can fill both channels and the
+// select then picks at random. That window is a few instructions wide and cannot
+// be forced from a test, so the decision it makes is tested directly.
+func TestStdioTransport_PreferBufferedMessage(t *testing.T) {
+	const line = `{"jsonrpc":"2.0","id":1,"method":"ping"}`
+
+	t.Run("a buffered message wins and the error waits its turn", func(t *testing.T) {
+		tr := NewStdioTransport()
+		tr.msgChan <- []byte(line)
+
+		msg, err := tr.preferBufferedMessage(io.EOF)
+		if err != nil {
+			t.Fatalf("expected the buffered message, got error: %v", err)
+		}
+		if string(msg) != line {
+			t.Fatalf("got %q, want %q", msg, line)
+		}
+
+		// The error must survive for the next read, or the server never learns
+		// the client is gone and the process outlives it.
+		select {
+		case requeued := <-tr.errChan:
+			if requeued != io.EOF {
+				t.Errorf("requeued %v, want the original error", requeued)
+			}
+		default:
+			t.Error("the terminal error was swallowed instead of deferred")
+		}
+	})
+
+	t.Run("no message means the error is reported", func(t *testing.T) {
+		tr := NewStdioTransport()
+
+		if _, err := tr.preferBufferedMessage(io.EOF); err != io.EOF {
+			t.Fatalf("expected the error to be reported, got %v", err)
+		}
+	})
+}
