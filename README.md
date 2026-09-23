@@ -387,11 +387,44 @@ The Shipyard CLI provides an MCP server for AI assistant integration. This allow
 - `get_org` - Get current default organization
 - `set_org` - Set default organization
 
+#### Running commands in a container (opt-in)
+- `exec_service` - Run a non-interactive command in a service container
+
+Disabled by default, because it is the only tool here that runs arbitrary code
+inside a running environment. Turn it on per machine:
+
+```yaml
+# ~/.shipyard/config.yaml
+mcp:
+  allow_exec: true
+```
+
+Or in the MCP client's own environment, which is usually easier since that is
+where the rest of the server's settings live:
+
+```
+SHIPYARD_MCP_ALLOW_EXEC=true
+```
+
+Restart the client afterwards. While it is off, `exec_service` explains how to
+enable it and hands back the equivalent `shipyard exec` command.
+
+Once on, it returns stdout, stderr and the exit code. A command that exits
+non-zero is a result, not an error. There is no terminal and no stdin, so
+interactive programs (`bash`, `vim`, `psql` without `-c`) will not work — use
+`shipyard exec` for those. After 60 seconds the tool closes the stream and
+returns what the command printed so far, with a null `exit_code`. Closing the
+stream does not kill the process in the container: one that keeps writing dies
+on the closed pipe, one that never writes again runs until it exits. Each stream
+is truncated past 64KB, with `truncated: true` in the response when that happens.
+
 #### Limited Tools
 These tools return help text directing users to use CLI commands instead:
-- `exec_service` - Execute commands in service containers
 - `port_forward` - Port forward services to local machine
 - `telepresence_connect` - Connect to telepresence
+
+Both need a connection that outlives a single request, so the CLI is the right
+place for them.
 
 ### Adding to Claude
 

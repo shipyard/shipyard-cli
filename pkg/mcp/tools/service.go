@@ -3,13 +3,18 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	goerrors "errors"
 	"fmt"
 	"log"
+	"strings"
+	"time"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
+	"github.com/shipyard/shipyard-cli/pkg/k8s"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/errors"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/schemas"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/validation"
+	"github.com/shipyard/shipyard-cli/pkg/types"
 )
 
 // serviceToolDefinitions maps service tool names to their definitions
@@ -31,23 +36,75 @@ var serviceToolDefinitions = map[string]ToolDefinition{
 	},
 }
 
-// ServiceTool handles service-related MCP operations
-type ServiceTool struct {
-	client client.Client
-	name   string
+const (
+	// execTimeout bounds a single exec. Long enough for a migration check or a
+	// test command, short enough that a hung process does not hold the client.
+	execTimeout = 60 * time.Second
+
+	// execMaxOutputBytes caps each of stdout and stderr. The result goes into a
+	// model's context, so `cat` on a log file has to be truncated, not relayed.
+	execMaxOutputBytes = 64 * 1024
+)
+
+// podExecutor runs one command in a service's pod. k8s.Service implements it;
+// tests supply their own so they need no cluster.
+type podExecutor interface {
+	ExecCapture(ctx context.Context, command []string, maxBytes int) (k8s.ExecOutput, error)
 }
 
-// NewServiceTool creates a new service tool
+// ServiceTool handles service-related MCP operations
+type ServiceTool struct {
+	client    client.Client
+	name      string
+	allowExec bool
+
+	// newExecutor resolves the service to a pod and returns something that can
+	// run a command in it. Swapped in tests.
+	newExecutor func(c client.Client, envID string, svc *types.Service) (podExecutor, error)
+}
+
+// NewServiceTool creates a new service tool. Exec stays disabled: use
+// NewServiceToolWithExec for the exec tool itself.
 func NewServiceTool(client client.Client, name string) *ServiceTool {
+	return NewServiceToolWithExec(client, name, false)
+}
+
+// NewServiceToolWithExec creates a service tool, saying whether running commands
+// in a customer's containers is permitted. Off unless the operator turned it on:
+// every other tool here reads or restarts something Shipyard owns, while this one
+// runs arbitrary code inside a running container.
+func NewServiceToolWithExec(apiClient client.Client, name string, allowExec bool) *ServiceTool {
 	return &ServiceTool{
-		client: client,
-		name:   name,
+		client:    apiClient,
+		name:      name,
+		allowExec: allowExec,
+		newExecutor: func(c client.Client, envID string, svc *types.Service) (podExecutor, error) {
+			return k8s.New(c, envID, svc)
+		},
 	}
 }
 
 // Definition returns the tool definition for MCP
 func (t *ServiceTool) Definition() ToolDefinition {
 	if def, exists := serviceToolDefinitions[t.name]; exists {
+		// What the model is told has to match what the tool will do, either way.
+		// A disabled tool that still advertises itself as running commands gets
+		// called, and the caller spends a turn learning it cannot.
+		if t.name == "exec_service" {
+			if t.allowExec {
+				def.Description = "Run a non-interactive command in a service container and return its " +
+					"stdout, stderr and exit code. There is no terminal: interactive programs such as " +
+					"'bash' or 'vim' will not work, and stdin is not attached. After 60 seconds the tool " +
+					"stops waiting and returns the output so far, but the process may keep running in " +
+					"the container, so do not start long-lived commands. Output is truncated past 64KB."
+			} else {
+				def.Description = "DISABLED on this server: calling this returns setup instructions, " +
+					"not command output. Running commands in containers is off until the user sets " +
+					"'mcp.allow_exec: true' in ~/.shipyard/config.yaml or SHIPYARD_MCP_ALLOW_EXEC=true " +
+					"in this client's environment. Tell them that rather than calling this tool."
+			}
+		}
+
 		return def
 	}
 
@@ -67,7 +124,7 @@ func (t *ServiceTool) Execute(ctx context.Context, params json.RawMessage) (stri
 	case "get_services":
 		return t.executeGetServices(params)
 	case "exec_service":
-		return t.executeExecService(params)
+		return t.executeExecService(ctx, params)
 	case "port_forward":
 		return t.executePortForward(params)
 	default:
@@ -112,7 +169,7 @@ func (t *ServiceTool) executeGetServices(params json.RawMessage) (string, error)
 	return string(jsonData), nil
 }
 
-func (t *ServiceTool) executeExecService(params json.RawMessage) (string, error) {
+func (t *ServiceTool) executeExecService(ctx context.Context, params json.RawMessage) (string, error) {
 	var toolParams struct {
 		EnvironmentID string   `json:"environment_id"`
 		ServiceName   string   `json:"service_name"`
@@ -133,13 +190,97 @@ func (t *ServiceTool) executeExecService(params json.RawMessage) (string, error)
 	}
 
 	if len(toolParams.Command) == 0 {
-		return "", errors.ValidationError("exec_service", "command", "command is required. Example: ['ls', '-la'] or ['bash']")
+		return "", errors.ValidationError("exec_service", "command", "command is required. Example: ['ls', '-la'] or ['cat', '/app/config.json']")
 	}
 
-	// Note: exec_service requires interactive session handling which is not suitable for MCP
-	// Return information about the limitation
-	return fmt.Sprintf("Cannot execute commands interactively via MCP. To execute '%v' in service '%s' of environment '%s', use the CLI command:\n\nshipyard exec --env %s --service %s -- %v",
-		toolParams.Command, toolParams.ServiceName, toolParams.EnvironmentID, toolParams.EnvironmentID, toolParams.ServiceName, toolParams.Command), nil
+	// Quoted, because the user pastes this into a shell: ["sh", "-c", "echo hi"]
+	// joined bare would run `sh -c echo` instead.
+	cliCommand := fmt.Sprintf("shipyard exec --env %s --service %s -- %s",
+		shellQuote(toolParams.EnvironmentID), shellQuote(toolParams.ServiceName), shellJoin(toolParams.Command))
+
+	if !t.allowExec {
+		return fmt.Sprintf("Running commands in containers is disabled for this MCP server. "+
+			"Enable it by setting 'mcp.allow_exec: true' in ~/.shipyard/config.yaml, or "+
+			"SHIPYARD_MCP_ALLOW_EXEC=true in the MCP client's environment, then restart the client.\n\n"+
+			"To run it yourself now:\n\n%s", cliCommand), nil
+	}
+
+	svc, err := t.client.FindService(toolParams.ServiceName, toolParams.EnvironmentID)
+	if err != nil {
+		log.Printf("MCP exec_service error resolving service: %v", err)
+		return "", errors.ParseHTTPError("exec_service", err, toolParams.EnvironmentID)
+	}
+
+	executor, err := t.newExecutor(t.client, toolParams.EnvironmentID, svc)
+	if err != nil {
+		log.Printf("MCP exec_service error connecting to the pod: %v", err)
+
+		// A structured error so the reason survives: the server only runs its
+		// substring-matching mapper over plain errors, and "kubeconfig not
+		// found" there comes back to the agent as a missing service, which
+		// sends it off calling get_services for a service that does exist.
+		return "", errors.NewMCPError("exec_service",
+			fmt.Sprintf("cannot reach service %q: %v", toolParams.ServiceName, err), err).
+			WithSuggestion("The environment may not expose a kubeconfig, or may not be running. " +
+				"Check that it is ready, and that 'shipyard exec' works against it from a terminal")
+	}
+
+	execCtx, cancel := context.WithTimeout(ctx, execTimeout)
+	defer cancel()
+
+	out, err := executor.ExecCapture(execCtx, toolParams.Command, execMaxOutputBytes)
+	if err != nil {
+		// A timeout still carries whatever the command printed first, which is
+		// usually the useful part.
+		if goerrors.Is(err, context.DeadlineExceeded) {
+			return formatExecResult(toolParams.EnvironmentID, toolParams.ServiceName, toolParams.Command, out, true)
+		}
+
+		// The client gave up on the request; nothing will read a suggestion.
+		if goerrors.Is(err, context.Canceled) {
+			return "", fmt.Errorf("exec_service cancelled by the client: %w", err)
+		}
+
+		log.Printf("MCP exec_service error: %v", err)
+
+		return "", errors.NewMCPError("exec_service",
+			fmt.Sprintf("command failed to run in service %q: %v", toolParams.ServiceName, err), err).
+			WithSuggestion("This is the exec stream failing, not the command exiting non-zero. " +
+				"Check that the container is running and that the binary exists in it")
+	}
+
+	return formatExecResult(toolParams.EnvironmentID, toolParams.ServiceName, toolParams.Command, out, false)
+}
+
+// formatExecResult renders one exec as JSON, the shape the other tools use.
+func formatExecResult(envID, serviceName string, command []string, out k8s.ExecOutput, timedOut bool) (string, error) {
+	response := map[string]interface{}{
+		"environment_id": envID,
+		"service_name":   serviceName,
+		"command":        command,
+		"exit_code":      out.ExitCode,
+		"stdout":         out.Stdout,
+		"stderr":         out.Stderr,
+	}
+
+	if out.Truncated {
+		response["truncated"] = true
+		response["truncated_at_bytes"] = execMaxOutputBytes
+	}
+
+	// A command cut off by the timeout never exited, so it has no exit code.
+	// Reporting the zero value would read as success.
+	if timedOut {
+		response["exit_code"] = nil
+		response["note"] = fmt.Sprintf("timed out after %s and was cut off; it did not exit", execTimeout)
+	}
+
+	jsonData, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal exec response: %w", err)
+	}
+
+	return string(jsonData), nil
 }
 
 func (t *ServiceTool) executePortForward(params json.RawMessage) (string, error) {
@@ -170,4 +311,29 @@ func (t *ServiceTool) executePortForward(params json.RawMessage) (string, error)
 	// Return information about the limitation and CLI command to use
 	return fmt.Sprintf("Cannot start port forwarding via MCP as it requires a persistent connection. To port-forward '%v' for service '%s' in environment '%s', use the CLI command:\n\nshipyard port-forward --env %s --service %s --ports %v",
 		toolParams.Ports, toolParams.ServiceName, toolParams.EnvironmentID, toolParams.EnvironmentID, toolParams.ServiceName, toolParams.Ports), nil
+}
+
+// shellJoin renders args as one POSIX shell command line.
+func shellJoin(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = shellQuote(arg)
+	}
+
+	return strings.Join(quoted, " ")
+}
+
+// shellQuote leaves plain words alone and single-quotes anything else, so the
+// shell passes it through as one literal argument. `=` is not plain: zsh, the
+// macOS default, expands a leading `=ls` to the path of ls.
+func shellQuote(s string) string {
+	plain := func(r rune) bool {
+		return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
+			strings.ContainsRune("_-./:@%+,", r)
+	}
+	if s != "" && strings.IndexFunc(s, func(r rune) bool { return !plain(r) }) == -1 {
+		return s
+	}
+
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

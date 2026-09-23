@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/shipyard/shipyard-cli/config"
+
 	"github.com/shipyard/shipyard-cli/pkg/display"
 )
 
@@ -65,12 +67,7 @@ func NewSetTokenCmd() *cobra.Command {
 }
 
 func setOrg(name string) error {
-	viper.Set("org", name)
-	err := viper.MergeInConfig()
-	if err != nil {
-		return err
-	}
-	return viper.WriteConfig()
+	return config.Save(map[string]any{"org": name})
 }
 
 func setTokenInteractively(r io.Reader, profile string) error {
@@ -86,7 +83,7 @@ func setTokenInteractively(r io.Reader, profile string) error {
 }
 
 func SetToken(token string, profile string) error {
-	viper.Set("api_token", token)
+	values := map[string]any{"api_token": token}
 
 	// If a profile is specified, save the token under that profile as well
 	if profile != "" {
@@ -105,14 +102,11 @@ func SetToken(token string, profile string) error {
 		profileData["auth_token"] = token
 		profiles[profile] = profileData
 
-		viper.Set("profiles", profiles)
+		values["profiles"] = profiles
 	}
 
-	// TODO: find a better way to not persist the value of verbose globally.
-	viper.Set("verbose", false)
-	err := viper.MergeInConfig()
-	if err != nil {
-		return err
-	}
-	return viper.WriteConfig()
+	// Older versions persisted the --verbose flag into the file; clear it.
+	values["verbose"] = false
+
+	return config.Save(values)
 }
