@@ -64,6 +64,10 @@ git branch --show-current # BRANCH
 Also note the repo name as Shipyard knows it (the `repo_name` in the environment payload, usually
 the GitHub repo name without the org prefix).
 
+If the user asked you to verify a different branch or repository than the one checked out, use
+what they named instead, for `BRANCH` and the repo name alike. For a branch that is not checked
+out, `PUSHED_SHA` is `git rev-parse origin/<branch>` after a `git fetch`, not your local `HEAD`.
+
 ## Step 2 — Find the environment
 
 Call `get_environments` with `branch=BRANCH` and `repo_name=<repo>`. The response is the raw

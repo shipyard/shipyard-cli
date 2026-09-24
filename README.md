@@ -482,10 +482,12 @@ env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-nam
   before reporting the change as working.
 
 Clients that support prompts show it as a slash command, for example
-`/mcp__shipyard__shipyard_verify` in Claude Code. It takes four optional
+`/mcp__shipyard__shipyard_verify` in Claude Code. It takes two optional
 arguments, in this order: `acceptance_command`, the check to run against the
-environment; `branch` and `repo_name`, which default to the working directory;
-and `add_checks` (see [Checking the change itself](#checking-the-change-itself)).
+environment, and `add_checks` (see
+[Checking the change itself](#checking-the-change-itself)). The branch and
+repository come from the working directory; to verify another one, say so in
+the conversation ("verify branch `fix-login` of `web`").
 
 #### The acceptance check
 
@@ -557,8 +559,10 @@ container), add this line to `CLAUDE.md` or `AGENTS.md`:
 Verification: read-only
 ```
 
-or pass `add_checks` as `false` for one run. `true` turns added checks and
-container edits back on for one run in a read-only repository.
+or pass `add_checks` as `false` for one run
+(`/mcp__shipyard__shipyard_verify "" false`, where `""` skips the acceptance
+command). `true` turns added checks and container edits back on for one run
+in a read-only repository.
 
 #### Fixing without a rebuild per attempt
 

@@ -16,25 +16,24 @@ func TestVerifyPromptDefinition(t *testing.T) {
 		t.Error("expected a description, got empty string")
 	}
 
-	if len(def.Arguments) != 4 {
-		t.Fatalf("expected 4 arguments, got %d", len(def.Arguments))
+	if len(def.Arguments) != 2 {
+		t.Fatalf("expected 2 arguments, got %d", len(def.Arguments))
 	}
 
-	// Clients that pass arguments by position must reach the command without
-	// spelling out branch and repo first, and a new argument must go last so
-	// existing positional calls keep their meaning.
+	// Clients that pass arguments by position fill them in this order, so the
+	// command comes first and add_checks is one position behind it.
 	var names []string
 	for _, arg := range def.Arguments {
 		names = append(names, arg.Name)
 	}
-	if got, want := strings.Join(names, ","), "acceptance_command,branch,repo_name,add_checks"; got != want {
+	if got, want := strings.Join(names, ","), "acceptance_command,add_checks"; got != want {
 		t.Errorf("argument order = %s, want %s", got, want)
 	}
 
 	for _, arg := range def.Arguments {
 		if arg.Required {
-			t.Errorf("argument %s should be optional: the loop reads branch and repo from the working "+
-				"directory, and runs without an acceptance command when there is none", arg.Name)
+			t.Errorf("argument %s should be optional: the loop runs without an acceptance command "+
+				"when there is none, and adds checks unless told not to", arg.Name)
 		}
 	}
 }
@@ -53,23 +52,14 @@ func TestVerifyPromptGet(t *testing.T) {
 			wantMissing:  []string{"## This invocation"},
 		},
 		{
-			name:         "branch and repo are both named",
+			name:         "branch and repo_name are no longer arguments and are ignored",
 			args:         map[string]string{"branch": "feat/x", "repo_name": "shipyard"},
-			wantContains: []string{"## This invocation", "`feat/x`", "`shipyard`"},
-		},
-		{
-			name:         "branch only",
-			args:         map[string]string{"branch": "feat/x"},
-			wantContains: []string{"## This invocation", "`feat/x`", "Read the repository name"},
-		},
-		{
-			name:         "repo only",
-			args:         map[string]string{"repo_name": "shipyard"},
-			wantContains: []string{"## This invocation", "`shipyard`", "Read the branch"},
+			wantContains: []string{"# Shipyard Verification Loop"},
+			wantMissing:  []string{"## This invocation", "feat/x"},
 		},
 		{
 			name:         "whitespace-only arguments are ignored",
-			args:         map[string]string{"branch": "   ", "repo_name": "", "acceptance_command": "  "},
+			args:         map[string]string{"acceptance_command": "  ", "add_checks": " "},
 			wantContains: []string{"# Shipyard Verification Loop"},
 			wantMissing:  []string{"## This invocation"},
 		},
@@ -77,21 +67,17 @@ func TestVerifyPromptGet(t *testing.T) {
 			name:         "acceptance command alone is enough to render the invocation",
 			args:         map[string]string{"acceptance_command": "npm run test:e2e"},
 			wantContains: []string{"## This invocation", "npm run test:e2e", "in place of anything"},
-			wantMissing:  []string{"Verify branch"},
+			wantMissing:  []string{"Adding checks is"},
 		},
 		{
-			name: "acceptance command rides along with the target",
-			args: map[string]string{
-				"branch":             "feat/x",
-				"repo_name":          "shipyard",
-				"acceptance_command": "make test.e2e",
-			},
-			wantContains: []string{"`feat/x`", "`shipyard`", "make test.e2e"},
+			name:         "acceptance command and add_checks together",
+			args:         map[string]string{"acceptance_command": "make test.e2e", "add_checks": "false"},
+			wantContains: []string{"make test.e2e", "Adding checks is off"},
 		},
 		{
 			name:         "an empty quoted argument counts as omitted",
-			args:         map[string]string{"acceptance_command": `""`, "branch": "main", "add_checks": "false"},
-			wantContains: []string{"Verify branch `main`", "Adding checks is off"},
+			args:         map[string]string{"acceptance_command": `""`, "add_checks": "false"},
+			wantContains: []string{"## This invocation", "Adding checks is off"},
 			wantMissing:  []string{"Run this as the acceptance check"},
 		},
 		{
@@ -310,6 +296,8 @@ func TestEmbeddedLoopRequiresCoverage(t *testing.T) {
 		"Changed because **you** pushed":                            "the agent's own push is not someone else's build",
 		"Never edit or weaken an existing test":                     "passing by weakening a test is ruled out",
 		"Verification: read-only":                                   "the repository-level switch",
+		"verify a different branch or repository":                   "the user can name another branch or repo in plain words",
+		"`git rev-parse origin/<branch>`":                           "a branch that is not checked out is pinned to its pushed commit",
 	}
 
 	for needle, why := range required {

@@ -31,8 +31,10 @@ func (p *VerifyPrompt) Definition() PromptDefinition {
 			"token, run the acceptance check if there is one, check that the change itself is covered, " +
 			"and report the result.",
 		Arguments: []PromptArgument{
-			// First, because clients that pass prompt arguments by position would
-			// otherwise make callers spell out branch and repo just to reach it.
+			// Clients that pass prompt arguments by position fill them in this
+			// order. The branch and repository come from the working directory,
+			// or from what the user says in the conversation, so they are not
+			// arguments: each one would push add_checks a position further back.
 			{
 				Name: "acceptance_command",
 				Description: "Command that decides pass or fail, run against the environment URL. " +
@@ -40,17 +42,6 @@ func (p *VerifyPrompt) Definition() PromptDefinition {
 					"confirm the environment is serving the commit without running any check.",
 				Required: false,
 			},
-			{
-				Name:        "branch",
-				Description: "Branch to verify. Defaults to the current branch when omitted.",
-				Required:    false,
-			},
-			{
-				Name:        "repo_name",
-				Description: "Repository as Shipyard knows it. Defaults to the current repository when omitted.",
-				Required:    false,
-			},
-			// Last, so existing positional calls keep their meaning.
 			{
 				Name: "add_checks",
 				Description: "Whether to add checks for changed behavior the acceptance check does not cover, " +
@@ -69,9 +60,8 @@ func (p *VerifyPrompt) Get(args map[string]string) (GetResult, error) {
 	// description are already in the definition.
 	text := stripFrontmatter(verifyLoop)
 
-	// Arguments are optional: the loop tells the agent to read branch and repo
-	// from the working directory. When the caller supplies them, say so, so the
-	// agent does not re-derive them and quietly verify a different branch.
+	// Arguments are optional. When the caller supplies one, append it, so the
+	// agent acts on this run's choice rather than the repository's default.
 	if known := knownTarget(args); known != "" {
 		text = strings.TrimRight(text, "\n") + "\n\n## This invocation\n\n" + known + "\n"
 	}
@@ -100,24 +90,12 @@ func stripFrontmatter(doc string) string {
 	return strings.TrimLeft(rest[end+len(fence)+2:], "\n")
 }
 
-// knownTarget renders whichever of branch/repo_name/acceptance_command/add_checks
-// the caller supplied.
+// knownTarget renders whichever of acceptance_command/add_checks the caller
+// supplied.
 func knownTarget(args map[string]string) string {
-	branch := argValue(args["branch"])
-	repo := argValue(args["repo_name"])
 	command := argValue(args["acceptance_command"])
 
 	var lines []string
-
-	switch {
-	case branch != "" && repo != "":
-		lines = append(lines, fmt.Sprintf("Verify branch `%s` of repository `%s`. Use these instead of "+
-			"reading them from the working directory.", branch, repo))
-	case branch != "":
-		lines = append(lines, fmt.Sprintf("Verify branch `%s`. Read the repository name from the working directory.", branch))
-	case repo != "":
-		lines = append(lines, fmt.Sprintf("Verify repository `%s`. Read the branch from the working directory.", repo))
-	}
 
 	// A command passed here outranks whatever the repository documents: the
 	// caller is looking at this run, the documentation was written for the
@@ -137,9 +115,9 @@ func knownTarget(args map[string]string) string {
 
 // argValue trims an argument and removes one layer of matching quotes. Clients
 // that pass prompt arguments by position hand quotes through literally: in
-// Claude Code, `"" main shipyard false` arrives with acceptance_command set to
-// the two characters "", which the agent would then try to run. Skipping an
-// earlier argument to reach add_checks needs exactly that.
+// Claude Code, `"" false` arrives with acceptance_command set to the two
+// characters "", which the agent would then try to run. Skipping
+// acceptance_command to reach add_checks needs exactly that.
 func argValue(raw string) string {
 	v := strings.TrimSpace(raw)
 	if len(v) >= 2 {
