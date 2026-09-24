@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // verifyLoop is the Shipyard verification loop an agent follows to check its own
@@ -101,6 +102,10 @@ func knownTarget(args map[string]string) string {
 		return ""
 	}
 
+	// A split can also go unnoticed: an unquoted `make e2e` arrives as `make`,
+	// which is a valid command on its own and would run the wrong target. The
+	// typed text, when the agent can see it, settles which one was meant.
+
 	// What is passed here outranks whatever the repository documents: the
 	// caller is looking at this run, the documentation was written for the
 	// general case. Whether it is a command or a description is the agent's
@@ -109,33 +114,59 @@ func knownTarget(args map[string]string) string {
 
 	return fmt.Sprintf("Use this as the acceptance check in Step 5a, in place of anything the repository "+
 		"documents. Run it if it is a command; if it describes the expected behavior, write a check that "+
-		"asserts exactly that:\n\n%s\n%s\n%s", fence, acceptance, fence)
+		"asserts exactly that:\n\n%s\n%s\n%s\n\nSome clients split prompt arguments on spaces. If the text "+
+		"the user typed after the command is longer than this, use the typed text instead.",
+		fence, acceptance, fence)
 }
 
-// cutAtSpace reports whether an argument opens with a quote that never closes:
-// the first word of a quoted phrase a client split on spaces.
+// quotePairs maps each opening quote to the one that closes it, straight and
+// typographic: phones and some editors turn "the" into “the”.
+var quotePairs = map[rune]rune{'"': '"', '\'': '\'', '“': '”', '‘': '’'}
+
+// cutAtSpace reports whether an argument is the first word of a quoted phrase a
+// client split on spaces: it opens with a quote, never closes it, and holds no
+// space itself. A value with a space arrived whole, whatever its quotes.
 func cutAtSpace(raw string) bool {
 	v := strings.TrimSpace(raw)
-	if v == "" || (v[0] != '"' && v[0] != '\'') {
+	if v == "" || strings.ContainsAny(v, " \t\n") {
 		return false
 	}
 
-	return len(v) == 1 || v[len(v)-1] != v[0]
+	first, size := utf8.DecodeRuneInString(v)
+	closing, ok := quotePairs[first]
+	if !ok {
+		return false
+	}
+
+	last, _ := utf8.DecodeLastRuneInString(v)
+
+	return len(v) == size || last != closing
 }
 
 // argValue trims an argument and removes one layer of matching quotes. Clients
 // that pass prompt arguments by position hand quotes through literally: in
 // Claude Code, `"make"` arrives with the quotes, and `""` as two characters
 // the agent would otherwise try to run.
+//
+// The quotes are removed only when they wrap the whole value: in
+// `"curl" --fail "$URL"` the first and last characters are quotes, but they
+// belong to different words, and stripping them would change the command.
 func argValue(raw string) string {
 	v := strings.TrimSpace(raw)
-	if len(v) >= 2 {
-		if first, last := v[0], v[len(v)-1]; first == last && (first == '"' || first == '\'') {
-			v = strings.TrimSpace(v[1 : len(v)-1])
-		}
+
+	first, size := utf8.DecodeRuneInString(v)
+	closing, ok := quotePairs[first]
+	if !ok || len(v) < 2 {
+		return v
 	}
 
-	return v
+	last, lastSize := utf8.DecodeLastRuneInString(v)
+	inner := v[size : len(v)-lastSize]
+	if last != closing || len(v) < size+lastSize || strings.ContainsRune(inner, closing) {
+		return v
+	}
+
+	return strings.TrimSpace(inner)
 }
 
 // codeFence returns a backtick fence longer than any backtick run in s, so a

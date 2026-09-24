@@ -509,8 +509,11 @@ looks for a check in two places:
    /mcp__shipyard__shipyard_verify "the signup button is blue"
    ```
 
-   The agent treats it as a command when its first word is a program on the
-   `PATH` or a script in the repository, and as a description otherwise. A
+   The agent treats it as a command when it reads as shell (a program or
+   script followed by arguments, like `npm run test:e2e` or
+   `CI=1 pytest -k login`), and as a description when it reads as a sentence,
+   even one starting with a word like "make" or "test". When it could be
+   either, it is a description, and the report says how it was read. A
    description is checked even in a read-only run, because you asked for it;
    one that can't be captured as a command ("the page feels faster") is
    reported as Observed, not Verified.
@@ -550,7 +553,8 @@ works, because a new feature usually has no test yet. So the prompt also:
    behavior that already existed, a lazy check would pass before and after the
    change. So each new check for such a change must pass on this environment and
    fail on the base branch's environment, at its assertion. The base environment
-   is used only if it's ready and its commit predates the change, only with
+   is used only if it's ready and serves exactly the commit your branch started
+   from (merging the base branch into yours gets you there), only with
    checks that don't write, and is never restarted or edited. A brand-new feature
    skips this, and so does a new field or header on an existing route: base
    can't have it, so the check's quoted assertion on the new behavior is the

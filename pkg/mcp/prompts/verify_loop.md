@@ -57,16 +57,21 @@ git rev-parse HEAD        # PUSHED_SHA — every check below is against this val
 git branch --show-current # BRANCH
 ```
 
-`BASE` is the branch this change will merge into: the pull request's target
-(`gh pr view --json baseRefName -q .baseRefName`), else the remote's default branch
-(`git symbolic-ref refs/remotes/origin/HEAD`). Step 5 compares against it.
+`BASE` is the name of the branch this change will merge into: the pull request's target
+(`gh pr view <BRANCH> --json baseRefName -q .baseRefName`), else the remote's default branch
+(`git symbolic-ref --short refs/remotes/origin/HEAD | sed 's@^origin/@@'`). It is a bare name
+such as `main`, never `refs/remotes/origin/main`. Fetch it (`git fetch origin <BASE>`) and compare
+against `origin/<BASE>`, never a local copy that may be stale.
 
 Also note the repo name as Shipyard knows it (the `repo_name` in the environment payload, usually
 the GitHub repo name without the org prefix).
 
 If the user asked you to verify a different branch or repository than the one checked out, use
 what they named instead, for `BRANCH` and the repo name alike. For a branch that is not checked
-out, `PUSHED_SHA` is `git rev-parse origin/<branch>` after a `git fetch`, not your local `HEAD`.
+out, `PUSHED_SHA` is `git rev-parse origin/<branch>` after a `git fetch`, not your local `HEAD`,
+and everything below (reading the diff and the tests, writing checks, committing) happens in a
+separate checkout of that commit (`git worktree add <dir> <PUSHED_SHA>`), never in the one you
+started in.
 
 ## Step 2 — Find the environment
 
@@ -156,10 +161,17 @@ Take the acceptance check from the first of these that has one:
    a unit-test command that never touches `url` is not an acceptance check.
 3. Nothing. That is a valid answer; see below.
 
-An acceptance check is either a **command** or a **description** of the expected behavior. It is
-a command when its first word is a program on your `PATH` or a script in the repository
-(`npm run test:e2e`, `make e2e`, `./scripts/check.sh`); anything else is a description ("the
-header is blue", "`GET /api/widgets` returns `count` as a number").
+An acceptance check is either a **command** or a **description** of the expected behavior. Decide
+by how it reads, not by whether its first word happens to be a program:
+
+- **A command** reads as shell: a program or script followed by arguments, flags, paths or
+  targets, possibly after `VAR=value` assignments (`npm run test:e2e`, `make e2e`,
+  `./scripts/check.sh`, `CI=1 pytest -k login`). A path-like first word (`./`, `/`, `scripts/`)
+  is a command even if the file is missing, and then it is FAILED as not found.
+- **A description** reads as a sentence about behavior ("the header is blue", "make sure signup
+  sends an email", "`GET /api/widgets` returns `count` as a number"), even when it starts with a
+  word that is also a program (`make`, `test`, `open`, `find`).
+- When it could be either, it is a description; say in the report which way you read it.
 
 **With a command:** run it with the environment in two variables, set only for that command:
 
@@ -186,18 +198,20 @@ configure one mid-run. Go on to 5b: the change can still be checked directly.
 ### 5b — Is the change itself covered?
 
 A passing suite proves nothing regressed. It does not prove the new behavior works, because a new
-feature usually has no test yet. Read `git diff BASE...HEAD` and list the behavior it changes.
+feature usually has no test yet. Read `git diff origin/<BASE>...PUSHED_SHA` and list the behavior it
+changes.
 Mark each item **new** or **changed** by what its check will assert, not by the route or page it
 lives on:
 
 - **new** — the asserted thing is absent on `BASE`: a new endpoint, page, command, field, header or
-  element, even when it is added to a route that already exists.
+  element, even when it is added to a route that already exists. Quote the diff lines that add it.
 - **changed** — the asserted thing exists on `BASE` with a different value or behavior: a bug fix,
   changed text, a changed status code, a changed default.
 For each item, name the test in the acceptance check that exercises it **and quote the assertion**
-that checks the behavior.
+that checks the behavior. A test only counts if this run's output shows it ran and passed against
+the environment: one that was skipped, filtered out, or run against mocks does not cover anything.
 
-- **full** — every changed behavior has a named test with a quoted assertion.
+- **full** — every behavior listed here has a named test with a quoted assertion that ran.
 - **partial** — some do.
 - **none** — none do, or there is no acceptance check.
 
@@ -209,7 +223,8 @@ A test whose name sounds related but whose assertions do not touch the behavior 
 Skip this step when the run is **read-only**: the user asked for that in the conversation ("don't
 add any checks", "read-only", "just verify, don't touch anything"), or the repository has a
 `Verification: read-only` line and the user did not ask for checks. What the user says for this
-run outranks the repository's line, either way. Coverage is still assessed and reported.
+run outranks the repository's line, either way; passing an `acceptance` check is not asking for
+more checks, and does not lift read-only. Coverage is still assessed and reported.
 
 Otherwise, check each uncovered behavior with whatever tool actually exercises it. A check is not
 limited to end-to-end tests:
@@ -218,7 +233,7 @@ limited to end-to-end tests:
 |---|---|
 | UI | An e2e test in the repository's own framework |
 | API or backend | An API test in the repository's test framework, or `curl` requests against `SHIPYARD_URL` with the expected status and body |
-| No HTTP surface (worker, migration, cron) | A CLI call, or a query or log read inside the service through `exec_service`, with the expected output |
+| No HTTP surface (worker, migration, cron) | A CLI call, or a query or log read inside the service through `exec_service`, with the expected output. Trigger the behavior during the run and read only what that trigger produced (filter by a value you created or a timestamp after it); a row or log line that already existed proves nothing about this commit |
 | A route `url` does not expose (404 at the ingress, internal or health paths) | The same request from inside the service through `exec_service`, for example `curl -s localhost:<port>/<path>`, with the expected output |
 
 Rules:
@@ -242,7 +257,8 @@ Rules:
 ### 5d — Prove checks for changed behavior are real
 
 A check for a **new** behavior cannot pass on `BASE`, because the behavior is not there; its
-quoted assertion is the proof. A check for a **changed** behavior can: a check that passes both
+quoted assertion and the quoted diff lines that add it are the proof. If a usable base environment
+exists anyway (below), run it there too: a "new" check that passes on base was mislabeled. A check for a **changed** behavior can: a check that passes both
 before and after the change is not testing it. Run each new check for a changed behavior against
 two environments:
 
@@ -255,10 +271,11 @@ Use it only if all of these hold, otherwise report `base: not checked` with the 
 - Exactly one of the environments that come back is `ready` and not `stopped` or `retired`. A
   base branch can have several (a detached one alongside the regular one); ignore the ones that
   are not running. Two or more ready ones is ambiguous: report `base: not checked`.
-- Its `commit_hash` for this repo contains nothing from your branch: it must be an ancestor of the
-  point where your branch left `BASE`, so
-  `git merge-base --is-ancestor <base commit> $(git merge-base origin/BASE PUSHED_SHA)` succeeds.
-  If `BASE` has moved on since, this fails; report `base: not checked (base is ahead)`.
+- Its `commit_hash` for this repo is exactly the commit your branch started from:
+  `$(git merge-base origin/BASE PUSHED_SHA)`. An older base can fail the check because of some
+  other bug fixed since, which would prove nothing; a newer one may already contain parts of the
+  change. Otherwise report `base: not checked (base is not at the branch point)`, and tell the user
+  that merging `BASE` into the branch moves the branch point to what the base environment serves.
 - The check does not change state. The base environment belongs to the team: **never restart it,
   never edit it, and never run anything against it that writes** (no POSTs, signups, form posts,
   or exec writes). A check that writes is reported `base: not checked (writes data)`.
@@ -297,7 +314,7 @@ give its base result: `base: failed ✓ @ <base sha>` (changed behavior, proven)
 actual output.
 
 **Verified** — the acceptance check passed (if there is one), coverage is full, every check you
-added is reproducible, and every one for a changed behavior failed on base:
+added is reproducible, and every one for a behavior marked changed failed on base:
 
 ```
 Verified on Shipyard.
@@ -309,14 +326,14 @@ Verified on Shipyard.
   Checks run:  <verbatim commands, expected and actual output>
 ```
 
-**Passed, not covered** — everything that ran passed, but some changed behavior has no proven
+**Passed, not covered** — everything that ran passed, but some behavior listed in 5b has no proven
 check (the run was read-only, a new check could not be proven on base, or none could be written):
 
 ```
 Passed on Shipyard, but the change is not fully covered, so this is not verified.
   Environment: <url>
   Commit:      <PUSHED_SHA>
-  Check:       <acceptance command, or none configured>
+  Check:       <acceptance command, or "<description>" → the check it became, or none configured>
   Result:      PASS
   Coverage:    partial — <what is covered>; not covered: <what is not, and why>
 ```
@@ -364,12 +381,15 @@ to discard, and never report Verified from a container you edited (see below).
 
 ## Failure handling
 
+**In a read-only run, do not fix anything:** no edits, commits or pushes. Report the failure with
+what you found in the logs, and stop.
+
 **Three attempts, then stop.** After a failed check: read the failure and the environment logs,
 make one targeted fix, and try again. An attempt is one fix, whether you pushed it or tried it in
 the running container. **Stop after 3 failed attempts** and report what you tried, what failed
 each time, and the environment URL. Looping past that burns build capacity and rarely converges.
 
-Each attempt normally means push, return to Step 2 with the new SHA, and wait for a rebuild. When
+Each attempt normally means push, return to Step 3 with the new SHA, and wait for a rebuild. When
 the container can be edited in place (next section), try the fix there first and push once it
 passes. That makes attempts cheaper; it does not raise the limit.
 
@@ -397,10 +417,13 @@ files the diff touches. Compare each file's `sha256sum` in the container with
 `git show <PUSHED_SHA>:<path> | sha256sum` locally. Every one must match. A mismatch or a missing
 file means the container does not serve these files from source; stop here.
 
-**Reload probe.** Scan every process (`cat /proc/*/cmdline`), not only process 1, which is often
-`tini`, `sh -c` or `npm`. One of them must be a known watcher: `nodemon`, `vite`, `next dev`,
-`webpack serve`, `flask --debug`, `uvicorn --reload`, `air`, `rails server` in development. If
-none is, stop here; do not stretch the list to fit.
+**Reload probe.** Look at every process, not only process 1, which is often `tini`, `sh -c` or
+`npm`, but **print only the watcher names you match, never whole command lines**: those can carry
+passwords and tokens. For example:
+`sh -c 'cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\0" " " | grep -oE "nodemon|vite|next dev|webpack serve|flask --debug|uvicorn .*--reload|air|rails server" | sort -u'`.
+One of them must be a known watcher (`nodemon`, `vite`, `next dev`, `webpack serve`,
+`flask --debug`, `uvicorn --reload`, `air`, `rails server` in development). If none is, stop
+here; do not stretch the list to fit.
 
 **Writing a file.** Base64-encode it locally and split the encoded text into chunks of at most
 32KB, each a multiple of 4 characters. Append each chunk to a temporary file next to the target,
@@ -416,8 +439,11 @@ file and push per attempt instead.
   the new commit. Step 6 confirms the rebuild replaced every file you edited.
 - If an edit does not change the behavior although the probes passed, the reload is not working.
   Stop editing, push per attempt, and say so.
-- If you stop without pushing, restore every file you edited to its `PUSHED_SHA` content with the
-  same write and check, delete every file you created, and say the container was restored.
+- If you stop without pushing, or you pushed but the rebuild failed or timed out so the edited
+  container is still the one serving, restore every file you edited to its `PUSHED_SHA` content
+  with the same write and check, delete every file you created, and say the container was
+  restored. Before restoring, check each file's hash still matches what you wrote: if it does not,
+  something else replaced the container, so leave it alone.
 
 ## Troubleshooting
 
@@ -439,8 +465,8 @@ passed; every behavior the change touches is covered by a named test or check wi
 assertion; every check you added is reproducible; and every added check for a changed behavior
 failed on the base environment at that assertion. Nothing from an edited container counts.
 
-**Passed, not covered** means everything that ran passed, but some changed behavior has no proven
-check. Say what is missing.
+**Passed, not covered** means everything that ran passed, but some behavior listed in 5b has no
+proven check. Say what is missing.
 
 **Observed** means the only evidence is something you looked at and could not capture as a
 command.
