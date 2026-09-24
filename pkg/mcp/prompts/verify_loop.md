@@ -243,7 +243,8 @@ Rules:
   the change.
 - **Reproducible or it does not count.** Prefer a test committed in the repository's framework.
   Otherwise put every command in the report verbatim, with the expected and actual output, so a
-  reviewer can rerun it. A check that exists only in your reasoning ("I looked, it worked") is
+  reviewer can rerun it. A script you wrote for the check is part of the command: commit it, or
+  quote its full contents in the report; its name and assertion alone cannot be rerun. A check that exists only in your reasoning ("I looked, it worked") is
   **Observed**, never part of Verified.
 - **Keep the token out of everything you report.** Send it only as a cookie from the variable,
   for example `curl -b "shipyard_token=$SHIPYARD_TOKEN" "$SHIPYARD_URL/..."`, never on the URL
@@ -270,7 +271,9 @@ Use it only if all of these hold, otherwise report `base: not checked` with the 
 
 - Exactly one of the environments that come back is `ready` and not `stopped` or `retired`. A
   base branch can have several (a detached one alongside the regular one); ignore the ones that
-  are not running. Two or more ready ones is ambiguous: report `base: not checked`.
+  are not running. Two or more ready ones is ambiguous: report `base: not checked`. The list can
+  report `ready: false` for an environment that is serving: when one is at the branch point and
+  not stopped, confirm with `get_environment(<id>)` and use its `ready` instead.
 - Its `commit_hash` for this repo is exactly the commit your branch started from:
   `$(git merge-base origin/BASE PUSHED_SHA)`. An older base can fail the check because of some
   other bug fixed since, which would prove nothing; a newer one may already contain parts of the
