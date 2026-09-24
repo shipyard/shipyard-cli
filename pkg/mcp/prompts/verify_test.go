@@ -89,6 +89,17 @@ func TestVerifyPromptGet(t *testing.T) {
 			wantContains: []string{"`feat/x`", "`shipyard`", "make test.e2e"},
 		},
 		{
+			name:         "an empty quoted argument counts as omitted",
+			args:         map[string]string{"acceptance_command": `""`, "branch": "main", "add_checks": "false"},
+			wantContains: []string{"Verify branch `main`", "Adding checks is off"},
+			wantMissing:  []string{"Run this as the acceptance check"},
+		},
+		{
+			name:         "one layer of quotes around a command is removed",
+			args:         map[string]string{"acceptance_command": `"npm run test:e2e"`},
+			wantContains: []string{"```\nnpm run test:e2e\n```"},
+		},
+		{
 			name:         "add_checks false makes the run read-only",
 			args:         map[string]string{"add_checks": " FALSE "},
 			wantContains: []string{"## This invocation", "Adding checks is off", "skip Step 5c"},
@@ -273,30 +284,32 @@ func TestEmbeddedLoopRequiresCoverage(t *testing.T) {
 	body := text.Messages[0].Content.Text
 
 	required := map[string]string{
-		"Coverage:":                                "every report says what the checks cover",
-		"Passed, not covered":                      "a passing run with gaps is its own result",
-		"Observed":                                 "evidence that cannot be rerun is its own result",
-		"agent-written, review it":                 "added checks are marked for review",
-		"`curl`":                                   "checks are not limited to e2e tests",
-		"Checks run:":                              "commands that are not committed tests are reported verbatim",
-		"Reproducible or it does not count":        "an added check must be rerunnable",
-		"it must fail":                             "an added check must fail on the base environment",
-		"never restart it,":                        "the base environment belongs to the team",
-		"`base: not checked (writes data)`":        "nothing that writes runs against base",
-		"merge-base --is-ancestor":                 "the base commit must predate the change",
-		"$(git merge-base origin/BASE PUSHED_SHA)": "the base commit must predate the branch point, not just the head",
-		"the test has to be run again there":       "a pre-push result does not count for a committed test",
-		"so do not use it":                         "the token never goes on the URL, even for access",
-		"at the assertion on the changed behavior": "a setup failure on base proves nothing",
-		"`base: not needed\n(new behavior)`":       "new behavior needs no base run",
-		"**and quote the assertion**":              "coverage names the assertion, not just a test",
-		"Assert on the behavior itself":            "status-only checks do not count",
-		`curl -b "shipyard_token=$SHIPYARD_TOKEN"`: "the token travels as a cookie, never on the URL",
-		"remove the token's value":                 "reported output is scrubbed",
-		"set `PUSHED_SHA` to the new\n  `HEAD`":    "a committed test must be pushed and served before it counts",
-		"Changed because **you** pushed":           "the agent's own push is not someone else's build",
-		"Never edit or weaken an existing test":    "passing by weakening a test is ruled out",
-		"Verification: read-only":                  "the repository-level switch",
+		"Coverage:":                         "every report says what the checks cover",
+		"Passed, not covered":               "a passing run with gaps is its own result",
+		"Observed":                          "evidence that cannot be rerun is its own result",
+		"agent-written, review it":          "added checks are marked for review",
+		"`curl`":                            "checks are not limited to e2e tests",
+		"A route `url` does not expose":     "internal routes are checked from inside the service",
+		"Checks run:":                       "commands that are not committed tests are reported verbatim",
+		"Reproducible or it does not count": "an added check must be rerunnable",
+		"it must fail":                      "an added check must fail on the base environment",
+		"never restart it,":                 "the base environment belongs to the team",
+		"`base: not checked (writes data)`": "nothing that writes runs against base",
+		"merge-base --is-ancestor":          "the base commit must predate the change",
+		"Exactly one of the environments that come back is `ready`": "a stopped or detached base environment does not block the check",
+		"$(git merge-base origin/BASE PUSHED_SHA)":                  "the base commit must predate the branch point, not just the head",
+		"the test has to be run again there":                        "a pre-push result does not count for a committed test",
+		"so do not use it":                                          "the token never goes on the URL, even for access",
+		"at the assertion on the changed behavior":                  "a setup failure on base proves nothing",
+		"`base: not needed\n(new behavior)`":                        "new behavior needs no base run",
+		"**and quote the assertion**":                               "coverage names the assertion, not just a test",
+		"Assert on the behavior itself":                             "status-only checks do not count",
+		`curl -b "shipyard_token=$SHIPYARD_TOKEN"`:                  "the token travels as a cookie, never on the URL",
+		"remove the token's value":                                  "reported output is scrubbed",
+		"set `PUSHED_SHA` to the new\n  `HEAD`":                     "a committed test must be pushed and served before it counts",
+		"Changed because **you** pushed":                            "the agent's own push is not someone else's build",
+		"Never edit or weaken an existing test":                     "passing by weakening a test is ruled out",
+		"Verification: read-only":                                   "the repository-level switch",
 	}
 
 	for needle, why := range required {
@@ -330,5 +343,22 @@ func TestEmbeddedLoopGuardsLiveEdits(t *testing.T) {
 		if !strings.Contains(body, needle) {
 			t.Errorf("embedded loop is missing %q: %s", needle, why)
 		}
+	}
+}
+
+// A new environment's first build reports a null commit_hash while processing
+// is true, for minutes. If the null rule comes first, an agent verifying a
+// freshly opened pull request reports its environment as stopped.
+func TestPollingContractChecksProcessingBeforeNullCommit(t *testing.T) {
+	text, _ := NewVerifyPrompt().Get(nil)
+	body := text.Messages[0].Content.Text
+
+	processing := strings.Index(body, "processing == true")
+	null := strings.Index(body, "commit_hash is null, not processing")
+	if processing == -1 || null == -1 {
+		t.Fatalf("polling contract is missing a rule: processing at %d, null commit at %d", processing, null)
+	}
+	if processing > null {
+		t.Error("the polling contract must check processing before treating a null commit_hash as stopped")
 	}
 }

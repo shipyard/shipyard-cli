@@ -103,9 +103,9 @@ func stripFrontmatter(doc string) string {
 // knownTarget renders whichever of branch/repo_name/acceptance_command/add_checks
 // the caller supplied.
 func knownTarget(args map[string]string) string {
-	branch := strings.TrimSpace(args["branch"])
-	repo := strings.TrimSpace(args["repo_name"])
-	command := strings.TrimSpace(args["acceptance_command"])
+	branch := argValue(args["branch"])
+	repo := argValue(args["repo_name"])
+	command := argValue(args["acceptance_command"])
 
 	var lines []string
 
@@ -128,11 +128,27 @@ func knownTarget(args map[string]string) string {
 			"the repository documents:\n\n%s\n%s\n%s", fence, command, fence))
 	}
 
-	if line := addChecksLine(args["add_checks"]); line != "" {
+	if line := addChecksLine(argValue(args["add_checks"])); line != "" {
 		lines = append(lines, line)
 	}
 
 	return strings.Join(lines, "\n\n")
+}
+
+// argValue trims an argument and removes one layer of matching quotes. Clients
+// that pass prompt arguments by position hand quotes through literally: in
+// Claude Code, `"" main shipyard false` arrives with acceptance_command set to
+// the two characters "", which the agent would then try to run. Skipping an
+// earlier argument to reach add_checks needs exactly that.
+func argValue(raw string) string {
+	v := strings.TrimSpace(raw)
+	if len(v) >= 2 {
+		if first, last := v[0], v[len(v)-1]; first == last && (first == '"' || first == '\'') {
+			v = strings.TrimSpace(v[1 : len(v)-1])
+		}
+	}
+
+	return v
 }
 
 // addChecksLine renders the add_checks argument. Like acceptance_command, a

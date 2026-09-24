@@ -96,12 +96,14 @@ Loop:
 
   stopped == true or retired == true    → STOP POLLING. The environment is not running;
                                           see "Stopped environments" below
-  commit_hash is null                   → no running build. Treat as stopped/retired above,
+  processing == true                    → a build is in flight, keep polling. Check this
+                                          before commit_hash: a new environment's first
+                                          build reports a null commit_hash for minutes
+  commit_hash is null, not processing   → no running build. Treat as stopped/retired above,
                                           not as a mismatch
   commit_hash == PUSHED_SHA AND ready   → SERVING. Stop polling, go to Step 4
   commit_hash == PUSHED_SHA, ready=false→ keep polling. The commit lands BEFORE the
                                           environment serves it (measured: ~40s apart)
-  processing == true                    → a build is in flight, keep polling
   commit_hash != PUSHED_SHA             → your build has not landed, keep polling
   no environment in response            → keep polling (see Step 2 timeout)
 
@@ -109,8 +111,8 @@ Loop:
   give up after 20 minutes → report BUILD_TIMEOUT with the last commit_hash and flags seen
 ```
 
-**Stopped environments.** `stopped` or `retired` true, or a null `commit_hash`, means no build is
-running and none is coming. Polling will never succeed. Stop and tell the user the environment is
+**Stopped environments.** `stopped` or `retired` true, or a null `commit_hash` while nothing is
+processing, means no build is running and none is coming. Polling will never succeed. Stop and tell the user the environment is
 stopped, and that restarting it (`restart_environment` / `revive_environment`) will start a build.
 **Do not restart it yourself** — that spends build capacity on someone else's environment.
 
@@ -190,6 +192,7 @@ limited to end-to-end tests:
 | UI | An e2e test in the repository's own framework |
 | API or backend | An API test in the repository's test framework, or `curl` requests against `SHIPYARD_URL` with the expected status and body |
 | No HTTP surface (worker, migration, cron) | A CLI call, or a query or log read inside the service through `exec_service`, with the expected output |
+| A route `url` does not expose (404 at the ingress, internal or health paths) | The same request from inside the service through `exec_service`, for example `curl -s localhost:<port>/<path>`, with the expected output |
 
 Rules:
 
@@ -222,7 +225,9 @@ two environments:
 Find the base environment with `get_environments(branch=BASE)` and the same `repo_name` filter.
 Use it only if all of these hold, otherwise report `base: not checked` with the reason:
 
-- Exactly one environment comes back, and it is `ready` and not `stopped` or `retired`.
+- Exactly one of the environments that come back is `ready` and not `stopped` or `retired`. A
+  base branch can have several (a detached one alongside the regular one); ignore the ones that
+  are not running. Two or more ready ones is ambiguous: report `base: not checked`.
 - Its `commit_hash` for this repo contains nothing from your branch: it must be an ancestor of the
   point where your branch left `BASE`, so
   `git merge-base --is-ancestor <base commit> $(git merge-base origin/BASE PUSHED_SHA)` succeeds.
@@ -395,7 +400,7 @@ file and push per attempt instead.
 | Matching commit but the app 404s or redirects to a login | Shipyard's gate is passed; this is the app's own auth or routing | The acceptance command must handle app login |
 | Multi-repo environment, wrong code tested | Matched the wrong `projects[]` entry | Always filter by `repo_name` before reading `commit_hash` |
 | Build failed instead of completing | Real build failure | Read build logs, fix the cause, push; do not rebuild unchanged code |
-| Polling never finishes, flags look inert | `stopped` or `retired` is true, or `commit_hash` is null | The environment is not running. Tell the user; do not restart it yourself |
+| Polling never finishes, flags look inert | `stopped` or `retired` is true, or `commit_hash` is null and nothing is processing | The environment is not running. Tell the user; do not restart it yourself |
 | 302 to `/oauth2/sign_in` | The bypass token was not sent, or was sent on the wrong host | Send it as the `shipyard_token` cookie on the environment's own host |
 
 ## What counts as done
