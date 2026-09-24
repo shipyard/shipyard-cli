@@ -118,6 +118,14 @@ Available flags:
 |----------|------------------------------------------------------|---------|------------------|
 | json     | Print the complete JSON output                       | boolean | false            |
 | org-name | Filter by org name, if you are part of multiple orgs | string  | your default org |
+| bypass-token | Print only the environment's bypass token, for scripts | boolean | false |
+
+`--bypass-token` lets a script use the token without anyone typing or printing it:
+
+```bash
+SHIPYARD_TOKEN=$(shipyard get environment {environment_uuid} --bypass-token) && \
+  curl -b "shipyard_token=$SHIPYARD_TOKEN" https://your-environment-url/
+```
 
 ### Stop a running environment
 

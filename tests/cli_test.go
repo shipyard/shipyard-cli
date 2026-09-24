@@ -172,6 +172,57 @@ func TestGetEnvironmentByID(t *testing.T) {
 	}
 }
 
+// The verify prompt captures the token with $(...), so stdout must be the
+// token alone: no table, no JSON, nothing the agent would have to parse.
+func TestGetEnvironmentBypassToken(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		args   []string
+		stdout string
+		stderr string
+	}{
+		{
+			name:   "prints only the token",
+			args:   []string{"get", "env", "default-1", "--bypass-token"},
+			stdout: "bypass-default-1\n",
+		},
+		{
+			name:   "no token",
+			args:   []string{"get", "env", "default-2", "--bypass-token"},
+			stderr: "Command error: environment has no bypass token\n",
+		},
+		{
+			name:   "not with json",
+			args:   []string{"get", "env", "default-1", "--bypass-token", "--json"},
+			stderr: "Command error: --bypass-token and --json cannot be used together\n",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			c := newCmd(test.args)
+			err := c.cmd.Run()
+			if test.stderr != "" {
+				if err == nil {
+					t.Fatalf("expected error %q but command succeeded", test.stderr)
+				}
+				if diff := cmp.Diff(c.stdErr.String(), test.stderr); diff != "" {
+					t.Error(diff)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("command unexpectedly failed: %v\nstderr: %s", err, c.stdErr.String())
+			}
+			if diff := cmp.Diff(c.stdOut.String(), test.stdout); diff != "" {
+				t.Error(diff)
+			}
+		})
+	}
+}
+
 func TestRebuildEnvironment(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

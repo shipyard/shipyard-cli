@@ -252,6 +252,22 @@ Two things to know:
 - **Never** print the token, paste it into chat, commit it, put it in a PR comment, or write it to
   a log. Pass it through an environment variable to the acceptance command.
 
+**Never type the token's value into a command either.** Let the command fetch it, so it stays out
+of your commands, their output and the transcript:
+
+```
+SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token)
+```
+
+`<id>` is the environment's id and `<org>` the org from Step 0. The CLI prints only the token.
+Fetch it inside every command that needs it: variables do not carry over between separate
+commands. As a prefix (`SHIPYARD_TOKEN=$(...) <command>`) it reaches a command that reads the
+variable itself, such as an acceptance script; for `curl`, set it first with `&&`
+(`SHIPYARD_TOKEN=$(...) && curl ...`), because the shell expands `$SHIPYARD_TOKEN` in a command's
+own arguments before a prefix assignment applies. If the fetch fails (`shipyard` is not on this
+shell's `PATH`, is not configured, or is too old to have `--bypass-token`), use the value from
+the response, only in that assignment, and say in the report that the token appeared in commands.
+
 ## Step 5 — Check the change, not just the build
 
 ### 5a — Run the acceptance check, if there is one
@@ -282,7 +298,7 @@ by how it reads, not by whether its first word happens to be a program:
 **With a command:** run it with the environment in two variables, set only for that command:
 
 ```
-SHIPYARD_URL=<url> SHIPYARD_TOKEN=<bypass_token> <acceptance command>
+SHIPYARD_URL=<url> SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token) <acceptance command>
 ```
 
 The command decides pass or fail, not you. "The page returned 200" is not verification. A command
@@ -361,7 +377,8 @@ Rules:
   quote its full contents in the report; its name and assertion alone cannot be rerun. A check that exists only in your reasoning ("I looked, it worked") is
   **Observed**, never part of Verified.
 - **Keep the token out of everything you report.** Send it only as a cookie from the variable,
-  for example `curl -b "shipyard_token=$SHIPYARD_TOKEN" "$SHIPYARD_URL/..."`, never on the URL
+  fetched as in Step 4, for example
+  `SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token) && curl -b "shipyard_token=$SHIPYARD_TOKEN" "$SHIPYARD_URL/..."`, never on the URL
   and never with `-v`. Before quoting any command or output, remove the token's value and any
   application credentials.
 - **Cover only what is uncovered.** Never edit or weaken an existing test to make it pass.
@@ -397,7 +414,8 @@ Use it only if all of these hold, otherwise report `base: not checked` with the 
   never edit it, and never run anything against it that writes** (no POSTs, signups, form posts,
   or exec writes). A check that writes is reported `base: not checked (writes data)`.
 
-For HTTP checks, point `SHIPYARD_URL` at the base environment and use its own `bypass_token`.
+For HTTP checks, point `SHIPYARD_URL` at the base environment and fetch its own token (its id in
+the Step 4 command).
 
 | Result | Meaning |
 |---|---|
