@@ -489,9 +489,11 @@ conversation: to verify another branch, say so ("verify branch `fix-login` of
 `web`"), and the same goes for a read-only run (see
 [Checking the change itself](#checking-the-change-itself)).
 
-If your branch's environment is stopped, the agent starts it once (a restart,
-or a rebuild if the restart is refused) and says so in the report. It never
-starts anyone else's environment, including the base branch's.
+If the environment of the branch you have checked out is stopped, the agent
+starts it once (a restart, or a rebuild if the restart is refused; a revive if
+it was retired) and says so in the report. It never starts any other
+environment, including the base branch's or one for a branch you named: it
+reports that it is stopped and leaves the decision to you.
 
 #### The acceptance check
 
@@ -547,8 +549,8 @@ approve it. The plan covers the change and its blast radius: callers of changed
 code, shared templates and components, access and permissions, data and
 migrations, and other services in the environment. Each item says why it's at
 risk (citing the diff), how it will be checked, whether it's new, changed or
-unchanged behavior (an unchanged item is a guard that must pass on the base
-branch too), whether it writes data, and roughly how long it takes. Where the
+unchanged behavior (an unchanged item is a guard: it needs no failure on the
+base branch, and if it runs there it must pass), whether it writes data, and roughly how long it takes. Where the
 client can start a subagent, a fresh one with no conversation history drafts
 the plan, so it doesn't inherit the blind spots of the agent that wrote the
 change; the plan says how it was drafted.

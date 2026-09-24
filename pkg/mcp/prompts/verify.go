@@ -113,7 +113,7 @@ func knownTarget(args map[string]string) string {
 	fence := codeFence(acceptance)
 
 	return fmt.Sprintf("Use this as the acceptance check in Step 5a, in place of anything the repository "+
-		"documents, and make it item 1 of the test plan (Step 2b). Run it if it is a command; if it "+
+		"documents, and make it item 1 of the test plan (Step 2b) unless the run is read-only. Run it if it is a command; if it "+
 		"describes the expected behavior, write a check that asserts exactly that:\n\n%s\n%s\n%s\n\n"+
 		"Some clients split prompt arguments on spaces. If the text the user typed after the command is "+
 		"longer than this, use the typed text instead.",

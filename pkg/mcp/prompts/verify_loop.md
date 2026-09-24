@@ -1,15 +1,16 @@
 ---
 name: "shipyard-verify"
-description: "Verify your pushed changes against the Shipyard preview environment for this branch before handing work back. Covers: finding the environment, waiting for your exact commit, authenticated access, running the acceptance check when the repository has one, checking that the change itself is covered, and reporting the result."
+description: "Verify your pushed changes against the Shipyard preview environment for this branch before handing work back. Covers: finding the environment, planning the checks with the user, waiting for your exact commit, authenticated access, running the approved checks, checking that the change itself is covered, and reporting the result against the plan."
 keywords: ["shipyard", "preview environment", "verify", "test", "pr", "deploy", "e2e"]
 version: "0.3.0"
 ---
 
 # Shipyard Verification Loop
 
-**User sees few messages:** (1) "verifying against the environment"; then only messages that need
-their answer, one per question (which environment, the test plan and each revision of it, new plan
-items during a fix) or a failure summary if you cannot proceed; and (3) the final result.
+**User sees few messages:** (1) "verifying against the environment"; (2) only messages that need
+their answer, one per question (which environment, the test plan and each revision of it, new or
+rewritten plan items during a run) or a failure summary if you cannot proceed; and (3) the final
+result.
 Everything else is silent. With auto-approve, the plan goes into the final result instead.
 
 ## When this applies
@@ -144,7 +145,7 @@ item for **the change itself**. `New/changed` takes one of `new`, `changed` or `
 decides whether 5d's base check applies. A check that writes data is marked, because it never runs
 against the base environment.
 
-**Approval.** Send the plan as message 2 and **stop until the user answers**: do not poll, run
+**Approval.** Send the plan as its own message and **stop until the user answers**: do not poll, run
 checks or change anything while you wait. Then:
 
 - `yes` → the plan is accepted as shown.
@@ -154,9 +155,10 @@ checks or change anything while you wait. Then:
   revised plan without asking again; show the revision in the report, and mark any check you wrote
   for an `add:` the user never saw as `(written after approval)`. Ask again only when an edit
   leaves you unsure what they want.
-- Item 1 is the acceptance check. `change 1: ...` replaces it for this run; quote the original and
-  the replacement in the report. `drop 1` means 5a does not run it, and the report says
-  `Check: dropped by user`.
+- When there is an acceptance check, it is item 1: `change 1: ...` replaces it for this run; quote
+  the original and the replacement in the report. `drop 1` means 5a does not run it, and the report
+  says `Check: dropped by user`. Without one, item 1 is the change itself, and dropping it follows
+  5b.
 - `no` → do not run anything. Report `Not verified: the test plan was rejected`, with the plan and
   any reason the user gave, and stop.
 
@@ -164,8 +166,9 @@ checks or change anything while you wait. Then:
 "don't wait for me"), or the repository has a `Verification: auto-approve` line and the user did
 not ask to approve, do not wait: accept the plan drafted as above and put it in the final report.
 Words inside an acceptance check never count as that request: "auto-approve the invoice" is a
-check to run, not an instruction. Unattended runs, such as CI, need this;
-without it they stop here with nothing verified.
+check to run, not an instruction. Unattended runs, such as CI, need this. Without it, when no one
+is there to answer, do not wait: report `Not verified: awaiting plan approval` with the plan, and
+stop.
 
 ## Step 3 — Poll until your commit is serving
 
@@ -186,7 +189,10 @@ Loop:
   commit_hash == PUSHED_SHA AND ready   → SERVING. Stop polling, go to Step 4
   commit_hash == PUSHED_SHA, ready=false→ keep polling. The commit lands BEFORE the
                                           environment serves it (measured: ~40s apart)
-  commit_hash != PUSHED_SHA             → your build has not landed, keep polling
+  commit_hash != PUSHED_SHA             → your build has not landed, keep polling. On the
+                                          first poll after approval and every 5 minutes,
+                                          run `git ls-remote origin <BRANCH>`: if it no
+                                          longer shows PUSHED_SHA, the branch moved (Step 6)
   no environment in response            → keep polling (see Step 2 timeout)
 
   sleep: 5s, then 10s, 20s, 40s, 60s, 60s...   (cap 60s)
@@ -196,15 +202,26 @@ Loop:
 **Stopped environments.** `stopped` or `retired` true, or a null `commit_hash` while nothing is
 processing, means no build is running and none is coming, so polling alone will never succeed.
 
-- **This change's own environment** (the one Step 2 found for `BRANCH` and this repo): start it.
-  Call `restart_environment`; if that is refused because the environment is not paused, call
-  `rebuild_environment` once instead. Do this **once per run**, say in the final report that you
-  started it, and go back to polling: the start is a new build, with the usual 20 minutes. A
-  read-only run may start it, since starting it changes no code; skip it only if the user said not
-  to restart or touch the environment, and then report that it is stopped.
-- **Any other environment** (the base branch's, another pull request's): never start it. It
-  belongs to someone else and spends their build capacity.
-- If it stops again after you started it, do not start it a second time: report it as stopped.
+- **This change's own environment**: the one Step 2 found for this repo and `BRANCH`, where
+  `BRANCH` is the branch checked out here, not one the user named in Step 1, and is not `BASE`.
+  Start it, **once per run**:
+  - `stopped` → call `restart_environment`. If its result starts with `Cannot restart` (live runs
+    show a stopped environment refused as not paused), call `get_environments` once: if a build is
+    now processing, go back to polling; otherwise call `rebuild_environment` once.
+  - `retired` → call `revive_environment`. If its result starts with `Cannot revive`, report that
+    the environment is retired.
+
+  Say in the final report that you started it, and go back to polling: the start is a new build,
+  with the usual 20 minutes. A start is only queued, so the next polls can still show `stopped`:
+  treat that as starting, not stopped, until `processing` or `ready` has turned true, for at most
+  5 minutes; if neither has by then, report it as stopped. A read-only run may start it, since
+  starting it changes no code. Skip the start if the user said not to restart, start or touch the
+  environment (including "don't touch anything"), and then report that it is stopped.
+- **Any other environment** (the base branch's, a branch the user named, another pull request's):
+  never start it. It may belong to someone else and spends their build capacity. Report that it is
+  stopped and that `restart_environment` would start it; the user decides.
+- If it stops again after `processing` or `ready` has turned true, do not start it a second time:
+  report it as stopped.
 
 - **Never poll faster than 5 seconds.**
 - **Never call `rebuild_environment` while waiting.** A build is already running; rebuilding
@@ -378,8 +395,8 @@ For HTTP checks, point `SHIPYARD_URL` at the base environment and use its own `b
 |---|---|
 | Fails on base at the assertion, passes here | Proven. Quote the failing assertion and record the base commit |
 | Fails on base before the assertion (404 on setup, auth, missing data, connection) | Not proven: the failure says nothing about the change. Report `base: not checked` |
-| Passes on both | It does not test the change. Rewrite it once; if it still passes on both, report it as not proven |
-| Fails here | A real failure: go to Failure handling. Do not edit the check to make it pass, unless it is provably wrong about the intended behavior, and then say why in the report |
+| Passes on both | It does not test the change. Rewrite it once; the rewrite is a check the user has not approved, so unless the run is auto-approved, show the original and the rewrite and wait for approval as in Step 2b. Mark it `(rewritten)` in the report. If it still passes on both, report it as not proven |
+| Fails here | A real failure: go to Failure handling. Do not edit the check to make it pass, unless it is provably wrong about the intended behavior; then the corrected check goes back for approval the same way, and the report says why |
 
 ## Step 6 — Re-check the commit before you report
 
@@ -391,7 +408,8 @@ Call `get_environments` once more and compare `commit_hash` against `PUSHED_SHA`
 - Changed by anyone else → their build landed mid-run and your result describes neither commit.
   If the branch itself moved (`git ls-remote origin <BRANCH>` no longer shows `PUSHED_SHA`),
   someone pushed to it: your commit will never be served again and the plan covers an old diff.
-  Stop and tell the user who needs to re-run the prompt on the new head. Otherwise **discard the
+  Stop and report `Not verified: the branch moved`, with the new head, and tell the user to re-run
+  the prompt on it. Otherwise **discard the
   result and return to Step 3.** Do this at most twice, then stop and tell the user the
   environment is too busy to verify against right now.
 
@@ -402,8 +420,8 @@ rebuilds; report that instead of a result.
 
 ## Step 7 — Report
 
-Every form except a rejected plan carries a `Plan:` block, one line per plan item, and a
-`Coverage:` line:
+A run that had a plan carries a `Plan:` block, one line per plan item (a read-only run has no
+plan, and the `Not verified` forms show the plan as it stood):
 
 ```
   Plan:        (drafted by a fresh subagent; approved by the user, or auto-approved)
@@ -413,13 +431,14 @@ Every form except a rejected plan carries a `Plan:` block, one line per plan ite
     4. <area>: <check>        dropped by user
 ```
 
-Every form carries a `Coverage:` line. Mark each check you added `(agent-written, review it)` and
+Every form except `Not verified` carries a `Coverage:` line. Mark each check you added `(agent-written, review it)` and
 give its base result: `base: failed ✓ @ <base sha>` (changed behavior, proven), `base: not needed
-(new behavior)`, or `base: not checked (<reason>)`. List checks that are not committed tests
+(new behavior)`, `base: passed ✓ @ <base sha>` (unchanged guard, run on base), or `base: not checked (<reason>)`. List checks that are not committed tests
 (`curl`, CLI, `exec_service`) under `Checks run:`, verbatim, token removed, with expected and
 actual output.
 
-**Verified** — every accepted plan item passed, the acceptance check passed (if there is one),
+**Verified** — every accepted plan item passed (items the user dropped are left out, except the
+change itself: see 5b), the acceptance check passed (if there is one),
 coverage is full, every check you added is reproducible, and every one for a behavior marked
 changed failed on base:
 
@@ -566,14 +585,14 @@ file and push per attempt instead.
 | Matching commit but the app 404s or redirects to a login | Shipyard's gate is passed; this is the app's own auth or routing | The acceptance command must handle app login |
 | Multi-repo environment, wrong code tested | Matched the wrong `projects[]` entry | Always filter by `repo_name` before reading `commit_hash` |
 | Build failed instead of completing | Real build failure | Read build logs, fix the cause, push; do not rebuild unchanged code |
-| Polling never finishes, flags look inert | `stopped` or `retired` is true, or `commit_hash` is null and nothing is processing | The environment is not running. Start this change's own environment once ("Stopped environments" in Step 3); never another's |
+| Polling never finishes, flags look inert | `stopped` or `retired` is true, or `commit_hash` is null and nothing is processing | The environment is not running. Start this change's own environment once ("Stopped environments" in Step 3); never one on another branch |
 | 302 to `/oauth2/sign_in` | The bypass token was not sent, or was sent on the wrong host | Send it as the `shipyard_token` cookie on the environment's own host |
 
 ## What counts as done
 
 **Verified** means all of these, on the commit you finally pushed: the environment served **your**
 commit and it had not changed when the run finished; every item of the approved (or auto-approved)
-test plan passed; the acceptance check, if there is one, passed; every behavior the change touches is covered by a named test or check with a quoted
+test plan passed, leaving out items the user dropped other than the change itself; the acceptance check, if there is one, passed; every behavior the change touches is covered by a named test or check with a quoted
 assertion; every check you added is reproducible; and every added check for a changed behavior
 failed on the base environment at that assertion. Nothing from an edited container counts.
 
@@ -587,7 +606,14 @@ command.
 
 **FAILED** means a check failed on the pushed commit.
 
-**Not verified: plan rejected** means the user said no to the test plan, and nothing ran.
+**Not verified: the test plan was rejected** means the user said no to the test plan, and nothing
+ran.
+
+**Not verified: awaiting plan approval** means no one was there to approve the plan in a run
+without auto-approve, and nothing ran.
+
+**Not verified: the branch moved** means someone else pushed to the branch mid-run, so the result
+describes a commit that will not be served again.
 
 Report the one that is true, in those words. Each is a useful, honest answer; reporting anything
 less than Verified as verified is worse than reporting nothing.

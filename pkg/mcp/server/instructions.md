@@ -13,8 +13,8 @@ environment before reporting it as working. Record the pushed SHA (`git rev-pars
 - `commit_hash` matches but `ready` is false — keep polling. The commit lands roughly 40 seconds
   before the environment serves it, so matching on the commit alone tests the previous build.
 - `stopped` or `retired` is true, or `commit_hash` is null while `processing` is false — the
-  environment is not running and will not become ready on its own. Start this change's own
-  environment once (restart, else rebuild) and say so; never another's.
+  environment is not running and will not become ready on its own. The `verify` prompt says when
+  you may start it; never start another branch's.
 - `processing` is true — a build is in flight. Poll no faster than every 5 seconds, back off, and
   never call `rebuild_environment` while waiting: a build is already running and rebuilding
   restarts it.
