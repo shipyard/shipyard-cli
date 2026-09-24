@@ -1,14 +1,17 @@
 ---
 name: "shipyard-verify"
-description: "Verify your pushed changes against the Shipyard preview environment for this branch before handing work back. Covers: finding the environment, waiting for your exact commit, authenticated access, running the acceptance check when the repository has one, checking that the change itself is covered, and reporting the result."
+description: "Verify your pushed changes against the Shipyard preview environment for this branch before handing work back. Covers: finding the environment, planning the checks with the user, waiting for your exact commit, authenticated access, running the approved checks, checking that the change itself is covered, and reporting the result against the plan."
 keywords: ["shipyard", "preview environment", "verify", "test", "pr", "deploy", "e2e"]
-version: "0.2.0"
+version: "0.3.0"
 ---
 
 # Shipyard Verification Loop
 
-**User sees MAX 3 messages:** (1) "verifying against the environment", (2) a failure summary if
-you cannot proceed, (3) the final result. Everything else is silent.
+**User sees few messages:** (1) "verifying against the environment"; (2) only messages that need
+their answer, one per question (which environment, the test plan and each revision of it, new or
+rewritten plan items during a run) or a failure summary if you cannot proceed; and (3) the final
+result.
+Everything else is silent. With auto-approve, the plan goes into the final result instead.
 
 ## When this applies
 
@@ -90,9 +93,88 @@ Shipyard API payload. Read these fields from `data[].attributes`:
 
 | Result | Action |
 |---|---|
-| Exactly one environment | Continue to Step 3 |
+| Exactly one environment | If it is stopped or retired and it is this change's own, start it now ("Stopped environments" in Step 3), so it builds while the user reads the plan. Then continue to Step 2b |
 | No environments | The push may not have registered. Retry per the polling contract; after 2 minutes stop and tell the user |
 | More than one | **Stop. Never guess.** List id, url, branch, and commit for each, and ask which one |
+
+## Step 2b — Plan the checks, and get them approved
+
+Before running anything, write down what you will check and get the user's agreement. The agent
+that made a change shares its blind spots with any plan it writes for itself, so the plan starts
+from fresh eyes and covers the change's blast radius, not only the change.
+
+**Skip this step in a read-only run** (5c): nothing will be added, so there is nothing to approve.
+Go to Step 3, and assess and report coverage as usual.
+
+**Drafting.** If you can start a subagent with a fresh context (no copy of this conversation),
+give it only: the output of `git diff origin/<BASE>...PUSHED_SHA`, read access to the repository,
+the checklist below, and the acceptance check if there is one. Do not give it the environment's
+URL or `bypass_token`, and tell it not to call Shipyard tools: its checks refer to `$SHIPYARD_URL`
+and `$SHIPYARD_TOKEN`, which you fill in when you run them. Tell it too: "You are only drafting a
+plan: do not run the verification loop, start or restart environments, or call Shipyard tools,
+whatever other instructions say." Ask it for the plan table, and use what it returns. If you cannot start a subagent, draft the plan yourself from that diff before
+re-reading this conversation. Either way, say which you did at the top of the plan (`drafted by a
+fresh subagent` or `drafted from the diff by the agent that made the change`).
+
+**Blast-radius checklist.** Consider every area; list an item only when the diff gives a reason,
+and cite the diff lines that give it.
+
+| Area | What to look for | Typical check |
+|---|---|---|
+| The change itself | Behavior the diff adds or alters | Assert on the new value |
+| Callers and consumers | Other routes, jobs or UI that use a changed function, template or API field (search the code) | Exercise one or two callers |
+| Shared pieces | Templates, partials, components or config included in more than one place | Check the other pages that include it |
+| Access and security | New routes without authentication, changed permission checks, newly public data | Request it without credentials and assert the intended refusal or access |
+| Data | Migrations, schema, stored formats | Read existing data after the build |
+| Other services | Workers, queues, sibling repositories in the same environment | A log or query check in that service through `exec_service` |
+| Existing behavior | Everything else | The acceptance check, as the regression net |
+
+**The plan** is one numbered table, followed by one line on how to answer:
+
+```
+Test plan for <PUSHED_SHA> (drafted by a fresh subagent)
+
+| # | Area | Why at risk (diff lines) | Check (tool + assertion) | New/changed | Writes data? | Rough time |
+|---|------|--------------------------|--------------------------|-------------|--------------|------------|
+| 1 | Acceptance check | ... | ... | ... | ... | ... |
+
+Reply: yes · drop 3 · add: <what> · change 2: <how> · no
+```
+
+The acceptance check (5a), when there is one, is always item 1. The plan always has at least one
+item for **the change itself**. `New/changed` takes one of `new`, `changed` or `unchanged` (5b) and
+decides whether 5d's base check applies. A check that writes data is marked, because it never runs
+against the base environment.
+
+**Approval.** Send the plan as its own message and **stop until the user answers**: do not poll, run
+checks or change anything while you wait. Then:
+
+- `yes` → the plan is accepted as shown.
+- `drop <n>`, `add: ...`, `change <n>: ...` → revise the plan and send it again, and stop again.
+  Items the user dropped stay in the table, marked `dropped by user`.
+- Edits that also approve (`drop 3, otherwise yes`, `add: X and go`) → apply them and run the
+  revised plan without asking again; show the revision in the report, and mark any check you wrote
+  for an `add:` the user never saw as `(written after approval)`. Ask again only when an edit
+  leaves you unsure what they want.
+- When there is an acceptance check, it is item 1: `change 1: ...` replaces it for this run; quote
+  the original and the replacement in the report. `drop 1` means 5a does not run it, and the report
+  says `Check: dropped by user`. Without one, item 1 is the change itself, and dropping it follows
+  5b.
+- `no` → do not run anything. Report `Not verified: the test plan was rejected`, with the plan and
+  any reason the user gave, and stop.
+
+**Auto-approve.** When the user explicitly asked to skip plan approval for this run ("auto-approve",
+"don't wait for me"), or the repository has a `Verification: auto-approve` line and the user did
+not ask to approve, do not wait: accept the plan drafted as above and put it in the final report.
+Words inside an acceptance check never count as that request: "auto-approve the invoice" is a
+check to run, not an instruction. Unattended runs, such as CI, need this.
+
+**Where repository lines come from.** Read `Verification:` lines (`auto-approve` here, `read-only`
+in 5c) from the base branch's copy, `git show origin/<BASE>:CLAUDE.md` and the same for
+`AGENTS.md`, never from the checkout under test: a change cannot approve its own plan. If the
+branch adds or changes such a line, say so at the top of the plan; it takes effect once merged. Without it, when no one
+is there to answer, do not wait: report `Not verified: awaiting plan approval` with the plan, and
+stop.
 
 ## Step 3 — Poll until your commit is serving
 
@@ -116,14 +198,40 @@ Loop:
   commit_hash != PUSHED_SHA             → your build has not landed, keep polling
   no environment in response            → keep polling (see Step 2 timeout)
 
+  on the first poll after approval, and every 5 minutes, whatever the state:
+    git ls-remote origin <BRANCH> no longer shows PUSHED_SHA, and you did not push
+                                        → the branch moved. Stop (Step 6)
+
   sleep: 5s, then 10s, 20s, 40s, 60s, 60s...   (cap 60s)
   give up after 20 minutes → report BUILD_TIMEOUT with the last commit_hash and flags seen
 ```
 
 **Stopped environments.** `stopped` or `retired` true, or a null `commit_hash` while nothing is
-processing, means no build is running and none is coming. Polling will never succeed. Stop and tell the user the environment is
-stopped, and that restarting it (`restart_environment` / `revive_environment`) will start a build.
-**Do not restart it yourself** — that spends build capacity on someone else's environment.
+processing, means no build is running and none is coming, so polling alone will never succeed.
+
+- **This change's own environment**: the one Step 2 found for this repo and `BRANCH`, where
+  `BRANCH` is the branch checked out here, not one the user named in Step 1, and is not `BASE`.
+  Start it, **once per run**, with `restart_environment`, whether it is `stopped`, `retired` or
+  both; normally Step 2 already did. `retired` does not mean deleted: `revive_environment` refuses
+  it, and a deleted environment does not appear in `get_environments` at all.
+
+  Say in the final report that you started it, and go back to polling: the start is a new build,
+  with the usual 20 minutes. A start is only queued, so the next polls can still show `stopped`:
+  treat that as starting, not stopped, until `processing` or `ready` has turned true, for at most
+  5 minutes. A result starting with `Cannot restart` is not proof that nothing started (a live run
+  timed out and still started the build), so poll through the same 5 minutes. Only if neither flag
+  has turned true by then and the restart said `Cannot restart`, call `rebuild_environment` once
+  and wait another 5 minutes the same way. If nothing has started after that, report
+  `Not verified: the environment is stopped`. A read-only run may start it, since
+  starting it changes no code. Skip the start if the user said not to restart, start or touch the
+  environment (including "don't touch anything"), and then report `Not verified: the environment
+  is stopped`.
+- **Any other environment** (the base branch's, a branch the user named, another pull request's):
+  never start it. It may belong to someone else and spends their build capacity. Report
+  `Not verified: the environment is stopped`, and that `restart_environment` would start it; the
+  user decides.
+- If it stops again after `processing` or `ready` has turned true, do not start it a second time:
+  report `Not verified: the environment is stopped`.
 
 - **Never poll faster than 5 seconds.**
 - **Never call `rebuild_environment` while waiting.** A build is already running; rebuilding
@@ -136,8 +244,8 @@ stopped, and that restarting it (`restart_environment` / `revive_environment`) w
 
 ## Step 4 — Reach the environment
 
-Take `url` and `bypass_token` **from the same response** that confirmed the match. Send the token
-as the `shipyard_token` cookie. The `?shipyard_token=` query parameter also works, but it lands in
+Take `url` **from the response** that confirmed the match. Send the bypass token as the
+`shipyard_token` cookie. The `?shipyard_token=` query parameter also works, but it lands in
 server logs and shell history, so do not use it.
 
 Two things to know:
@@ -145,6 +253,32 @@ Two things to know:
   its own sign-in, the acceptance command handles that.
 - **Never** print the token, paste it into chat, commit it, put it in a PR comment, or write it to
   a log. Pass it through an environment variable to the acceptance command.
+
+**Never type the token's value into a command either.** The token is already in this conversation
+(`get_environments` returns it), but fetching it inside each command keeps it out of your command
+lines. Use this one form for every command that needs the environment, curl included:
+
+```
+SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token) && export SHIPYARD_TOKEN SHIPYARD_URL=<url> && <command>
+```
+
+`<id>` is the environment's id, `<url>` its `url`, and `<org>` the org's name alone (not
+`get_org`'s `Current organization:` prefix). The CLI prints only the token. Run the whole line as
+one command: variables do not carry over between separate commands. Every part matters: `&&`
+stops the command when the fetch fails instead of running it with an empty token, and `export`
+passes both values to scripts and test runners the command starts. Do not turn on shell tracing
+(`set -x`) in these commands; it prints the token.
+
+If the fetch fails (`shipyard` is not on this shell's `PATH`, is not logged in, which happens when
+only the MCP client is configured, or is too old to have `--bypass-token`), use the token from the
+response in place of the `$(...)` and nowhere else, and add this line to the report:
+
+```
+  Token:       typed into commands; run `shipyard login` in this shell so the agent can fetch it
+```
+
+Checks inside a container through `exec_service` have no local shell to fetch from, and need no
+token: call the service on `localhost` inside the container, which is behind no gate.
 
 ## Step 5 — Check the change, not just the build
 
@@ -176,7 +310,7 @@ by how it reads, not by whether its first word happens to be a program:
 **With a command:** run it with the environment in two variables, set only for that command:
 
 ```
-SHIPYARD_URL=<url> SHIPYARD_TOKEN=<bypass_token> <acceptance command>
+SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token) && export SHIPYARD_TOKEN SHIPYARD_URL=<url> && <acceptance command>
 ```
 
 The command decides pass or fail, not you. "The page returned 200" is not verification. A command
@@ -198,15 +332,21 @@ configure one mid-run. Go on to 5b: the change can still be checked directly.
 ### 5b — Is the change itself covered?
 
 A passing suite proves nothing regressed. It does not prove the new behavior works, because a new
-feature usually has no test yet. Read `git diff origin/<BASE>...PUSHED_SHA` and list the behavior it
-changes.
-Mark each item **new** or **changed** by what its check will assert, not by the route or page it
-lives on:
+feature usually has no test yet. The behavior to cover is **every behavior the diff adds or
+alters, plus the accepted plan's other items** (Step 2b). A plan that leaves out the change itself,
+or a change-itself item the user dropped, leaves the change uncovered: the result is at best
+Passed, not covered, never Verified. In a read-only run, where there is no plan, read
+`git diff origin/<BASE>...PUSHED_SHA` and list the behavior it changes.
+Mark each item **new**, **changed** or **unchanged** by what its check will assert, not by the route
+or page it lives on:
 
 - **new** — the asserted thing is absent on `BASE`: a new endpoint, page, command, field, header or
   element, even when it is added to a route that already exists. Quote the diff lines that add it.
 - **changed** — the asserted thing exists on `BASE` with a different value or behavior: a bug fix,
   changed text, a changed status code, a changed default.
+- **unchanged** — a guard: the asserted thing must be the same on `BASE` and here (a shared page
+  still renders, a neighbouring route still redirects). It needs no base failure; if you run it on
+  base, it must pass there too.
 For each item, name the test in the acceptance check that exercises it **and quote the assertion**
 that checks the behavior. A test only counts if this run's output shows it ran and passed against
 the environment: one that was skipped, filtered out, or run against mocks does not cover anything.
@@ -222,12 +362,14 @@ A test whose name sounds related but whose assertions do not touch the behavior 
 
 Skip this step when the run is **read-only**: the user asked for that in the conversation ("don't
 add any checks", "read-only", "just verify, don't touch anything"), or the repository has a
-`Verification: read-only` line and the user did not ask for checks. What the user says for this
+`Verification: read-only` line on `BASE` (Step 2b) and the user did not ask for checks. What the user says for this
 run outranks the repository's line, either way; passing an `acceptance` check is not asking for
 more checks, and does not lift read-only. Coverage is still assessed and reported.
 
-Otherwise, check each uncovered behavior with whatever tool actually exercises it. A check is not
-limited to end-to-end tests:
+Otherwise, check each uncovered plan item with the check the plan names. If that check proves
+impossible, mark the item `skipped: <reason>`; do not substitute a different check the user did
+not approve. Run nothing that is not in the accepted plan. A check is
+not limited to end-to-end tests:
 
 | The change | A check that exercises it |
 |---|---|
@@ -247,7 +389,8 @@ Rules:
   quote its full contents in the report; its name and assertion alone cannot be rerun. A check that exists only in your reasoning ("I looked, it worked") is
   **Observed**, never part of Verified.
 - **Keep the token out of everything you report.** Send it only as a cookie from the variable,
-  for example `curl -b "shipyard_token=$SHIPYARD_TOKEN" "$SHIPYARD_URL/..."`, never on the URL
+  with the Step 4 form, for example
+  `SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token) && export SHIPYARD_TOKEN SHIPYARD_URL=<url> && curl -b "shipyard_token=$SHIPYARD_TOKEN" "$SHIPYARD_URL/..."`, never on the URL
   and never with `-v`. Before quoting any command or output, remove the token's value and any
   application credentials.
 - **Cover only what is uncovered.** Never edit or weaken an existing test to make it pass.
@@ -283,24 +426,31 @@ Use it only if all of these hold, otherwise report `base: not checked` with the 
   never edit it, and never run anything against it that writes** (no POSTs, signups, form posts,
   or exec writes). A check that writes is reported `base: not checked (writes data)`.
 
-For HTTP checks, point `SHIPYARD_URL` at the base environment and use its own `bypass_token`.
+For HTTP checks, point `SHIPYARD_URL` at the base environment and fetch its own token (its id in
+the Step 4 command).
 
 | Result | Meaning |
 |---|---|
 | Fails on base at the assertion, passes here | Proven. Quote the failing assertion and record the base commit |
 | Fails on base before the assertion (404 on setup, auth, missing data, connection) | Not proven: the failure says nothing about the change. Report `base: not checked` |
-| Passes on both | It does not test the change. Rewrite it once; if it still passes on both, report it as not proven |
-| Fails here | A real failure: go to Failure handling. Do not edit the check to make it pass, unless it is provably wrong about the intended behavior, and then say why in the report |
+| Passes on both | It does not test the change. Rewrite it once; the rewrite is a check the user has not approved, so unless the run is auto-approved, show the original and the rewrite and wait for approval as in Step 2b. Mark it `(rewritten)` in the report. If it still passes on both, report it as not proven |
+| Fails here | A real failure: go to Failure handling. Do not edit the check to make it pass, unless it is provably wrong about the intended behavior; then the corrected check goes back for approval the same way, and the report says why |
 
 ## Step 6 — Re-check the commit before you report
 
-Call `get_environments` once more and compare `commit_hash` against `PUSHED_SHA`.
+First run `git ls-remote origin <BRANCH>`. If it no longer shows `PUSHED_SHA` and you did not
+push, the branch moved: report as below, even if the environment still serves your commit.
+Then call `get_environments` once more and compare `commit_hash` against `PUSHED_SHA`.
 
 - Unchanged → your result is valid, go to Step 7.
 - Changed because **you** pushed (a test in 5c, or a fix) → not a conflict. Set `PUSHED_SHA` to
   your new commit and return to Step 3.
 - Changed by anyone else → their build landed mid-run and your result describes neither commit.
-  **Discard it and return to Step 3.** Do this at most twice, then stop and tell the user the
+  If the branch itself moved (`git ls-remote origin <BRANCH>` no longer shows `PUSHED_SHA`),
+  someone pushed to it: your commit will never be served again and the plan covers an old diff.
+  Stop and report `Not verified: the branch moved`, with the new head, and tell the user to re-run
+  the prompt on it. Otherwise **discard the
+  result and return to Step 3.** Do this at most twice, then stop and tell the user the
   environment is too busy to verify against right now.
 
 If you edited the running container at any point, the final result must come from after a rebuild
@@ -310,14 +460,27 @@ rebuilds; report that instead of a result.
 
 ## Step 7 — Report
 
-Every form carries a `Coverage:` line. Mark each check you added `(agent-written, review it)` and
+A run that had a plan carries a `Plan:` block, one line per plan item (a read-only run has no
+plan, and the `Not verified` forms show the plan as it stood):
+
+```
+  Plan:        (drafted by a fresh subagent; approved by the user, or auto-approved)
+    1. <area>: <check>        passed, base: failed ✓ @ <sha>
+    2. <area>: <check>        failed: <first real error>
+    3. <area>: <check>        skipped: <reason>
+    4. <area>: <check>        dropped by user
+```
+
+Every form except `Not verified` carries a `Coverage:` line. Mark each check you added `(agent-written, review it)` and
 give its base result: `base: failed ✓ @ <base sha>` (changed behavior, proven), `base: not needed
-(new behavior)`, or `base: not checked (<reason>)`. List checks that are not committed tests
+(new behavior)`, `base: passed ✓ @ <base sha>` (unchanged guard, run on base), or `base: not checked (<reason>)`. List checks that are not committed tests
 (`curl`, CLI, `exec_service`) under `Checks run:`, verbatim, token removed, with expected and
 actual output.
 
-**Verified** — the acceptance check passed (if there is one), coverage is full, every check you
-added is reproducible, and every one for a behavior marked changed failed on base:
+**Verified** — every accepted plan item passed (items the user dropped are left out, except the
+change itself: see 5b), the acceptance check passed (if there is one),
+coverage is full, every check you added is reproducible, and every one for a behavior marked
+changed failed on base:
 
 ```
 Verified on Shipyard.
@@ -392,6 +555,11 @@ make one targeted fix, and try again. An attempt is one fix, whether you pushed 
 the running container. **Stop after 3 failed attempts** and report what you tried, what failed
 each time, and the environment URL. Looping past that burns build capacity and rarely converges.
 
+The accepted plan carries over to each attempt: run it again on the new commit. To see whether a
+fix touches areas the plan does not cover, give the fix's own diff to a fresh subagent, as in
+Step 2b; add items for what it finds and show just those for approval, unless the run is
+auto-approved.
+
 Each attempt normally means push, return to Step 3 with the new SHA, and wait for a rebuild. When
 the container can be edited in place (next section), try the fix there first and push once it
 passes. That makes attempts cheaper; it does not raise the limit.
@@ -457,14 +625,14 @@ file and push per attempt instead.
 | Matching commit but the app 404s or redirects to a login | Shipyard's gate is passed; this is the app's own auth or routing | The acceptance command must handle app login |
 | Multi-repo environment, wrong code tested | Matched the wrong `projects[]` entry | Always filter by `repo_name` before reading `commit_hash` |
 | Build failed instead of completing | Real build failure | Read build logs, fix the cause, push; do not rebuild unchanged code |
-| Polling never finishes, flags look inert | `stopped` or `retired` is true, or `commit_hash` is null and nothing is processing | The environment is not running. Tell the user; do not restart it yourself |
+| Polling never finishes, flags look inert | `stopped` or `retired` is true, or `commit_hash` is null and nothing is processing | The environment is not running. Start this change's own environment once ("Stopped environments" in Step 3); never one on another branch |
 | 302 to `/oauth2/sign_in` | The bypass token was not sent, or was sent on the wrong host | Send it as the `shipyard_token` cookie on the environment's own host |
 
 ## What counts as done
 
 **Verified** means all of these, on the commit you finally pushed: the environment served **your**
-commit and it had not changed when the run finished; the acceptance check, if there is one,
-passed; every behavior the change touches is covered by a named test or check with a quoted
+commit and it had not changed when the run finished; every item of the approved (or auto-approved)
+test plan passed, leaving out items the user dropped other than the change itself; the acceptance check, if there is one, passed; every behavior the change touches is covered by a named test or check with a quoted
 assertion; every check you added is reproducible; and every added check for a changed behavior
 failed on the base environment at that assertion. Nothing from an edited container counts.
 
@@ -477,6 +645,18 @@ command.
 **Serving** means the build landed and the environment is up, and nothing ran.
 
 **FAILED** means a check failed on the pushed commit.
+
+**Not verified: the test plan was rejected** means the user said no to the test plan, and nothing
+ran.
+
+**Not verified: awaiting plan approval** means no one was there to approve the plan in a run
+without auto-approve, and nothing ran.
+
+**Not verified: the environment is stopped** means the environment was not running and this run
+could not start it (another branch's, the user said not to, or it stopped again), and nothing ran.
+
+**Not verified: the branch moved** means someone else pushed to the branch mid-run, so the result
+describes a commit that will not be served again.
 
 Report the one that is true, in those words. Each is a useful, honest answer; reporting anything
 less than Verified as verified is worse than reporting nothing.

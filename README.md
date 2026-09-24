@@ -117,7 +117,15 @@ Available flags:
 | Name     | Description                                          | Type    | Default Value    |
 |----------|------------------------------------------------------|---------|------------------|
 | json     | Print the complete JSON output                       | boolean | false            |
-| org-name | Filter by org name, if you are part of multiple orgs | string  | your default org |
+| org      | Org of the environment, if you are part of multiple orgs | string  | your default org |
+| bypass-token | Print only the environment's bypass token, for scripts | boolean | false |
+
+`--bypass-token` lets a script use the token without anyone typing or printing it:
+
+```bash
+SHIPYARD_TOKEN=$(shipyard get environment {environment_uuid} --bypass-token) && \
+  export SHIPYARD_TOKEN && curl -b "shipyard_token=$SHIPYARD_TOKEN" https://your-environment-url/
+```
 
 ### Stop a running environment
 
@@ -460,7 +468,7 @@ project, and add:
 
 Drop the `env` block if the CLI is already configured: the server reads the same
 `~/.shipyard/config.yaml` the CLI does. Reload the window, then check
-Settings → MCP, where Shipyard should list its tools and the `shipyard_verify`
+Settings → MCP, where Shipyard should list its tools and the `verify`
 prompt. `shipyard` has to be on the `PATH` Cursor itself sees; if it is not, use
 its absolute path (`which shipyard`) as `command`.
 
@@ -477,17 +485,29 @@ env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-nam
 
 ### Prompts
 
-- `shipyard_verify` - Verify a pushed change against its Shipyard environment:
+- `verify` - Verify a pushed change against its Shipyard environment:
   wait for the build of the pushed SHA, then check the running environment
   before reporting the change as working.
 
 Clients that support prompts show it as a slash command, for example
-`/mcp__shipyard__shipyard_verify` in Claude Code. It takes one optional
+`/mcp__shipyard__verify` in Claude Code. It takes one optional
 argument, `acceptance`: the check that decides pass or fail. Everything else
 comes from the working directory, the repository, or what you say in the
 conversation: to verify another branch, say so ("verify branch `fix-login` of
 `web`"), and the same goes for a read-only run (see
 [Checking the change itself](#checking-the-change-itself)).
+
+If the environment of the branch you have checked out is stopped, the agent
+starts it once (a restart, or a rebuild if the restart is refused and no
+build started) and says so in the report. It never starts any other
+environment, including the base branch's or one for a branch you named: it
+reports that it is stopped and leaves the decision to you.
+
+The agent's commands fetch the environment's bypass token with
+`shipyard get environment <id> --bypass-token` rather than typing it. That needs
+the CLI to be logged in in the agent's shell, not only in the MCP client's
+`env` block. If it isn't, the agent types the token into its commands and says
+so in the report; run `shipyard login` to avoid that.
 
 #### The acceptance check
 
@@ -504,9 +524,9 @@ looks for a check in two places:
    was cut, and the agent takes the full text you typed instead:
 
    ```
-   /mcp__shipyard__shipyard_verify "npm run test:e2e"
-   /mcp__shipyard__shipyard_verify "GET /api/widgets returns count as a number"
-   /mcp__shipyard__shipyard_verify "the signup button is blue"
+   /mcp__shipyard__verify "npm run test:e2e"
+   /mcp__shipyard__verify "GET /api/widgets returns count as a number"
+   /mcp__shipyard__verify "the signup button is blue"
    ```
 
    The agent treats it as a command when it reads as shell (a program or
@@ -535,6 +555,44 @@ looks for a check in two places:
 With neither, the prompt still runs. It checks the change directly (below), or
 reports that the environment is serving your commit and nothing was checked.
 Nothing has to be configured to use the prompt.
+
+#### The test plan
+
+Before it checks anything, the agent proposes a test plan and waits for you to
+approve it. The plan covers the change and its blast radius: callers of changed
+code, shared templates and components, access and permissions, data and
+migrations, and other services in the environment. Each item says why it's at
+risk (citing the diff), how it will be checked, whether it's new, changed or
+unchanged behavior (an unchanged item is a guard: it needs no failure on the
+base branch, and if it runs there it must pass), whether it writes data, and roughly how long it takes. Where the
+client can start a subagent, a fresh one with no conversation history drafts
+the plan, so it doesn't inherit the blind spots of the agent that wrote the
+change; the plan says how it was drafted.
+
+```
+Test plan for 3f2a9c1 (drafted by a fresh subagent)
+
+| # | Area              | Why at risk (diff lines)   | Check (tool + assertion)                    | New/changed | Writes data? | Rough time |
+|---|-------------------|----------------------------|---------------------------------------------|-------------|--------------|------------|
+| 1 | The change itself | routes/widgets.py:40-52    | curl GET /api/widgets, assert count is int  | new         | no           | 1 min      |
+| 2 | Access            | route has no @login check  | curl without a token, assert 401            | new         | no           | 1 min      |
+| 3 | Shared pieces     | partials/nav.html is shared | curl /settings, assert nav renders          | unchanged   | no           | 1 min      |
+
+Reply: yes · drop 3 · add: <what> · change 2: <how> · no
+```
+
+Answer `yes`, adjust it (`drop 3`, `add: ...`, `change 2: ...`), or `no` to
+stop without running anything. The environment keeps building while you read,
+so approving costs little time. The report then lists every item: passed,
+failed, skipped (with the reason) or dropped by you. Verified means every
+approved item passed.
+
+For unattended runs such as CI, add `Verification: auto-approve` to
+`CLAUDE.md` or `AGENTS.md`, or say "auto-approve" when you run the prompt: the
+agent then runs its own plan and includes it in the report. The agent reads
+`Verification:` lines from the base branch, so a branch that adds the line
+cannot approve its own plan; the line takes effect once it merges. A read-only run
+skips the plan, since nothing gets added.
 
 #### Checking the change itself
 

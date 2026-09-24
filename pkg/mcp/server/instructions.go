@@ -10,7 +10,7 @@ import (
 //
 // It is deliberately a summary rather than the full verification loop: this text
 // lands in every session for every client that reads it, so the loop itself
-// stays in the shipyard_verify prompt, which is fetched only when needed.
+// stays in the verify prompt, which is fetched only when needed.
 //
 //go:embed instructions.md
 var serverInstructions string

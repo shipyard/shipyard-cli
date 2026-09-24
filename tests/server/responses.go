@@ -7,8 +7,9 @@ var store = map[string][]types.Environment{
 	"default": {
 		{
 			Attributes: types.EnvironmentAttributes{
-				URL:   "https://dev.example.com",
-				Ready: true,
+				URL:         "https://dev.example.com",
+				Ready:       true,
+				BypassToken: "bypass-default-1",
 				Projects: []types.Project{
 					{PullRequestNumber: 123, RepoName: "Repo1"},
 					{PullRequestNumber: 456, RepoName: "Repo2"},

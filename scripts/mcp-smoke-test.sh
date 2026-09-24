@@ -129,7 +129,7 @@ SESSION=$( { echo "$INIT"
     echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'
     echo '{"jsonrpc":"2.0","id":2,"method":"ping"}'
     echo '{"jsonrpc":"2.0","id":3,"method":"prompts/list"}'
-    echo '{"jsonrpc":"2.0","id":4,"method":"prompts/get","params":{"name":"shipyard_verify","arguments":{}}}'
+    echo '{"jsonrpc":"2.0","id":4,"method":"prompts/get","params":{"name":"verify","arguments":{}}}'
     echo '{"jsonrpc":"2.0","id":5,"method":"tools/list"}'
     echo '{"jsonrpc":"2.0","id":6,"method":"resources/list"}'; } | run_timeout 40 "$BINARY" mcp serve 2>/dev/null )
 
@@ -169,7 +169,7 @@ check("result" in ping and ping.get("error") is None,
       "ping: answered without an error", str(ping.get("error")))
 
 names = [p.get("name") for p in seen.get(3, {}).get("result", {}).get("prompts", [])]
-check("shipyard_verify" in names, "prompts/list: includes shipyard_verify", str(names))
+check("verify" in names, "prompts/list: includes verify", str(names))
 
 messages = seen.get(4, {}).get("result", {}).get("messages", [])
 text = messages[0].get("content", {}).get("text", "") if messages else ""

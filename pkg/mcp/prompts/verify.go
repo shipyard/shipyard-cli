@@ -26,11 +26,11 @@ func NewVerifyPrompt() *VerifyPrompt {
 
 func (p *VerifyPrompt) Definition() PromptDefinition {
 	return PromptDefinition{
-		Name: "shipyard_verify",
+		Name: "verify",
 		Description: "Verify a pushed change against the Shipyard preview environment for its branch: " +
 			"find the environment, wait until it serves that exact commit, reach it with the bypass " +
-			"token, run the acceptance check if there is one, check that the change itself is covered, " +
-			"and report the result.",
+			"token, propose a test plan covering the change and its blast radius for the user to approve, " +
+			"run the approved checks, and report the result against the plan.",
 		Arguments: []PromptArgument{
 			// The only argument. The branch, the repository and a read-only run
 			// all come from the working directory, the repository's docs, or what
@@ -113,9 +113,10 @@ func knownTarget(args map[string]string) string {
 	fence := codeFence(acceptance)
 
 	return fmt.Sprintf("Use this as the acceptance check in Step 5a, in place of anything the repository "+
-		"documents. Run it if it is a command; if it describes the expected behavior, write a check that "+
-		"asserts exactly that:\n\n%s\n%s\n%s\n\nSome clients split prompt arguments on spaces. If the text "+
-		"the user typed after the command is longer than this, use the typed text instead.",
+		"documents, and make it item 1 of the test plan (Step 2b) unless the run is read-only. Run it if it is a command; if it "+
+		"describes the expected behavior, write a check that asserts exactly that:\n\n%s\n%s\n%s\n\n"+
+		"Some clients split prompt arguments on spaces. If the text the user typed after the command is "+
+		"longer than this, use the typed text instead.",
 		fence, acceptance, fence)
 }
 

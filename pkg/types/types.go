@@ -19,11 +19,12 @@ type Project struct {
 }
 
 type EnvironmentAttributes struct {
-	Name     string    `json:"name"`
-	URL      string    `json:"url"`
-	Ready    bool      `json:"ready"`
-	Projects []Project `json:"projects"`
-	Services []Service `json:"services"`
+	Name        string    `json:"name"`
+	URL         string    `json:"url"`
+	Ready       bool      `json:"ready"`
+	BypassToken string    `json:"bypass_token"`
+	Projects    []Project `json:"projects"`
+	Services    []Service `json:"services"`
 }
 
 type Volume struct {
