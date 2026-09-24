@@ -536,6 +536,41 @@ With neither, the prompt still runs. It checks the change directly (below), or
 reports that the environment is serving your commit and nothing was checked.
 Nothing has to be configured to use the prompt.
 
+#### The test plan
+
+Before it checks anything, the agent proposes a test plan and waits for you to
+approve it. The plan covers the change and its blast radius: callers of changed
+code, shared templates and components, access and permissions, data and
+migrations, and other services in the environment. Each item says why it's at
+risk (citing the diff), how it will be checked, whether it's new or changed
+behavior, whether it writes data, and roughly how long it takes. Where the
+client can start a subagent, a fresh one with no conversation history drafts
+the plan, so it doesn't inherit the blind spots of the agent that wrote the
+change; the plan says how it was drafted.
+
+```
+Test plan for 3f2a9c1 (drafted by a fresh subagent)
+
+| # | Area              | Why at risk (diff lines)   | Check (tool + assertion)                    | New/changed | Writes data? | Rough time |
+|---|-------------------|----------------------------|---------------------------------------------|-------------|--------------|------------|
+| 1 | The change itself | routes/widgets.py:40-52    | curl GET /api/widgets, assert count is int  | new         | no           | 1 min      |
+| 2 | Access            | route has no @login check  | curl without a token, assert 401            | new         | no           | 1 min      |
+| 3 | Shared pieces     | partials/nav.html is shared | curl /settings, assert nav renders          | changed     | no           | 1 min      |
+
+Reply: yes · drop 3 · add: <what> · change 2: <how> · no
+```
+
+Answer `yes`, adjust it (`drop 3`, `add: ...`, `change 2: ...`), or `no` to
+stop without running anything. The environment keeps building while you read,
+so approving costs little time. The report then lists every item: passed,
+failed, skipped (with the reason) or dropped by you. Verified means every
+approved item passed.
+
+For unattended runs such as CI, add `Verification: auto-approve` to
+`CLAUDE.md` or `AGENTS.md`, or say "auto-approve" when you run the prompt: the
+agent then runs its own plan and includes it in the report. A read-only run
+skips the plan, since nothing gets added.
+
 #### Checking the change itself
 
 A passing suite shows nothing regressed. It doesn't show the new behavior

@@ -2,13 +2,14 @@
 name: "shipyard-verify"
 description: "Verify your pushed changes against the Shipyard preview environment for this branch before handing work back. Covers: finding the environment, waiting for your exact commit, authenticated access, running the acceptance check when the repository has one, checking that the change itself is covered, and reporting the result."
 keywords: ["shipyard", "preview environment", "verify", "test", "pr", "deploy", "e2e"]
-version: "0.2.0"
+version: "0.3.0"
 ---
 
 # Shipyard Verification Loop
 
-**User sees MAX 3 messages:** (1) "verifying against the environment", (2) a failure summary if
-you cannot proceed, (3) the final result. Everything else is silent.
+**User sees MAX 3 messages:** (1) "verifying against the environment", (2) the test plan, which
+waits for their answer (Step 2b), or a failure summary if you cannot proceed, (3) the final
+result. Everything else is silent. With auto-approve, the plan goes into the final result instead.
 
 ## When this applies
 
@@ -90,9 +91,68 @@ Shipyard API payload. Read these fields from `data[].attributes`:
 
 | Result | Action |
 |---|---|
-| Exactly one environment | Continue to Step 3 |
+| Exactly one environment | Continue to Step 2b |
 | No environments | The push may not have registered. Retry per the polling contract; after 2 minutes stop and tell the user |
 | More than one | **Stop. Never guess.** List id, url, branch, and commit for each, and ask which one |
+
+## Step 2b — Plan the checks, and get them approved
+
+Before running anything, write down what you will check and get the user's agreement. The agent
+that made a change shares its blind spots with any plan it writes for itself, so the plan starts
+from fresh eyes and covers the change's blast radius, not only the change.
+
+**Skip this step in a read-only run** (5c): nothing will be added, so there is nothing to approve.
+Go to Step 3, and assess and report coverage as usual.
+
+**Drafting.** If you can start a subagent with a fresh context (no copy of this conversation),
+give it only: the output of `git diff origin/<BASE>...PUSHED_SHA`, read access to the repository,
+the checklist below, and the acceptance check if there is one. Ask it for the plan table, and use
+what it returns. If you cannot start a subagent, draft the plan yourself from that diff before
+re-reading this conversation. Either way, say which you did at the top of the plan (`drafted by a
+fresh subagent` or `drafted from the diff by the agent that made the change`).
+
+**Blast-radius checklist.** Consider every area; list an item only when the diff gives a reason,
+and cite the diff lines that give it.
+
+| Area | What to look for | Typical check |
+|---|---|---|
+| The change itself | Behavior the diff adds or alters | Assert on the new value |
+| Callers and consumers | Other routes, jobs or UI that use a changed function, template or API field (search the code) | Exercise one or two callers |
+| Shared pieces | Templates, partials, components or config included in more than one place | Check the other pages that include it |
+| Access and security | New routes without authentication, changed permission checks, newly public data | Request it without credentials and assert the intended refusal or access |
+| Data | Migrations, schema, stored formats | Read existing data after the build |
+| Other services | Workers, queues, sibling repositories in the same environment | A log or query check in that service through `exec_service` |
+| Existing behavior | Everything else | The acceptance check, as the regression net |
+
+**The plan** is one numbered table, followed by one line on how to answer:
+
+```
+Test plan for <PUSHED_SHA> (drafted by a fresh subagent)
+
+| # | Area | Why at risk (diff lines) | Check (tool + assertion) | New/changed | Writes data? | Rough time |
+|---|------|--------------------------|--------------------------|-------------|--------------|------------|
+| 1 | Acceptance check | ... | ... | ... | ... | ... |
+
+Reply: yes · drop 3 · add: <what> · change 2: <how> · no
+```
+
+The acceptance check (5a), when there is one, is always item 1. `New/changed` follows the rule in
+5b and decides whether 5d's base check applies. A check that writes data is marked, because it
+never runs against the base environment.
+
+**Approval.** Send the plan as message 2 and **stop until the user answers**: do not poll, run
+checks or change anything while you wait. Then:
+
+- `yes` → the plan is accepted as shown.
+- `drop <n>`, `add: ...`, `change <n>: ...` → revise the plan and send it again, and stop again.
+  Items the user dropped stay in the table, marked `dropped by user`.
+- `no` → do not run anything. Report `Not verified: the test plan was rejected`, with the plan and
+  any reason the user gave, and stop.
+
+**Auto-approve.** When the user said "auto-approve" (or "don't wait for me") for this run, or the
+repository has a `Verification: auto-approve` line and the user did not ask to approve, do not
+wait: accept your own plan and put it in the final report. Unattended runs, such as CI, need this;
+without it they stop here with nothing verified.
 
 ## Step 3 — Poll until your commit is serving
 
@@ -198,8 +258,9 @@ configure one mid-run. Go on to 5b: the change can still be checked directly.
 ### 5b — Is the change itself covered?
 
 A passing suite proves nothing regressed. It does not prove the new behavior works, because a new
-feature usually has no test yet. Read `git diff origin/<BASE>...PUSHED_SHA` and list the behavior it
-changes.
+feature usually has no test yet. The behavior to cover is the **accepted plan's items** (Step 2b),
+not a fresh reading of the diff; in a read-only run, where there is no plan, read
+`git diff origin/<BASE>...PUSHED_SHA` and list the behavior it changes.
 Mark each item **new** or **changed** by what its check will assert, not by the route or page it
 lives on:
 
@@ -226,8 +287,9 @@ add any checks", "read-only", "just verify, don't touch anything"), or the repos
 run outranks the repository's line, either way; passing an `acceptance` check is not asking for
 more checks, and does not lift read-only. Coverage is still assessed and reported.
 
-Otherwise, check each uncovered behavior with whatever tool actually exercises it. A check is not
-limited to end-to-end tests:
+Otherwise, check each uncovered plan item, using the check the plan names unless it proves
+impossible (then say why in the report). Run nothing that is not in the accepted plan. A check is
+not limited to end-to-end tests:
 
 | The change | A check that exercises it |
 |---|---|
@@ -310,14 +372,26 @@ rebuilds; report that instead of a result.
 
 ## Step 7 — Report
 
+Every form except a rejected plan carries a `Plan:` block, one line per plan item, and a
+`Coverage:` line:
+
+```
+  Plan:        (drafted by a fresh subagent; approved by the user, or auto-approved)
+    1. <area>: <check>        passed, base: failed ✓ @ <sha>
+    2. <area>: <check>        failed: <first real error>
+    3. <area>: <check>        skipped: <reason>
+    4. <area>: <check>        dropped by user
+```
+
 Every form carries a `Coverage:` line. Mark each check you added `(agent-written, review it)` and
 give its base result: `base: failed ✓ @ <base sha>` (changed behavior, proven), `base: not needed
 (new behavior)`, or `base: not checked (<reason>)`. List checks that are not committed tests
 (`curl`, CLI, `exec_service`) under `Checks run:`, verbatim, token removed, with expected and
 actual output.
 
-**Verified** — the acceptance check passed (if there is one), coverage is full, every check you
-added is reproducible, and every one for a behavior marked changed failed on base:
+**Verified** — every accepted plan item passed, the acceptance check passed (if there is one),
+coverage is full, every check you added is reproducible, and every one for a behavior marked
+changed failed on base:
 
 ```
 Verified on Shipyard.
@@ -392,6 +466,10 @@ make one targeted fix, and try again. An attempt is one fix, whether you pushed 
 the running container. **Stop after 3 failed attempts** and report what you tried, what failed
 each time, and the environment URL. Looping past that burns build capacity and rarely converges.
 
+The accepted plan carries over to each attempt: run it again on the new commit. If a fix touches
+areas the plan does not cover, add items for them and show just those for approval (Step 2b),
+unless the run is auto-approved.
+
 Each attempt normally means push, return to Step 3 with the new SHA, and wait for a rebuild. When
 the container can be edited in place (next section), try the fix there first and push once it
 passes. That makes attempts cheaper; it does not raise the limit.
@@ -463,8 +541,8 @@ file and push per attempt instead.
 ## What counts as done
 
 **Verified** means all of these, on the commit you finally pushed: the environment served **your**
-commit and it had not changed when the run finished; the acceptance check, if there is one,
-passed; every behavior the change touches is covered by a named test or check with a quoted
+commit and it had not changed when the run finished; every item of the approved (or auto-approved)
+test plan passed; the acceptance check, if there is one, passed; every behavior the change touches is covered by a named test or check with a quoted
 assertion; every check you added is reproducible; and every added check for a changed behavior
 failed on the base environment at that assertion. Nothing from an edited container counts.
 
@@ -477,6 +555,8 @@ command.
 **Serving** means the build landed and the environment is up, and nothing ran.
 
 **FAILED** means a check failed on the pushed commit.
+
+**Not verified: plan rejected** means the user said no to the test plan, and nothing ran.
 
 Report the one that is true, in those words. Each is a useful, honest answer; reporting anything
 less than Verified as verified is worse than reporting nothing.

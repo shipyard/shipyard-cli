@@ -58,7 +58,7 @@ func TestVerifyPromptGet(t *testing.T) {
 		{
 			name:         "acceptance command alone is enough to render the invocation",
 			args:         map[string]string{"acceptance": "npm run test:e2e"},
-			wantContains: []string{"## This invocation", "npm run test:e2e", "in place of anything"},
+			wantContains: []string{"## This invocation", "npm run test:e2e", "in place of anything", "item 1 of the test plan"},
 		},
 		{
 			name:         "a quoted phrase split on spaces is flagged",
@@ -376,5 +376,48 @@ func TestPollingContractChecksProcessingBeforeNullCommit(t *testing.T) {
 	}
 	if processing > null {
 		t.Error("the polling contract must check processing before treating a null commit_hash as stopped")
+	}
+}
+
+// The agent that wrote a change shares its blind spots with any plan it writes
+// for itself, so the loop plans from fresh eyes, covers the blast radius, and
+// waits for the user before running anything.
+func TestEmbeddedLoopPlansBeforeChecking(t *testing.T) {
+	text, _ := NewVerifyPrompt().Get(nil)
+	body := text.Messages[0].Content.Text
+
+	plan := strings.Index(body, "## Step 2b — Plan the checks")
+	poll := strings.Index(body, "## Step 3 — Poll until your commit is serving")
+	if plan == -1 || poll == -1 || plan > poll {
+		t.Fatalf("the plan step must come before polling: plan at %d, poll at %d", plan, poll)
+	}
+
+	required := map[string]string{
+		"a subagent with a fresh context":      "the plan is drafted by fresh eyes where the client allows",
+		"before\nre-reading this conversation": "the fallback drafts from the diff first",
+		"drafted by a fresh subagent":          "the plan says how it was drafted",
+		"| Callers and consumers |":            "blast radius: callers",
+		"| Shared pieces |":                    "blast radius: shared templates and components",
+		"| Access and security |":              "blast radius: authentication and permissions",
+		"| Data |":                             "blast radius: migrations and stored data",
+		"| Other services |":                   "blast radius: workers and sibling services",
+		"cite the diff lines that give it":     "every plan item is justified by the diff",
+		"| # | Area | Why at risk (diff lines) | Check (tool + assertion) | New/changed | Writes data? | Rough time |": "the plan table's columns",
+		"Reply: yes · drop 3 · add: <what> · change 2: <how> · no":                                                     "how to answer the plan",
+		"**stop until the user answers**":                                 "nothing runs before approval",
+		"`Verification: auto-approve`":                                    "unattended runs can opt in to auto-approve",
+		"**Skip this step in a read-only run**":                           "read-only runs have nothing to approve",
+		"Run nothing that is not in the accepted plan":                    "only the accepted plan runs",
+		"dropped by user":                                                 "dropped items stay visible",
+		"Not verified: the test plan was rejected":                        "a rejected plan runs nothing",
+		"every item of the approved (or auto-approved)\ntest plan passed": "Verified means every accepted item passed",
+		"The accepted plan carries over to each attempt":                  "a fix reruns the plan instead of re-planning",
+		"(2) the test plan, which\nwaits for their answer":                "the plan is the second of three messages",
+	}
+
+	for needle, why := range required {
+		if !strings.Contains(body, needle) {
+			t.Errorf("embedded loop is missing %q: %s", needle, why)
+		}
 	}
 }
