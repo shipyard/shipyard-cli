@@ -505,9 +505,15 @@ reports that it is stopped and leaves the decision to you.
 
 The agent's commands fetch the environment's bypass token with
 `shipyard get environment <id> --bypass-token` rather than typing it. That needs
-the CLI to be logged in in the agent's shell, not only in the MCP client's
-`env` block. If it isn't, the agent types the token into its commands and says
-so in the report; run `shipyard login` to avoid that.
+a CLI with `--bypass-token` on the agent's `PATH`, logged in in the agent's
+shell, not only in the MCP client's `env` block. If the fetch fails, the agent
+types the token into its commands and says so in the report, with the fix:
+upgrade or install the CLI, or run `shipyard login`.
+
+The commands are POSIX shell, so they run as written on macOS, Linux, and Git
+Bash or WSL on Windows. In PowerShell the agent uses the equivalent
+`$env:SHIPYARD_TOKEN = ...; if ($? -and $LASTEXITCODE -eq 0 -and $env:SHIPYARD_TOKEN) { ... }`
+form.
 
 #### The acceptance check
 

@@ -269,13 +269,29 @@ stops the command when the fetch fails instead of running it with an empty token
 passes both values to scripts and test runners the command starts. Do not turn on shell tracing
 (`set -x`) in these commands; it prints the token.
 
-If the fetch fails (`shipyard` is not on this shell's `PATH`, is not logged in, which happens when
-only the MCP client is configured, or is too old to have `--bypass-token`), use the token from the
-response in place of the `$(...)` and nowhere else, and add this line to the report:
+These commands are POSIX shell: bash, zsh or sh, which covers macOS, Linux, and Git Bash or WSL
+on Windows. In PowerShell, use this form instead, with `curl.exe` rather than `curl` (in Windows
+PowerShell, `curl` is another command):
 
 ```
-  Token:       typed into commands; run `shipyard login` in this shell so the agent can fetch it
+$env:SHIPYARD_TOKEN = shipyard get environment <id> --org <org> --bypass-token; if ($? -and $LASTEXITCODE -eq 0 -and $env:SHIPYARD_TOKEN) { $env:SHIPYARD_URL = '<url>'; <command> }
 ```
+
+If the fetch fails, use the token from the response in place of the fetch (the `$(...)`, or the
+`shipyard` call in PowerShell) and nowhere else, and add a `Token:` line to the report, with the
+text for the error you got:
+
+```
+  Token:       typed into commands; <fix from the table>
+```
+
+| Error | Fix |
+|---|---|
+| `unknown flag: --bypass-token` | `upgrade the Shipyard CLI in this shell so the agent can fetch it` |
+| `shipyard` not found | `install the Shipyard CLI in this shell so the agent can fetch it` |
+| Not logged in or unauthorized (the MCP client has a token, this shell does not) | `run 'shipyard login' in this shell so the agent can fetch it` |
+
+For any other error, use `the fetch failed: <error>`, with the token removed.
 
 Checks inside a container through `exec_service` have no local shell to fetch from, and need no
 token: call the service on `localhost` inside the container, which is behind no gate.
@@ -585,7 +601,8 @@ command as an argument array. It has no stdin, stops waiting after 60 seconds, a
 
 **Mapping probe.** Find where the repository lives in the container, then look for two or three
 files the diff touches. Compare each file's `sha256sum` in the container with
-`git show <PUSHED_SHA>:<path> | sha256sum` locally. Every one must match. A mismatch or a missing
+`git show <PUSHED_SHA>:<path> | sha256sum` locally (`shasum -a 256` on a Mac without
+`sha256sum`), comparing the hash alone. Every one must match. A mismatch or a missing
 file means the container does not serve these files from source; stop here.
 
 **Reload probe.** Look at every process, not only process 1, which is often `tini`, `sh -c` or
@@ -596,8 +613,9 @@ One of them must be a known watcher (`nodemon`, `vite`, `next dev`, `webpack ser
 `flask --debug`, `uvicorn --reload`, `air`, `rails server` in development). If none is, stop
 here; do not stretch the list to fit.
 
-**Writing a file.** Base64-encode it locally and split the encoded text into chunks of at most
-32KB, each a multiple of 4 characters. Append each chunk to a temporary file next to the target,
+**Writing a file.** Base64-encode it locally on one line (`base64 < <file> | tr -d '\n'`: Linux's
+`base64` wraps its output every 76 characters, macOS's does not) and split the encoded text into
+chunks of at most 32KB, each a multiple of 4 characters. Append each chunk to a temporary file next to the target,
 decode it, compare its `sha256sum` with the local file, then `mv` it over the target, so the
 watcher never reloads a half-written file. A mismatch means the write failed: remove the temporary
 file and push per attempt instead.
