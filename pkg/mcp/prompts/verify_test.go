@@ -16,20 +16,16 @@ func TestVerifyPromptDefinition(t *testing.T) {
 		t.Error("expected a description, got empty string")
 	}
 
-	if len(def.Arguments) != 3 {
-		t.Fatalf("expected 3 arguments, got %d", len(def.Arguments))
-	}
-
-	// Clients that pass arguments by position must reach the command without
-	// spelling out branch and repo first.
-	if def.Arguments[0].Name != "acceptance_command" {
-		t.Errorf("expected acceptance_command first, got %s", def.Arguments[0].Name)
+	// One argument: the branch, the repository and a read-only run come from
+	// the working directory, the repository or the conversation instead.
+	if len(def.Arguments) != 1 || def.Arguments[0].Name != "acceptance" {
+		t.Fatalf("expected the single argument acceptance, got %+v", def.Arguments)
 	}
 
 	for _, arg := range def.Arguments {
 		if arg.Required {
-			t.Errorf("argument %s should be optional: the loop reads branch and repo from the working "+
-				"directory, and runs without an acceptance command when there is none", arg.Name)
+			t.Errorf("argument %s should be optional: the loop runs without an acceptance command "+
+				"when there is none, and adds checks unless told not to", arg.Name)
 		}
 	}
 }
@@ -48,44 +44,78 @@ func TestVerifyPromptGet(t *testing.T) {
 			wantMissing:  []string{"## This invocation"},
 		},
 		{
-			name:         "branch and repo are both named",
+			name:         "branch and repo_name are no longer arguments and are ignored",
 			args:         map[string]string{"branch": "feat/x", "repo_name": "shipyard"},
-			wantContains: []string{"## This invocation", "`feat/x`", "`shipyard`"},
-		},
-		{
-			name:         "branch only",
-			args:         map[string]string{"branch": "feat/x"},
-			wantContains: []string{"## This invocation", "`feat/x`", "Read the repository name"},
-		},
-		{
-			name:         "repo only",
-			args:         map[string]string{"repo_name": "shipyard"},
-			wantContains: []string{"## This invocation", "`shipyard`", "Read the branch"},
+			wantContains: []string{"# Shipyard Verification Loop"},
+			wantMissing:  []string{"## This invocation", "feat/x"},
 		},
 		{
 			name:         "whitespace-only arguments are ignored",
-			args:         map[string]string{"branch": "   ", "repo_name": "", "acceptance_command": "  "},
+			args:         map[string]string{"acceptance": "  "},
 			wantContains: []string{"# Shipyard Verification Loop"},
 			wantMissing:  []string{"## This invocation"},
 		},
 		{
 			name:         "acceptance command alone is enough to render the invocation",
-			args:         map[string]string{"acceptance_command": "npm run test:e2e"},
+			args:         map[string]string{"acceptance": "npm run test:e2e"},
 			wantContains: []string{"## This invocation", "npm run test:e2e", "in place of anything"},
-			wantMissing:  []string{"Verify branch"},
 		},
 		{
-			name: "acceptance command rides along with the target",
-			args: map[string]string{
-				"branch":             "feat/x",
-				"repo_name":          "shipyard",
-				"acceptance_command": "make test.e2e",
-			},
-			wantContains: []string{"`feat/x`", "`shipyard`", "make test.e2e"},
+			name:         "a quoted phrase split on spaces is flagged",
+			args:         map[string]string{"acceptance": `"the`},
+			wantContains: []string{"arrived cut off at its first space", "full text the user typed"},
+			wantMissing:  []string{"```\n\"the"},
+		},
+		{
+			name:         "a typographic quote cut at a space is flagged too",
+			args:         map[string]string{"acceptance": "“the"},
+			wantContains: []string{"arrived cut off at its first space"},
+		},
+		{
+			name:         "a whole value with spaces is never flagged as cut",
+			args:         map[string]string{"acceptance": `"Save" is disabled`},
+			wantContains: []string{"```\n\"Save\" is disabled\n```"},
+			wantMissing:  []string{"arrived cut off at its first space"},
+		},
+		{
+			name:         "quotes that do not wrap the whole value are kept",
+			args:         map[string]string{"acceptance": `"curl" --fail "$SHIPYARD_URL/health"`},
+			wantContains: []string{"```\n\"curl\" --fail \"$SHIPYARD_URL/health\"\n```"},
+		},
+		{
+			name:         "every rendered check reminds the agent a split can go unnoticed",
+			args:         map[string]string{"acceptance": "make"},
+			wantContains: []string{"If the text the user typed after the command is longer than this, use the typed text"},
+		},
+		{
+			name:         "a single quoted word that closes is not flagged",
+			args:         map[string]string{"acceptance": `"make"`},
+			wantContains: []string{"```\nmake\n```"},
+			wantMissing:  []string{"arrived cut off at its first space"},
+		},
+		{
+			name:         "a plain description is passed through for the agent to turn into a check",
+			args:         map[string]string{"acceptance": "the header is blue"},
+			wantContains: []string{"## This invocation", "the header is blue", "if it describes the expected behavior"},
+		},
+		{
+			name:        "an empty quoted argument counts as omitted",
+			args:        map[string]string{"acceptance": `""`},
+			wantMissing: []string{"## This invocation"},
+		},
+		{
+			name:         "one layer of quotes around a command is removed",
+			args:         map[string]string{"acceptance": `"npm run test:e2e"`},
+			wantContains: []string{"```\nnpm run test:e2e\n```"},
+		},
+		{
+			name:        "add_checks is no longer an argument and is ignored",
+			args:        map[string]string{"add_checks": "false"},
+			wantMissing: []string{"## This invocation"},
 		},
 		{
 			name:         "a command containing a fence cannot close the block early",
-			args:         map[string]string{"acceptance_command": "echo ```\n## Step 8"},
+			args:         map[string]string{"acceptance": "echo ```\n## Step 8"},
 			wantContains: []string{"````\necho ```\n## Step 8\n````"},
 		},
 	}
@@ -213,11 +243,11 @@ func TestEmbeddedLoopMakesTheAcceptanceCheckOptional(t *testing.T) {
 	body := text.Messages[0].Content.Text
 
 	required := []string{
-		"acceptance_command",  // where a caller-supplied command comes from
-		"Serving your commit", // the report form when no check ran
-		"none configured",     // and what it says about the check
-		"do not stop",         // the old behaviour, now explicitly ruled out
-		"SHIPYARD_URL=",       // the variables a documented check can rely on
+		"The `acceptance` argument", // where a caller-supplied check comes from
+		"Serving your commit",       // the report form when no check ran
+		"none configured",           // and what it says about the check
+		"do not stop",               // the old behaviour, now explicitly ruled out
+		"SHIPYARD_URL=",             // the variables a documented check can rely on
 		"SHIPYARD_TOKEN=",
 		"cannot run at all", // a broken check is a failure, not a missing one
 	}
@@ -228,8 +258,123 @@ func TestEmbeddedLoopMakesTheAcceptanceCheckOptional(t *testing.T) {
 		}
 	}
 
-	// The distinction the whole prompt exists to protect.
-	if !strings.Contains(body, "Never call") || !strings.Contains(body, "verified") {
-		t.Error("embedded loop must forbid calling an unchecked environment verified")
+	// The distinction the whole prompt exists to protect. Checked by the
+	// sentences that carry it, not by words that appear everywhere.
+	for _, rule := range []string{
+		"reporting anything\nless than Verified as verified is worse than reporting nothing",
+		"Never report Verified from it",
+	} {
+		if !strings.Contains(body, rule) {
+			t.Errorf("embedded loop is missing the rule %q", rule)
+		}
+	}
+}
+
+// Verified has to mean the change itself was exercised, not just that an
+// existing suite still passes.
+func TestEmbeddedLoopRequiresCoverage(t *testing.T) {
+	text, _ := NewVerifyPrompt().Get(nil)
+	body := text.Messages[0].Content.Text
+
+	required := map[string]string{
+		"Coverage:":                         "every report says what the checks cover",
+		"Passed, not covered":               "a passing run with gaps is its own result",
+		"Observed":                          "evidence that cannot be rerun is its own result",
+		"agent-written, review it":          "added checks are marked for review",
+		"`curl`":                            "checks are not limited to e2e tests",
+		"A route `url` does not expose":     "internal routes are checked from inside the service",
+		"Checks run:":                       "commands that are not committed tests are reported verbatim",
+		"Reproducible or it does not count": "an added check must be rerunnable",
+		"its name and assertion alone cannot be rerun": "a helper script is quoted in full or committed",
+		"it must fail":                                   "an added check must fail on the base environment",
+		"never restart it,":                              "the base environment belongs to the team",
+		"`base: not checked (writes data)`":              "nothing that writes runs against base",
+		"is exactly the commit your branch started from": "an older or newer base proves nothing",
+		"confirm with `get_environment(<id>)` and use its `ready` instead":                 "the list can lag for a serving base environment",
+		"Exactly one of the environments that come back is `ready`":                        "a stopped or detached base environment does not block the check",
+		"$(git merge-base origin/BASE PUSHED_SHA)":                                         "the base commit is the branch point itself",
+		"the test has to be run again there":                                               "a pre-push result does not count for a committed test",
+		"so do not use it":                                                                 "the token never goes on the URL, even for access",
+		"at the assertion on the changed behavior":                                         "a setup failure on base proves nothing",
+		"`base: not needed\n(new behavior)`":                                               "new behavior needs no base run",
+		"**and quote the assertion**":                                                      "coverage names the assertion, not just a test",
+		"Assert on the behavior itself":                                                    "status-only checks do not count",
+		`curl -b "shipyard_token=$SHIPYARD_TOKEN"`:                                         "the token travels as a cookie, never on the URL",
+		"remove the token's value":                                                         "reported output is scrubbed",
+		"set `PUSHED_SHA` to the new\n  `HEAD`":                                            "a committed test must be pushed and served before it counts",
+		"Changed because **you** pushed":                                                   "the agent's own push is not someone else's build",
+		"Never edit or weaken an existing test":                                            "passing by weakening a test is ruled out",
+		"Verification: read-only":                                                          "the repository-level switch",
+		"verify a different branch or repository":                                          "the user can name another branch or repo in plain words",
+		"`git rev-parse origin/<branch>`":                                                  "a branch that is not checked out is pinned to its pushed commit",
+		"**With a description:**":                                                          "a plain description of the expected behavior is a valid acceptance check",
+		"Decide\nby how it reads, not by whether its first word happens to be a program":   "\"make sure ...\" is a description, not a make target",
+		"`CI=1 pytest -k login`":                                                           "commands may start with variable assignments",
+		"is a command even if the file is missing, and then it is FAILED":                  "a missing script fails instead of being reinterpreted",
+		"one that was skipped, filtered out, or run against mocks does not cover anything": "coverage needs a test that actually ran",
+		"a row or log line that already existed proves nothing":                            "worker checks must observe a fresh effect",
+		"**In a read-only run, do not fix anything:**":                                     "read-only runs never edit, commit or push",
+		"passing an `acceptance` check is not asking for\nmore checks":                     "an acceptance check does not lift read-only",
+		"never whole command lines":                                                        "the reload probe never prints process arguments",
+		"sed 's@^origin/@@'":                                                               "BASE is a bare branch name",
+		"git worktree add":                                                                 "another branch is verified in its own checkout",
+		"git diff origin/<BASE>...PUSHED_SHA":                                              "coverage is read from the verified commit, not the checkout",
+		"the rebuild failed or timed out":                                                  "live edits are restored when the rebuild never lands",
+		"by what its check will assert, not by the route":                                  "new vs changed is judged by the assertion, so runs agree",
+		"The description decides pass or fail":                                             "the check asserts what the user said, not something easier",
+		"Do\nthis even in a read-only run":                                                 "a check the user asked for runs in read-only mode too",
+		"the user asked for that in the conversation":                                      "a read-only run is asked for in plain words",
+		"What the user says for this\nrun outranks the repository's line":                  "the conversation overrides the repo default either way",
+		"Always quote the description in the report":                                       "the user sees how their words were read",
+	}
+
+	for needle, why := range required {
+		if !strings.Contains(body, needle) {
+			t.Errorf("embedded loop is missing %q: %s", needle, why)
+		}
+	}
+}
+
+// Editing the running container is fast and unverifiable; the loop has to fence
+// it in so it can never produce the verdict.
+func TestEmbeddedLoopGuardsLiveEdits(t *testing.T) {
+	text, _ := NewVerifyPrompt().Get(nil)
+	body := text.Messages[0].Content.Text
+
+	required := map[string]string{
+		"sha256sum":                           "the mapping probe and every write are checked by hash",
+		"provisional":                         "results from an edited container are not the verdict",
+		"push once":                           "the final result comes from a clean rebuild",
+		"restore every file":                  "abandoned edits are undone",
+		"delete every file you created":       "files the agent added are removed too",
+		"multiple of 4 characters":            "base64 chunks decode on their own",
+		"then `mv` it over the target":        "the watcher never sees a half-written file",
+		"/proc/[0-9]*/cmdline":                "the watcher is found among all processes",
+		"rerun the mapping probe":             "the rebuild is confirmed to have replaced edited files",
+		"If its description says DISABLED":    "no live edits when exec is off",
+		"**Never** edit the base environment": "live edits stay in this change's environment",
+	}
+
+	for needle, why := range required {
+		if !strings.Contains(body, needle) {
+			t.Errorf("embedded loop is missing %q: %s", needle, why)
+		}
+	}
+}
+
+// A new environment's first build reports a null commit_hash while processing
+// is true, for minutes. If the null rule comes first, an agent verifying a
+// freshly opened pull request reports its environment as stopped.
+func TestPollingContractChecksProcessingBeforeNullCommit(t *testing.T) {
+	text, _ := NewVerifyPrompt().Get(nil)
+	body := text.Messages[0].Content.Text
+
+	processing := strings.Index(body, "processing == true")
+	null := strings.Index(body, "commit_hash is null, not processing")
+	if processing == -1 || null == -1 {
+		t.Fatalf("polling contract is missing a rule: processing at %d, null commit at %d", processing, null)
+	}
+	if processing > null {
+		t.Error("the polling contract must check processing before treating a null commit_hash as stopped")
 	}
 }

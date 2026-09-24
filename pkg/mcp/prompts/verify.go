@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // verifyLoop is the Shipyard verification loop an agent follows to check its own
@@ -28,26 +29,20 @@ func (p *VerifyPrompt) Definition() PromptDefinition {
 		Name: "shipyard_verify",
 		Description: "Verify a pushed change against the Shipyard preview environment for its branch: " +
 			"find the environment, wait until it serves that exact commit, reach it with the bypass " +
-			"token, run the acceptance check if there is one, and report the result.",
+			"token, run the acceptance check if there is one, check that the change itself is covered, " +
+			"and report the result.",
 		Arguments: []PromptArgument{
-			// First, because clients that pass prompt arguments by position would
-			// otherwise make callers spell out branch and repo just to reach it.
+			// The only argument. The branch, the repository and a read-only run
+			// all come from the working directory, the repository's docs, or what
+			// the user says in the conversation. More arguments would only add
+			// positions to fill for clients that pass arguments by position.
 			{
-				Name: "acceptance_command",
-				Description: "Command that decides pass or fail, run against the environment URL. " +
-					"Defaults to whatever the repository documents. Omit it and document nothing to " +
-					"confirm the environment is serving the commit without running any check.",
+				Name: "acceptance",
+				Description: "What decides pass or fail: a command to run against the environment URL " +
+					"('npm run test:e2e'), or a plain description of the expected behavior ('the header " +
+					"is blue', 'GET /api/widgets returns count as a number') that the assistant turns into " +
+					"a check. Defaults to whatever the repository documents.",
 				Required: false,
-			},
-			{
-				Name:        "branch",
-				Description: "Branch to verify. Defaults to the current branch when omitted.",
-				Required:    false,
-			},
-			{
-				Name:        "repo_name",
-				Description: "Repository as Shipyard knows it. Defaults to the current repository when omitted.",
-				Required:    false,
 			},
 		},
 	}
@@ -59,9 +54,8 @@ func (p *VerifyPrompt) Get(args map[string]string) (GetResult, error) {
 	// description are already in the definition.
 	text := stripFrontmatter(verifyLoop)
 
-	// Arguments are optional: the loop tells the agent to read branch and repo
-	// from the working directory. When the caller supplies them, say so, so the
-	// agent does not re-derive them and quietly verify a different branch.
+	// Arguments are optional. When the caller supplies one, append it, so the
+	// agent acts on this run's choice rather than the repository's default.
 	if known := knownTarget(args); known != "" {
 		text = strings.TrimRight(text, "\n") + "\n\n## This invocation\n\n" + known + "\n"
 	}
@@ -90,35 +84,89 @@ func stripFrontmatter(doc string) string {
 	return strings.TrimLeft(rest[end+len(fence)+2:], "\n")
 }
 
-// knownTarget renders whichever of branch/repo_name/acceptance_command the
-// caller supplied.
+// knownTarget renders the acceptance argument, if the caller supplied one.
 func knownTarget(args map[string]string) string {
-	branch := strings.TrimSpace(args["branch"])
-	repo := strings.TrimSpace(args["repo_name"])
-	command := strings.TrimSpace(args["acceptance_command"])
-
-	var lines []string
-
-	switch {
-	case branch != "" && repo != "":
-		lines = append(lines, fmt.Sprintf("Verify branch `%s` of repository `%s`. Use these instead of "+
-			"reading them from the working directory.", branch, repo))
-	case branch != "":
-		lines = append(lines, fmt.Sprintf("Verify branch `%s`. Read the repository name from the working directory.", branch))
-	case repo != "":
-		lines = append(lines, fmt.Sprintf("Verify repository `%s`. Read the branch from the working directory.", repo))
+	// Claude Code splits prompt arguments on every space, quotes or not, so a
+	// quoted multi-word check arrives as its first word with an opening quote
+	// and nothing closing it; the rest of the words are dropped. The agent can
+	// still see what the user typed, so point it there.
+	if cutAtSpace(args["acceptance"]) {
+		return "The `acceptance` argument arrived cut off at its first space: this client splits " +
+			"prompt arguments on spaces, even inside quotes. Take the acceptance check from the full " +
+			"text the user typed after the command, between the quotes, and use it in Step 5a in place " +
+			"of anything the repository documents."
 	}
 
-	// A command passed here outranks whatever the repository documents: the
+	acceptance := argValue(args["acceptance"])
+	if acceptance == "" {
+		return ""
+	}
+
+	// A split can also go unnoticed: an unquoted `make e2e` arrives as `make`,
+	// which is a valid command on its own and would run the wrong target. The
+	// typed text, when the agent can see it, settles which one was meant.
+
+	// What is passed here outranks whatever the repository documents: the
 	// caller is looking at this run, the documentation was written for the
-	// general case.
-	if command != "" {
-		fence := codeFence(command)
-		lines = append(lines, fmt.Sprintf("Run this as the acceptance check in Step 5, in place of anything "+
-			"the repository documents:\n\n%s\n%s\n%s", fence, command, fence))
+	// general case. Whether it is a command or a description is the agent's
+	// call (Step 5a): only it can see what is on its PATH and in the repo.
+	fence := codeFence(acceptance)
+
+	return fmt.Sprintf("Use this as the acceptance check in Step 5a, in place of anything the repository "+
+		"documents. Run it if it is a command; if it describes the expected behavior, write a check that "+
+		"asserts exactly that:\n\n%s\n%s\n%s\n\nSome clients split prompt arguments on spaces. If the text "+
+		"the user typed after the command is longer than this, use the typed text instead.",
+		fence, acceptance, fence)
+}
+
+// quotePairs maps each opening quote to the one that closes it, straight and
+// typographic: phones and some editors turn "the" into “the”.
+var quotePairs = map[rune]rune{'"': '"', '\'': '\'', '“': '”', '‘': '’'}
+
+// cutAtSpace reports whether an argument is the first word of a quoted phrase a
+// client split on spaces: it opens with a quote, never closes it, and holds no
+// space itself. A value with a space arrived whole, whatever its quotes.
+func cutAtSpace(raw string) bool {
+	v := strings.TrimSpace(raw)
+	if v == "" || strings.ContainsAny(v, " \t\n") {
+		return false
 	}
 
-	return strings.Join(lines, "\n\n")
+	first, size := utf8.DecodeRuneInString(v)
+	closing, ok := quotePairs[first]
+	if !ok {
+		return false
+	}
+
+	last, _ := utf8.DecodeLastRuneInString(v)
+
+	return len(v) == size || last != closing
+}
+
+// argValue trims an argument and removes one layer of matching quotes. Clients
+// that pass prompt arguments by position hand quotes through literally: in
+// Claude Code, `"make"` arrives with the quotes, and `""` as two characters
+// the agent would otherwise try to run.
+//
+// The quotes are removed only when they wrap the whole value: in
+// `"curl" --fail "$URL"` the first and last characters are quotes, but they
+// belong to different words, and stripping them would change the command.
+func argValue(raw string) string {
+	v := strings.TrimSpace(raw)
+
+	first, size := utf8.DecodeRuneInString(v)
+	closing, ok := quotePairs[first]
+	if !ok || len(v) < 2 {
+		return v
+	}
+
+	last, lastSize := utf8.DecodeLastRuneInString(v)
+	inner := v[size : len(v)-lastSize]
+	if last != closing || len(v) < size+lastSize || strings.ContainsRune(inner, closing) {
+		return v
+	}
+
+	return strings.TrimSpace(inner)
 }
 
 // codeFence returns a backtick fence longer than any backtick run in s, so a
