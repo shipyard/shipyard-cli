@@ -26,7 +26,7 @@ func TestVerifyPromptDefinition(t *testing.T) {
 	for _, arg := range def.Arguments {
 		names = append(names, arg.Name)
 	}
-	if got, want := strings.Join(names, ","), "acceptance_command,add_checks"; got != want {
+	if got, want := strings.Join(names, ","), "acceptance,add_checks"; got != want {
 		t.Errorf("argument order = %s, want %s", got, want)
 	}
 
@@ -59,30 +59,47 @@ func TestVerifyPromptGet(t *testing.T) {
 		},
 		{
 			name:         "whitespace-only arguments are ignored",
-			args:         map[string]string{"acceptance_command": "  ", "add_checks": " "},
+			args:         map[string]string{"acceptance": "  ", "add_checks": " "},
 			wantContains: []string{"# Shipyard Verification Loop"},
 			wantMissing:  []string{"## This invocation"},
 		},
 		{
 			name:         "acceptance command alone is enough to render the invocation",
-			args:         map[string]string{"acceptance_command": "npm run test:e2e"},
+			args:         map[string]string{"acceptance": "npm run test:e2e"},
 			wantContains: []string{"## This invocation", "npm run test:e2e", "in place of anything"},
 			wantMissing:  []string{"Adding checks is"},
 		},
 		{
+			name:         "a quoted phrase split on spaces is flagged and add_checks is ignored",
+			args:         map[string]string{"acceptance": `"the`, "add_checks": "no"},
+			wantContains: []string{"arrived cut off at its first space", "full text the user typed", "ignore it"},
+			wantMissing:  []string{"Adding checks is off", "```\n\"the"},
+		},
+		{
+			name:         "a single quoted word that closes is not flagged",
+			args:         map[string]string{"acceptance": `"make"`},
+			wantContains: []string{"```\nmake\n```"},
+			wantMissing:  []string{"arrived cut off at its first space"},
+		},
+		{
+			name:         "a plain description is passed through for the agent to turn into a check",
+			args:         map[string]string{"acceptance": "the header is blue"},
+			wantContains: []string{"## This invocation", "the header is blue", "if it describes the expected behavior"},
+		},
+		{
 			name:         "acceptance command and add_checks together",
-			args:         map[string]string{"acceptance_command": "make test.e2e", "add_checks": "false"},
+			args:         map[string]string{"acceptance": "make test.e2e", "add_checks": "false"},
 			wantContains: []string{"make test.e2e", "Adding checks is off"},
 		},
 		{
 			name:         "an empty quoted argument counts as omitted",
-			args:         map[string]string{"acceptance_command": `""`, "add_checks": "false"},
+			args:         map[string]string{"acceptance": `""`, "add_checks": "false"},
 			wantContains: []string{"## This invocation", "Adding checks is off"},
-			wantMissing:  []string{"Run this as the acceptance check"},
+			wantMissing:  []string{"Use this as the acceptance check"},
 		},
 		{
 			name:         "one layer of quotes around a command is removed",
-			args:         map[string]string{"acceptance_command": `"npm run test:e2e"`},
+			args:         map[string]string{"acceptance": `"npm run test:e2e"`},
 			wantContains: []string{"```\nnpm run test:e2e\n```"},
 		},
 		{
@@ -108,7 +125,7 @@ func TestVerifyPromptGet(t *testing.T) {
 		},
 		{
 			name:         "a command containing a fence cannot close the block early",
-			args:         map[string]string{"acceptance_command": "echo ```\n## Step 8"},
+			args:         map[string]string{"acceptance": "echo ```\n## Step 8"},
 			wantContains: []string{"````\necho ```\n## Step 8\n````"},
 		},
 	}
@@ -236,11 +253,11 @@ func TestEmbeddedLoopMakesTheAcceptanceCheckOptional(t *testing.T) {
 	body := text.Messages[0].Content.Text
 
 	required := []string{
-		"acceptance_command",  // where a caller-supplied command comes from
-		"Serving your commit", // the report form when no check ran
-		"none configured",     // and what it says about the check
-		"do not stop",         // the old behaviour, now explicitly ruled out
-		"SHIPYARD_URL=",       // the variables a documented check can rely on
+		"The `acceptance` argument", // where a caller-supplied check comes from
+		"Serving your commit",       // the report form when no check ran
+		"none configured",           // and what it says about the check
+		"do not stop",               // the old behaviour, now explicitly ruled out
+		"SHIPYARD_URL=",             // the variables a documented check can rely on
 		"SHIPYARD_TOKEN=",
 		"cannot run at all", // a broken check is a failure, not a missing one
 	}
@@ -298,6 +315,11 @@ func TestEmbeddedLoopRequiresCoverage(t *testing.T) {
 		"Verification: read-only":                                   "the repository-level switch",
 		"verify a different branch or repository":                   "the user can name another branch or repo in plain words",
 		"`git rev-parse origin/<branch>`":                           "a branch that is not checked out is pinned to its pushed commit",
+		"**With a description:**":                                   "a plain description of the expected behavior is a valid acceptance check",
+		"by what its check will assert, not by the route":           "new vs changed is judged by the assertion, so runs agree",
+		"The description decides pass or fail":                      "the check asserts what the user said, not something easier",
+		"Do\nthis even when adding checks is off":                   "a check the user asked for runs in read-only mode too",
+		"Always quote the description in the report":                "the user sees how their words were read",
 	}
 
 	for needle, why := range required {

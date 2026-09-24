@@ -36,10 +36,11 @@ func (p *VerifyPrompt) Definition() PromptDefinition {
 			// or from what the user says in the conversation, so they are not
 			// arguments: each one would push add_checks a position further back.
 			{
-				Name: "acceptance_command",
-				Description: "Command that decides pass or fail, run against the environment URL. " +
-					"Defaults to whatever the repository documents. Omit it and document nothing to " +
-					"confirm the environment is serving the commit without running any check.",
+				Name: "acceptance",
+				Description: "What decides pass or fail: a command to run against the environment URL " +
+					"('npm run test:e2e'), or a plain description of the expected behavior ('the header " +
+					"is blue', 'GET /api/widgets returns count as a number') that the assistant turns into " +
+					"a check. Defaults to whatever the repository documents.",
 				Required: false,
 			},
 			{
@@ -90,20 +91,34 @@ func stripFrontmatter(doc string) string {
 	return strings.TrimLeft(rest[end+len(fence)+2:], "\n")
 }
 
-// knownTarget renders whichever of acceptance_command/add_checks the caller
-// supplied.
+// knownTarget renders whichever of acceptance/add_checks the caller supplied.
 func knownTarget(args map[string]string) string {
-	command := argValue(args["acceptance_command"])
+	// Claude Code splits prompt arguments on every space, quotes or not, so a
+	// quoted multi-word check arrives as its first word with an opening quote
+	// and nothing closing it. The rest of the words are gone from the
+	// arguments, and add_checks holds the second one. The agent can still see
+	// what the user typed, so point it there and leave add_checks alone.
+	if cutAtSpace(args["acceptance"]) {
+		return "The `acceptance` argument arrived cut off at its first space: this client splits " +
+			"prompt arguments on spaces, even inside quotes. Take the acceptance check from the full " +
+			"text the user typed after the command, between the quotes, and use it in Step 5a in place " +
+			"of anything the repository documents. The `add_checks` argument holds a word of that text, " +
+			"so ignore it; only a separate `true` or `false` typed after the closing quote sets it."
+	}
+
+	acceptance := argValue(args["acceptance"])
 
 	var lines []string
 
-	// A command passed here outranks whatever the repository documents: the
+	// What is passed here outranks whatever the repository documents: the
 	// caller is looking at this run, the documentation was written for the
-	// general case.
-	if command != "" {
-		fence := codeFence(command)
-		lines = append(lines, fmt.Sprintf("Run this as the acceptance check in Step 5, in place of anything "+
-			"the repository documents:\n\n%s\n%s\n%s", fence, command, fence))
+	// general case. Whether it is a command or a description is the agent's
+	// call (Step 5a): only it can see what is on its PATH and in the repo.
+	if acceptance != "" {
+		fence := codeFence(acceptance)
+		lines = append(lines, fmt.Sprintf("Use this as the acceptance check in Step 5a, in place of anything "+
+			"the repository documents. Run it if it is a command; if it describes the expected behavior, "+
+			"write a check that asserts exactly that:\n\n%s\n%s\n%s", fence, acceptance, fence))
 	}
 
 	if line := addChecksLine(argValue(args["add_checks"])); line != "" {
@@ -113,11 +128,22 @@ func knownTarget(args map[string]string) string {
 	return strings.Join(lines, "\n\n")
 }
 
+// cutAtSpace reports whether an argument opens with a quote that never closes:
+// the first word of a quoted phrase a client split on spaces.
+func cutAtSpace(raw string) bool {
+	v := strings.TrimSpace(raw)
+	if v == "" || (v[0] != '"' && v[0] != '\'') {
+		return false
+	}
+
+	return len(v) == 1 || v[len(v)-1] != v[0]
+}
+
 // argValue trims an argument and removes one layer of matching quotes. Clients
 // that pass prompt arguments by position hand quotes through literally: in
-// Claude Code, `"" false` arrives with acceptance_command set to the two
-// characters "", which the agent would then try to run. Skipping
-// acceptance_command to reach add_checks needs exactly that.
+// Claude Code, `"" false` arrives with acceptance set to the two characters
+// "", which the agent would then try to run. Skipping acceptance to reach
+// add_checks needs exactly that.
 func argValue(raw string) string {
 	v := strings.TrimSpace(raw)
 	if len(v) >= 2 {
@@ -129,7 +155,7 @@ func argValue(raw string) string {
 	return v
 }
 
-// addChecksLine renders the add_checks argument. Like acceptance_command, a
+// addChecksLine renders the add_checks argument. Like acceptance, a
 // value passed for this run outranks what the repository documents. A value
 // that is neither true nor false is not echoed back: it is caller input headed
 // for a model's instructions, and saying it was ignored is enough.

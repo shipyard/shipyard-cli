@@ -483,8 +483,8 @@ env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-nam
 
 Clients that support prompts show it as a slash command, for example
 `/mcp__shipyard__shipyard_verify` in Claude Code. It takes two optional
-arguments, in this order: `acceptance_command`, the check to run against the
-environment, and `add_checks` (see
+arguments, in this order: `acceptance`, the check that decides pass or fail,
+and `add_checks` (see
 [Checking the change itself](#checking-the-change-itself)). The branch and
 repository come from the working directory; to verify another one, say so in
 the conversation ("verify branch `fix-login` of `web`").
@@ -492,18 +492,33 @@ the conversation ("verify branch `fix-login` of `web`").
 #### The acceptance check
 
 The prompt confirms the environment is serving your exact commit, then runs the
-check that decides whether the change actually works. It never invents that
-check. It looks for one in two places:
+check that decides whether the change actually works. The check can be a
+command, or a plain description of what should happen, which the agent turns
+into a check (a `curl` request, an e2e test, a query in the service) and runs.
+The report quotes your description next to the check it became. The prompt
+looks for a check in two places:
 
-1. The `acceptance_command` argument, for a single run. Quote it when it has
-   spaces:
+1. The `acceptance` argument, for a single run. Always wrap it in quotes when it
+   has spaces. Claude Code splits prompt arguments on every space, even inside
+   quotes. An opening quote with no closing one tells the prompt the argument
+   was cut, and the agent takes the full text you typed instead:
 
    ```
    /mcp__shipyard__shipyard_verify "npm run test:e2e"
+   /mcp__shipyard__shipyard_verify "GET /api/widgets returns count as a number"
+   /mcp__shipyard__shipyard_verify "the signup button is blue"
    ```
 
-2. Whatever the repository documents, for every run. Put the command somewhere
-   the agent already reads, such as `CLAUDE.md` or `AGENTS.md`:
+   The agent treats it as a command when its first word is a program on the
+   `PATH` or a script in the repository, and as a description otherwise. A
+   description is checked even in a read-only run, because you asked for it;
+   one that can't be captured as a command ("the page feels faster") is
+   reported as Observed, not Verified. To combine a multi-word check with
+   `add_checks`, type the flag after the closing quote:
+   `/mcp__shipyard__shipyard_verify "make e2e" false`.
+
+2. Whatever the repository documents, for every run. Put it somewhere the agent
+   already reads, such as `CLAUDE.md` or `AGENTS.md`:
 
    ```markdown
    ## Verifying against Shipyard
@@ -539,8 +554,9 @@ works, because a new feature usually has no test yet. So the prompt also:
    fail on the base branch's environment, at its assertion. The base environment
    is used only if it's ready and its commit predates the change, only with
    checks that don't write, and is never restarted or edited. A brand-new feature
-   skips this: base can't have it, so the check's quoted assertion on the new
-   behavior is the proof instead.
+   skips this, and so does a new field or header on an existing route: base
+   can't have it, so the check's quoted assertion on the new behavior is the
+   proof instead.
 
 The result is one of:
 
@@ -561,7 +577,7 @@ Verification: read-only
 
 or pass `add_checks` as `false` for one run
 (`/mcp__shipyard__shipyard_verify "" false`, where `""` skips the acceptance
-command). `true` turns added checks and container edits back on for one run
+check). `true` turns added checks and container edits back on for one run
 in a read-only repository.
 
 #### Fixing without a rebuild per attempt

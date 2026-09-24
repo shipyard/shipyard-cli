@@ -145,14 +145,21 @@ Two things to know:
 
 ### 5a — Run the acceptance check, if there is one
 
-Take the command from the first of these that has one:
+Take the acceptance check from the first of these that has one:
 
-1. The `acceptance_command` argument, when this prompt was invoked with it. It appears under
-   "This invocation" at the end of these instructions.
+1. The `acceptance` argument, when this prompt was invoked with it. It appears under
+   "This invocation" at the end of these instructions. If it looks cut off (a quote that opens
+   and never closes, or a sentence that stops mid-way), take it from the full text the user
+   typed with the command instead.
 2. Whatever the repository documents in `CLAUDE.md`, `AGENTS.md` or a README section. Prefer a
    line labelled `Acceptance check:`. It only counts if it exercises the running environment:
    a unit-test command that never touches `url` is not an acceptance check.
 3. Nothing. That is a valid answer; see below.
+
+An acceptance check is either a **command** or a **description** of the expected behavior. It is
+a command when its first word is a program on your `PATH` or a script in the repository
+(`npm run test:e2e`, `make e2e`, `./scripts/check.sh`); anything else is a description ("the
+header is blue", "`GET /api/widgets` returns `count` as a number").
 
 **With a command:** run it with the environment in two variables, set only for that command:
 
@@ -164,6 +171,15 @@ The command decides pass or fail, not you. "The page returned 200" is not verifi
 that cannot run at all (not found, or it crashes before reaching `url`) is a **FAILED** result with
 that error, never a reason to fall back to the Serving report below.
 
+**With a description:** write a check that asserts exactly what it says, with the rules and tools
+of 5c (reproducible, asserting on the behavior itself, token kept out of the report), and run it.
+The description decides pass or fail: check the stated result, not something easier nearby. Do
+this even when adding checks is off, because the user asked for this check; in that case run it
+and quote it, but do not commit a test for it. A description about a fix or changed behavior also
+needs the base check in 5d. If it cannot be captured as a command (for example "the page feels
+faster"), what you saw is **Observed**, never Verified. Always quote the description in the report
+next to the check it became, so the user can see how you read it.
+
 **Without one:** do not invent a replacement suite, do not stop, and do not ask the user to
 configure one mid-run. Go on to 5b: the change can still be checked directly.
 
@@ -171,8 +187,13 @@ configure one mid-run. Go on to 5b: the change can still be checked directly.
 
 A passing suite proves nothing regressed. It does not prove the new behavior works, because a new
 feature usually has no test yet. Read `git diff BASE...HEAD` and list the behavior it changes.
-Mark each item **new** (it did not exist on `BASE`: a new endpoint, page, field or command) or
-**changed** (it existed and now behaves differently: a bug fix, a changed response, changed UI).
+Mark each item **new** or **changed** by what its check will assert, not by the route or page it
+lives on:
+
+- **new** — the asserted thing is absent on `BASE`: a new endpoint, page, command, field, header or
+  element, even when it is added to a route that already exists.
+- **changed** — the asserted thing exists on `BASE` with a different value or behavior: a bug fix,
+  changed text, a changed status code, a changed default.
 For each item, name the test in the acceptance check that exercises it **and quote the assertion**
 that checks the behavior.
 
@@ -280,7 +301,7 @@ added is reproducible, and every one for a changed behavior failed on base:
 Verified on Shipyard.
   Environment: <url>
   Commit:      <PUSHED_SHA>  (confirmed serving before and after the run)
-  Check:       <acceptance command, or none configured>
+  Check:       <acceptance command, or "<description>" → the check it became, or none configured>
   Result:      PASS
   Coverage:    full — <named tests and checks>
   Checks run:  <verbatim commands, expected and actual output>
@@ -316,7 +337,7 @@ reproducible command, such as a UI with no e2e framework:
 Observed on Shipyard. No reproducible check covers this, so it is not verified.
   Environment: <url>
   Commit:      <PUSHED_SHA>
-  Check:       none configured
+  Check:       none configured, or "<description>" that could not be captured as a command
   Observed:    <what you looked at and what you saw>
 ```
 
@@ -331,7 +352,8 @@ Serving your commit on Shipyard. No acceptance check ran, so this is not verifie
 ```
 
 After Serving or Passed, not covered, add one line, once, so the user knows the options: a check
-can be passed as `acceptance_command` when invoking this prompt, or documented in `CLAUDE.md` or
+can be passed as `acceptance` when invoking this prompt, as a command or a plain description of
+the expected behavior, or documented in `CLAUDE.md` or
 `AGENTS.md`.
 
 Omit any line you do not have, except `Check:` and `Coverage:` in every form and `Result:` on
