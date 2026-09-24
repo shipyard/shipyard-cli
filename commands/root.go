@@ -79,6 +79,7 @@ func setupCommands() {
 	mcpRequester := requests.NewWithUserAgent("mcp")
 	mcpClient := client.New(mcpRequester, orgLookupFn)
 	rootCmd.AddCommand(NewLoginCmd())
+	rootCmd.AddCommand(NewAPICmd(c))
 	rootCmd.AddCommand(NewGetCmd(c))
 	rootCmd.AddCommand(NewSetCmd())
 	rootCmd.AddCommand(NewUpdateCmd())
