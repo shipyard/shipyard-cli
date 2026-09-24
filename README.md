@@ -490,8 +490,8 @@ conversation: to verify another branch, say so ("verify branch `fix-login` of
 [Checking the change itself](#checking-the-change-itself)).
 
 If the environment of the branch you have checked out is stopped, the agent
-starts it once (a restart, or a rebuild if the restart is refused; a revive if
-it was retired) and says so in the report. It never starts any other
+starts it once (a restart, or a rebuild if the restart is refused and no
+build started) and says so in the report. It never starts any other
 environment, including the base branch's or one for a branch you named: it
 reports that it is stopped and leaves the decision to you.
 

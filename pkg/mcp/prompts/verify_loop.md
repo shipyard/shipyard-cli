@@ -210,24 +210,26 @@ processing, means no build is running and none is coming, so polling alone will 
 
 - **This change's own environment**: the one Step 2 found for this repo and `BRANCH`, where
   `BRANCH` is the branch checked out here, not one the user named in Step 1, and is not `BASE`.
-  Start it, **once per run**:
-  - `stopped` → call `restart_environment`. If its result starts with `Cannot restart` (live runs
-    show a stopped environment refused as not paused), call `get_environments` once: if a build is
-    now processing, go back to polling; otherwise call `rebuild_environment` once.
-  - `retired` → call `revive_environment`. If its result starts with `Cannot revive`, report that
-    the environment is retired.
+  Start it, **once per run**, with `restart_environment`, whether it is `stopped`, `retired` or
+  both. `retired` does not mean deleted: `revive_environment` refuses it, and a deleted environment
+  does not appear in `get_environments` at all. If the result starts with `Cannot restart` (live
+  runs show both a refusal as not paused and a timeout that still started the build), call
+  `get_environments` once: if a build is now processing, go back to polling; otherwise call
+  `rebuild_environment` once.
 
   Say in the final report that you started it, and go back to polling: the start is a new build,
   with the usual 20 minutes. A start is only queued, so the next polls can still show `stopped`:
   treat that as starting, not stopped, until `processing` or `ready` has turned true, for at most
-  5 minutes; if neither has by then, report it as stopped. A read-only run may start it, since
+  5 minutes; if neither has by then, report `Not verified: the environment is stopped`. A read-only run may start it, since
   starting it changes no code. Skip the start if the user said not to restart, start or touch the
-  environment (including "don't touch anything"), and then report that it is stopped.
+  environment (including "don't touch anything"), and then report `Not verified: the environment
+  is stopped`.
 - **Any other environment** (the base branch's, a branch the user named, another pull request's):
-  never start it. It may belong to someone else and spends their build capacity. Report that it is
-  stopped and that `restart_environment` would start it; the user decides.
+  never start it. It may belong to someone else and spends their build capacity. Report
+  `Not verified: the environment is stopped`, and that `restart_environment` would start it; the
+  user decides.
 - If it stops again after `processing` or `ready` has turned true, do not start it a second time:
-  report it as stopped.
+  report `Not verified: the environment is stopped`.
 
 - **Never poll faster than 5 seconds.**
 - **Never call `rebuild_environment` while waiting.** A build is already running; rebuilding
@@ -617,6 +619,9 @@ ran.
 
 **Not verified: awaiting plan approval** means no one was there to approve the plan in a run
 without auto-approve, and nothing ran.
+
+**Not verified: the environment is stopped** means the environment was not running and this run
+could not start it (another branch's, the user said not to, or it stopped again), and nothing ran.
 
 **Not verified: the branch moved** means someone else pushed to the branch mid-run, so the result
 describes a commit that will not be served again.
