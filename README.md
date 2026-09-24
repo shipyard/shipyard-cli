@@ -460,7 +460,7 @@ project, and add:
 
 Drop the `env` block if the CLI is already configured: the server reads the same
 `~/.shipyard/config.yaml` the CLI does. Reload the window, then check
-Settings → MCP, where Shipyard should list its tools and the `shipyard_verify`
+Settings → MCP, where Shipyard should list its tools and the `verify`
 prompt. `shipyard` has to be on the `PATH` Cursor itself sees; if it is not, use
 its absolute path (`which shipyard`) as `command`.
 
@@ -477,12 +477,12 @@ env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-nam
 
 ### Prompts
 
-- `shipyard_verify` - Verify a pushed change against its Shipyard environment:
+- `verify` - Verify a pushed change against its Shipyard environment:
   wait for the build of the pushed SHA, then check the running environment
   before reporting the change as working.
 
 Clients that support prompts show it as a slash command, for example
-`/mcp__shipyard__shipyard_verify` in Claude Code. It takes one optional
+`/mcp__shipyard__verify` in Claude Code. It takes one optional
 argument, `acceptance`: the check that decides pass or fail. Everything else
 comes from the working directory, the repository, or what you say in the
 conversation: to verify another branch, say so ("verify branch `fix-login` of
@@ -504,9 +504,9 @@ looks for a check in two places:
    was cut, and the agent takes the full text you typed instead:
 
    ```
-   /mcp__shipyard__shipyard_verify "npm run test:e2e"
-   /mcp__shipyard__shipyard_verify "GET /api/widgets returns count as a number"
-   /mcp__shipyard__shipyard_verify "the signup button is blue"
+   /mcp__shipyard__verify "npm run test:e2e"
+   /mcp__shipyard__verify "GET /api/widgets returns count as a number"
+   /mcp__shipyard__verify "the signup button is blue"
    ```
 
    The agent treats it as a command when it reads as shell (a program or

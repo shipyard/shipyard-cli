@@ -8,8 +8,8 @@ import (
 func TestVerifyPromptDefinition(t *testing.T) {
 	def := NewVerifyPrompt().Definition()
 
-	if def.Name != "shipyard_verify" {
-		t.Errorf("expected name shipyard_verify, got %s", def.Name)
+	if def.Name != "verify" {
+		t.Errorf("expected name verify, got %s", def.Name)
 	}
 
 	if def.Description == "" {

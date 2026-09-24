@@ -32,7 +32,7 @@ serving only, or failed.
 
 ## Notes
 
-- The `shipyard_verify` prompt carries the full loop, including preflight and failure handling.
+- The `verify` prompt carries the full loop, including preflight and failure handling.
 - `get_orgs` takes no arguments and does not depend on any environment existing, which makes it
   the right probe when you need to tell a broken setup from an environment that does not exist yet.
 - Never print a `bypass_token`, or paste it into chat, a commit, or a pull request comment.

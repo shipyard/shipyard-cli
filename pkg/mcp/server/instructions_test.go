@@ -17,12 +17,12 @@ func TestInstructionsNotEmpty(t *testing.T) {
 }
 
 // The instructions land in every session for every client that surfaces them, so
-// they must stay a summary. The full loop lives in the shipyard_verify prompt.
+// they must stay a summary. The full loop lives in the verify prompt.
 func TestInstructionsStaySmall(t *testing.T) {
 	const budget = 2500
 
 	if size := len(Instructions()); size > budget {
-		t.Errorf("instructions are %d chars, over the %d budget: move detail into the shipyard_verify prompt", size, budget)
+		t.Errorf("instructions are %d chars, over the %d budget: move detail into the verify prompt", size, budget)
 	}
 }
 
@@ -39,7 +39,7 @@ func TestInstructionsCoverTheTraps(t *testing.T) {
 		"rebuild_environment": "never rebuild while a build is in flight",
 		"bypass_token":        "how to reach the environment",
 		"repo_name":           "match the right project in a multi-repo environment",
-		"shipyard_verify":     "where the full loop lives",
+		"The `verify` prompt": "where the full loop lives",
 	}
 
 	for needle, why := range traps {

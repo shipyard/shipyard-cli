@@ -26,7 +26,7 @@ func NewVerifyPrompt() *VerifyPrompt {
 
 func (p *VerifyPrompt) Definition() PromptDefinition {
 	return PromptDefinition{
-		Name: "shipyard_verify",
+		Name: "verify",
 		Description: "Verify a pushed change against the Shipyard preview environment for its branch: " +
 			"find the environment, wait until it serves that exact commit, reach it with the bypass " +
 			"token, propose a test plan covering the change and its blast radius for the user to approve, " +
