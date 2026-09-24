@@ -194,9 +194,17 @@ Loop:
 ```
 
 **Stopped environments.** `stopped` or `retired` true, or a null `commit_hash` while nothing is
-processing, means no build is running and none is coming. Polling will never succeed. Stop and tell the user the environment is
-stopped, and that restarting it (`restart_environment` / `revive_environment`) will start a build.
-**Do not restart it yourself** — that spends build capacity on someone else's environment.
+processing, means no build is running and none is coming, so polling alone will never succeed.
+
+- **This change's own environment** (the one Step 2 found for `BRANCH` and this repo): start it.
+  Call `restart_environment`; if that is refused because the environment is not paused, call
+  `rebuild_environment` once instead. Do this **once per run**, say in the final report that you
+  started it, and go back to polling: the start is a new build, with the usual 20 minutes. A
+  read-only run may start it, since starting it changes no code; skip it only if the user said not
+  to restart or touch the environment, and then report that it is stopped.
+- **Any other environment** (the base branch's, another pull request's): never start it. It
+  belongs to someone else and spends their build capacity.
+- If it stops again after you started it, do not start it a second time: report it as stopped.
 
 - **Never poll faster than 5 seconds.**
 - **Never call `rebuild_environment` while waiting.** A build is already running; rebuilding
@@ -558,7 +566,7 @@ file and push per attempt instead.
 | Matching commit but the app 404s or redirects to a login | Shipyard's gate is passed; this is the app's own auth or routing | The acceptance command must handle app login |
 | Multi-repo environment, wrong code tested | Matched the wrong `projects[]` entry | Always filter by `repo_name` before reading `commit_hash` |
 | Build failed instead of completing | Real build failure | Read build logs, fix the cause, push; do not rebuild unchanged code |
-| Polling never finishes, flags look inert | `stopped` or `retired` is true, or `commit_hash` is null and nothing is processing | The environment is not running. Tell the user; do not restart it yourself |
+| Polling never finishes, flags look inert | `stopped` or `retired` is true, or `commit_hash` is null and nothing is processing | The environment is not running. Start this change's own environment once ("Stopped environments" in Step 3); never another's |
 | 302 to `/oauth2/sign_in` | The bypass token was not sent, or was sent on the wrong host | Send it as the `shipyard_token` cookie on the environment's own host |
 
 ## What counts as done

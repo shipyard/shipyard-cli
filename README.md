@@ -489,6 +489,10 @@ conversation: to verify another branch, say so ("verify branch `fix-login` of
 `web`"), and the same goes for a read-only run (see
 [Checking the change itself](#checking-the-change-itself)).
 
+If your branch's environment is stopped, the agent starts it once (a restart,
+or a rebuild if the restart is refused) and says so in the report. It never
+starts anyone else's environment, including the base branch's.
+
 #### The acceptance check
 
 The prompt confirms the environment is serving your exact commit, then runs the
