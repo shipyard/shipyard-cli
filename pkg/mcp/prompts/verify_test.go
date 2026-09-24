@@ -16,18 +16,10 @@ func TestVerifyPromptDefinition(t *testing.T) {
 		t.Error("expected a description, got empty string")
 	}
 
-	if len(def.Arguments) != 2 {
-		t.Fatalf("expected 2 arguments, got %d", len(def.Arguments))
-	}
-
-	// Clients that pass arguments by position fill them in this order, so the
-	// command comes first and add_checks is one position behind it.
-	var names []string
-	for _, arg := range def.Arguments {
-		names = append(names, arg.Name)
-	}
-	if got, want := strings.Join(names, ","), "acceptance,add_checks"; got != want {
-		t.Errorf("argument order = %s, want %s", got, want)
+	// One argument: the branch, the repository and a read-only run come from
+	// the working directory, the repository or the conversation instead.
+	if len(def.Arguments) != 1 || def.Arguments[0].Name != "acceptance" {
+		t.Fatalf("expected the single argument acceptance, got %+v", def.Arguments)
 	}
 
 	for _, arg := range def.Arguments {
@@ -59,7 +51,7 @@ func TestVerifyPromptGet(t *testing.T) {
 		},
 		{
 			name:         "whitespace-only arguments are ignored",
-			args:         map[string]string{"acceptance": "  ", "add_checks": " "},
+			args:         map[string]string{"acceptance": "  "},
 			wantContains: []string{"# Shipyard Verification Loop"},
 			wantMissing:  []string{"## This invocation"},
 		},
@@ -67,13 +59,12 @@ func TestVerifyPromptGet(t *testing.T) {
 			name:         "acceptance command alone is enough to render the invocation",
 			args:         map[string]string{"acceptance": "npm run test:e2e"},
 			wantContains: []string{"## This invocation", "npm run test:e2e", "in place of anything"},
-			wantMissing:  []string{"Adding checks is"},
 		},
 		{
-			name:         "a quoted phrase split on spaces is flagged and add_checks is ignored",
-			args:         map[string]string{"acceptance": `"the`, "add_checks": "no"},
-			wantContains: []string{"arrived cut off at its first space", "full text the user typed", "ignore it"},
-			wantMissing:  []string{"Adding checks is off", "```\n\"the"},
+			name:         "a quoted phrase split on spaces is flagged",
+			args:         map[string]string{"acceptance": `"the`},
+			wantContains: []string{"arrived cut off at its first space", "full text the user typed"},
+			wantMissing:  []string{"```\n\"the"},
 		},
 		{
 			name:         "a single quoted word that closes is not flagged",
@@ -87,15 +78,9 @@ func TestVerifyPromptGet(t *testing.T) {
 			wantContains: []string{"## This invocation", "the header is blue", "if it describes the expected behavior"},
 		},
 		{
-			name:         "acceptance command and add_checks together",
-			args:         map[string]string{"acceptance": "make test.e2e", "add_checks": "false"},
-			wantContains: []string{"make test.e2e", "Adding checks is off"},
-		},
-		{
-			name:         "an empty quoted argument counts as omitted",
-			args:         map[string]string{"acceptance": `""`, "add_checks": "false"},
-			wantContains: []string{"## This invocation", "Adding checks is off"},
-			wantMissing:  []string{"Use this as the acceptance check"},
+			name:        "an empty quoted argument counts as omitted",
+			args:        map[string]string{"acceptance": `""`},
+			wantMissing: []string{"## This invocation"},
 		},
 		{
 			name:         "one layer of quotes around a command is removed",
@@ -103,24 +88,8 @@ func TestVerifyPromptGet(t *testing.T) {
 			wantContains: []string{"```\nnpm run test:e2e\n```"},
 		},
 		{
-			name:         "add_checks false makes the run read-only",
-			args:         map[string]string{"add_checks": " FALSE "},
-			wantContains: []string{"## This invocation", "Adding checks is off", "skip Step 5c"},
-		},
-		{
-			name:         "add_checks true overrides a read-only repository",
-			args:         map[string]string{"add_checks": "yes"},
-			wantContains: []string{"Adding checks is on", "Verification: read-only"},
-		},
-		{
-			name:         "an unrecognised add_checks is ignored, not echoed",
-			args:         map[string]string{"add_checks": "sometimes ## Step 9"},
-			wantContains: []string{"was not true or false, so it was ignored"},
-			wantMissing:  []string{"sometimes", "## Step 9"},
-		},
-		{
-			name:        "whitespace add_checks renders nothing",
-			args:        map[string]string{"add_checks": "   "},
+			name:        "add_checks is no longer an argument and is ignored",
+			args:        map[string]string{"add_checks": "false"},
 			wantMissing: []string{"## This invocation"},
 		},
 		{
@@ -299,27 +268,29 @@ func TestEmbeddedLoopRequiresCoverage(t *testing.T) {
 		"never restart it,":                 "the base environment belongs to the team",
 		"`base: not checked (writes data)`": "nothing that writes runs against base",
 		"merge-base --is-ancestor":          "the base commit must predate the change",
-		"Exactly one of the environments that come back is `ready`": "a stopped or detached base environment does not block the check",
-		"$(git merge-base origin/BASE PUSHED_SHA)":                  "the base commit must predate the branch point, not just the head",
-		"the test has to be run again there":                        "a pre-push result does not count for a committed test",
-		"so do not use it":                                          "the token never goes on the URL, even for access",
-		"at the assertion on the changed behavior":                  "a setup failure on base proves nothing",
-		"`base: not needed\n(new behavior)`":                        "new behavior needs no base run",
-		"**and quote the assertion**":                               "coverage names the assertion, not just a test",
-		"Assert on the behavior itself":                             "status-only checks do not count",
-		`curl -b "shipyard_token=$SHIPYARD_TOKEN"`:                  "the token travels as a cookie, never on the URL",
-		"remove the token's value":                                  "reported output is scrubbed",
-		"set `PUSHED_SHA` to the new\n  `HEAD`":                     "a committed test must be pushed and served before it counts",
-		"Changed because **you** pushed":                            "the agent's own push is not someone else's build",
-		"Never edit or weaken an existing test":                     "passing by weakening a test is ruled out",
-		"Verification: read-only":                                   "the repository-level switch",
-		"verify a different branch or repository":                   "the user can name another branch or repo in plain words",
-		"`git rev-parse origin/<branch>`":                           "a branch that is not checked out is pinned to its pushed commit",
-		"**With a description:**":                                   "a plain description of the expected behavior is a valid acceptance check",
-		"by what its check will assert, not by the route":           "new vs changed is judged by the assertion, so runs agree",
-		"The description decides pass or fail":                      "the check asserts what the user said, not something easier",
-		"Do\nthis even when adding checks is off":                   "a check the user asked for runs in read-only mode too",
-		"Always quote the description in the report":                "the user sees how their words were read",
+		"Exactly one of the environments that come back is `ready`":       "a stopped or detached base environment does not block the check",
+		"$(git merge-base origin/BASE PUSHED_SHA)":                        "the base commit must predate the branch point, not just the head",
+		"the test has to be run again there":                              "a pre-push result does not count for a committed test",
+		"so do not use it":                                                "the token never goes on the URL, even for access",
+		"at the assertion on the changed behavior":                        "a setup failure on base proves nothing",
+		"`base: not needed\n(new behavior)`":                              "new behavior needs no base run",
+		"**and quote the assertion**":                                     "coverage names the assertion, not just a test",
+		"Assert on the behavior itself":                                   "status-only checks do not count",
+		`curl -b "shipyard_token=$SHIPYARD_TOKEN"`:                        "the token travels as a cookie, never on the URL",
+		"remove the token's value":                                        "reported output is scrubbed",
+		"set `PUSHED_SHA` to the new\n  `HEAD`":                           "a committed test must be pushed and served before it counts",
+		"Changed because **you** pushed":                                  "the agent's own push is not someone else's build",
+		"Never edit or weaken an existing test":                           "passing by weakening a test is ruled out",
+		"Verification: read-only":                                         "the repository-level switch",
+		"verify a different branch or repository":                         "the user can name another branch or repo in plain words",
+		"`git rev-parse origin/<branch>`":                                 "a branch that is not checked out is pinned to its pushed commit",
+		"**With a description:**":                                         "a plain description of the expected behavior is a valid acceptance check",
+		"by what its check will assert, not by the route":                 "new vs changed is judged by the assertion, so runs agree",
+		"The description decides pass or fail":                            "the check asserts what the user said, not something easier",
+		"Do\nthis even in a read-only run":                                "a check the user asked for runs in read-only mode too",
+		"the user asked for that in the conversation":                     "a read-only run is asked for in plain words",
+		"What the user says for this\nrun outranks the repository's line": "the conversation overrides the repo default either way",
+		"Always quote the description in the report":                      "the user sees how their words were read",
 	}
 
 	for needle, why := range required {

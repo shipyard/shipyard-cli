@@ -482,12 +482,12 @@ env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-nam
   before reporting the change as working.
 
 Clients that support prompts show it as a slash command, for example
-`/mcp__shipyard__shipyard_verify` in Claude Code. It takes two optional
-arguments, in this order: `acceptance`, the check that decides pass or fail,
-and `add_checks` (see
-[Checking the change itself](#checking-the-change-itself)). The branch and
-repository come from the working directory; to verify another one, say so in
-the conversation ("verify branch `fix-login` of `web`").
+`/mcp__shipyard__shipyard_verify` in Claude Code. It takes one optional
+argument, `acceptance`: the check that decides pass or fail. Everything else
+comes from the working directory, the repository, or what you say in the
+conversation: to verify another branch, say so ("verify branch `fix-login` of
+`web`"), and the same goes for a read-only run (see
+[Checking the change itself](#checking-the-change-itself)).
 
 #### The acceptance check
 
@@ -513,9 +513,7 @@ looks for a check in two places:
    `PATH` or a script in the repository, and as a description otherwise. A
    description is checked even in a read-only run, because you asked for it;
    one that can't be captured as a command ("the page feels faster") is
-   reported as Observed, not Verified. To combine a multi-word check with
-   `add_checks`, type the flag after the closing quote:
-   `/mcp__shipyard__shipyard_verify "make e2e" false`.
+   reported as Observed, not Verified.
 
 2. Whatever the repository documents, for every run. Put it somewhere the agent
    already reads, such as `CLAUDE.md` or `AGENTS.md`:
@@ -575,10 +573,8 @@ container), add this line to `CLAUDE.md` or `AGENTS.md`:
 Verification: read-only
 ```
 
-or pass `add_checks` as `false` for one run
-(`/mcp__shipyard__shipyard_verify "" false`, where `""` skips the acceptance
-check). `true` turns added checks and container edits back on for one run
-in a read-only repository.
+or ask for it in the conversation for one run ("verify this, but read-only").
+Asking for checks in a read-only repository turns them back on for that run.
 
 #### Fixing without a rebuild per attempt
 

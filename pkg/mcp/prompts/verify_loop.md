@@ -174,8 +174,8 @@ that error, never a reason to fall back to the Serving report below.
 **With a description:** write a check that asserts exactly what it says, with the rules and tools
 of 5c (reproducible, asserting on the behavior itself, token kept out of the report), and run it.
 The description decides pass or fail: check the stated result, not something easier nearby. Do
-this even when adding checks is off, because the user asked for this check; in that case run it
-and quote it, but do not commit a test for it. A description about a fix or changed behavior also
+this even in a read-only run, because the user asked for this check; in that case run it and
+quote it, but do not commit a test for it. A description about a fix or changed behavior also
 needs the base check in 5d. If it cannot be captured as a command (for example "the page feels
 faster"), what you saw is **Observed**, never Verified. Always quote the description in the report
 next to the check it became, so the user can see how you read it.
@@ -206,8 +206,10 @@ A test whose name sounds related but whose assertions do not touch the behavior 
 
 ### 5c — Add a check for what is not covered
 
-Skip this step when adding checks is off: `add_checks=false` under "This invocation", or a
-`Verification: read-only` line in the repository. Coverage is still reported.
+Skip this step when the run is **read-only**: the user asked for that in the conversation ("don't
+add any checks", "read-only", "just verify, don't touch anything"), or the repository has a
+`Verification: read-only` line and the user did not ask for checks. What the user says for this
+run outranks the repository's line, either way. Coverage is still assessed and reported.
 
 Otherwise, check each uncovered behavior with whatever tool actually exercises it. A check is not
 limited to end-to-end tests:
@@ -308,7 +310,7 @@ Verified on Shipyard.
 ```
 
 **Passed, not covered** — everything that ran passed, but some changed behavior has no proven
-check (adding checks was off, a new check could not be proven on base, or none could be written):
+check (the run was read-only, a new check could not be proven on base, or none could be written):
 
 ```
 Passed on Shipyard, but the change is not fully covered, so this is not verified.
@@ -382,7 +384,7 @@ once everything passes.
 - `exec_service` is enabled. If its description says DISABLED, skip this section.
 - The environment is this change's own. **Never** edit the base environment. Others reviewing this
   change may be using its environment; edits there are visible to them until the rebuild.
-- `add_checks` is not off and the repository does not say `Verification: read-only`.
+- The run is not read-only (5c).
 - Both probes below pass. They fail closed: any doubt means push per attempt instead.
 
 `exec_service` takes the environment, a `service_name` (list them with `get_services`) and the
