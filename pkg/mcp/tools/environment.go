@@ -24,7 +24,7 @@ var toolDefinitions = map[string]ToolDefinition{
 	},
 	"get_environment": {
 		Name:        "get_environment",
-		Description: "Get details for a specific environment by ID. The bypass_token in the response can be used as 'shipyard_token' URL parameter to access protected environments without login, example: https://my-environment.myorg.shipyard.host?shipyard_token=[bypass-token]",
+		Description: "Get details for a specific environment by ID. The bypass_token in the response gets past the environment's login gate: send it as the 'shipyard_token' cookie. In shell commands, fetch it with `shipyard get environment <id> --bypass-token` instead of typing it. Avoid the ?shipyard_token= URL parameter: it lands in server logs and shell history.",
 		InputSchema: schemas.EnvironmentIDSchema(),
 	},
 	"restart_environment": {

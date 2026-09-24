@@ -49,7 +49,10 @@ func NewGetEnvironmentCmd(c client.Client) *cobra.Command {
 				return errNoEnvironment
 			}
 			bypassToken, _ := cmd.Flags().GetBool("bypass-token")
-			if bypassToken && viper.GetBool("json") {
+			// The flag itself, not viper: a SHIPYARD_JSON variable or a json config
+			// key must not make --bypass-token fail or print the whole payload.
+			asJSON, _ := cmd.Flags().GetBool("json")
+			if bypassToken && asJSON {
 				return errBypassTokenAndJSON
 			}
 			return handleGetEnvironmentByID(c, args[0], bypassToken)
@@ -236,6 +239,20 @@ func handleGetEnvironmentByID(c client.Client, id string, bypassToken bool) erro
 		return err
 	}
 
+	// The token alone on stdout, so a script can capture it with $(...) and
+	// never has to spell it out.
+	if bypassToken {
+		r, err := types.UnmarshalEnv(body)
+		if err != nil {
+			return err
+		}
+		if r.Data.Attributes.BypassToken == "" {
+			return errNoBypassToken
+		}
+		display.Println(r.Data.Attributes.BypassToken)
+		return nil
+	}
+
 	if viper.GetBool("json") {
 		display.Println(body)
 		return nil
@@ -244,16 +261,6 @@ func handleGetEnvironmentByID(c client.Client, id string, bypassToken bool) erro
 	r, err := types.UnmarshalEnv(body)
 	if err != nil {
 		return err
-	}
-
-	// The token alone on stdout, so a script can capture it with $(...) and
-	// never has to spell it out.
-	if bypassToken {
-		if r.Data.Attributes.BypassToken == "" {
-			return errNoBypassToken
-		}
-		display.Println(r.Data.Attributes.BypassToken)
-		return nil
 	}
 
 	var data [][]string

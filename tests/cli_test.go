@@ -179,6 +179,7 @@ func TestGetEnvironmentBypassToken(t *testing.T) {
 	tests := []struct {
 		name   string
 		args   []string
+		env    []string
 		stdout string
 		stderr string
 	}{
@@ -193,6 +194,12 @@ func TestGetEnvironmentBypassToken(t *testing.T) {
 			stderr: "Command error: environment has no bypass token\n",
 		},
 		{
+			name:   "a stored json setting does not apply",
+			args:   []string{"get", "env", "default-1", "--bypass-token"},
+			env:    []string{"SHIPYARD_JSON=true"},
+			stdout: "bypass-default-1\n",
+		},
+		{
 			name:   "not with json",
 			args:   []string{"get", "env", "default-1", "--bypass-token", "--json"},
 			stderr: "Command error: --bypass-token and --json cannot be used together\n",
@@ -203,6 +210,7 @@ func TestGetEnvironmentBypassToken(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			c := newCmd(test.args)
+			c.cmd.Env = append(c.cmd.Env, test.env...)
 			err := c.cmd.Run()
 			if test.stderr != "" {
 				if err == nil {
@@ -210,6 +218,9 @@ func TestGetEnvironmentBypassToken(t *testing.T) {
 				}
 				if diff := cmp.Diff(c.stdErr.String(), test.stderr); diff != "" {
 					t.Error(diff)
+				}
+				if out := c.stdOut.String(); out != "" {
+					t.Errorf("a failed fetch must print nothing a script could take for a token, got %q", out)
 				}
 				return
 			}

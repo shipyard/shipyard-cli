@@ -117,14 +117,14 @@ Available flags:
 | Name     | Description                                          | Type    | Default Value    |
 |----------|------------------------------------------------------|---------|------------------|
 | json     | Print the complete JSON output                       | boolean | false            |
-| org-name | Filter by org name, if you are part of multiple orgs | string  | your default org |
+| org      | Org of the environment, if you are part of multiple orgs | string  | your default org |
 | bypass-token | Print only the environment's bypass token, for scripts | boolean | false |
 
 `--bypass-token` lets a script use the token without anyone typing or printing it:
 
 ```bash
 SHIPYARD_TOKEN=$(shipyard get environment {environment_uuid} --bypass-token) && \
-  curl -b "shipyard_token=$SHIPYARD_TOKEN" https://your-environment-url/
+  export SHIPYARD_TOKEN && curl -b "shipyard_token=$SHIPYARD_TOKEN" https://your-environment-url/
 ```
 
 ### Stop a running environment
@@ -502,6 +502,12 @@ starts it once (a restart, or a rebuild if the restart is refused and no
 build started) and says so in the report. It never starts any other
 environment, including the base branch's or one for a branch you named: it
 reports that it is stopped and leaves the decision to you.
+
+The agent's commands fetch the environment's bypass token with
+`shipyard get environment <id> --bypass-token` rather than typing it. That needs
+the CLI to be logged in in the agent's shell, not only in the MCP client's
+`env` block. If it isn't, the agent types the token into its commands and says
+so in the report; run `shipyard login` to avoid that.
 
 #### The acceptance check
 

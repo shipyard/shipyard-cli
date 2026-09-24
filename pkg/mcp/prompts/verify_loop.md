@@ -93,7 +93,7 @@ Shipyard API payload. Read these fields from `data[].attributes`:
 
 | Result | Action |
 |---|---|
-| Exactly one environment | Continue to Step 2b |
+| Exactly one environment | If it is stopped or retired and it is this change's own, start it now ("Stopped environments" in Step 3), so it builds while the user reads the plan. Then continue to Step 2b |
 | No environments | The push may not have registered. Retry per the polling contract; after 2 minutes stop and tell the user |
 | More than one | **Stop. Never guess.** List id, url, branch, and commit for each, and ask which one |
 
@@ -195,11 +195,12 @@ Loop:
   commit_hash == PUSHED_SHA AND ready   → SERVING. Stop polling, go to Step 4
   commit_hash == PUSHED_SHA, ready=false→ keep polling. The commit lands BEFORE the
                                           environment serves it (measured: ~40s apart)
-  commit_hash != PUSHED_SHA             → your build has not landed, keep polling. On the
-                                          first poll after approval and every 5 minutes,
-                                          run `git ls-remote origin <BRANCH>`: if it no
-                                          longer shows PUSHED_SHA, the branch moved (Step 6)
+  commit_hash != PUSHED_SHA             → your build has not landed, keep polling
   no environment in response            → keep polling (see Step 2 timeout)
+
+  on the first poll after approval, and every 5 minutes, whatever the state:
+    git ls-remote origin <BRANCH> no longer shows PUSHED_SHA, and you did not push
+                                        → the branch moved. Stop (Step 6)
 
   sleep: 5s, then 10s, 20s, 40s, 60s, 60s...   (cap 60s)
   give up after 20 minutes → report BUILD_TIMEOUT with the last commit_hash and flags seen
@@ -211,16 +212,17 @@ processing, means no build is running and none is coming, so polling alone will 
 - **This change's own environment**: the one Step 2 found for this repo and `BRANCH`, where
   `BRANCH` is the branch checked out here, not one the user named in Step 1, and is not `BASE`.
   Start it, **once per run**, with `restart_environment`, whether it is `stopped`, `retired` or
-  both. `retired` does not mean deleted: `revive_environment` refuses it, and a deleted environment
-  does not appear in `get_environments` at all. If the result starts with `Cannot restart` (live
-  runs show both a refusal as not paused and a timeout that still started the build), call
-  `get_environments` once: if a build is now processing, go back to polling; otherwise call
-  `rebuild_environment` once.
+  both; normally Step 2 already did. `retired` does not mean deleted: `revive_environment` refuses
+  it, and a deleted environment does not appear in `get_environments` at all.
 
   Say in the final report that you started it, and go back to polling: the start is a new build,
   with the usual 20 minutes. A start is only queued, so the next polls can still show `stopped`:
   treat that as starting, not stopped, until `processing` or `ready` has turned true, for at most
-  5 minutes; if neither has by then, report `Not verified: the environment is stopped`. A read-only run may start it, since
+  5 minutes. A result starting with `Cannot restart` is not proof that nothing started (a live run
+  timed out and still started the build), so poll through the same 5 minutes. Only if neither flag
+  has turned true by then and the restart said `Cannot restart`, call `rebuild_environment` once
+  and wait another 5 minutes the same way. If nothing has started after that, report
+  `Not verified: the environment is stopped`. A read-only run may start it, since
   starting it changes no code. Skip the start if the user said not to restart, start or touch the
   environment (including "don't touch anything"), and then report `Not verified: the environment
   is stopped`.
@@ -242,8 +244,8 @@ processing, means no build is running and none is coming, so polling alone will 
 
 ## Step 4 — Reach the environment
 
-Take `url` and `bypass_token` **from the same response** that confirmed the match. Send the token
-as the `shipyard_token` cookie. The `?shipyard_token=` query parameter also works, but it lands in
+Take `url` **from the response** that confirmed the match. Send the bypass token as the
+`shipyard_token` cookie. The `?shipyard_token=` query parameter also works, but it lands in
 server logs and shell history, so do not use it.
 
 Two things to know:
@@ -252,21 +254,31 @@ Two things to know:
 - **Never** print the token, paste it into chat, commit it, put it in a PR comment, or write it to
   a log. Pass it through an environment variable to the acceptance command.
 
-**Never type the token's value into a command either.** Let the command fetch it, so it stays out
-of your commands, their output and the transcript:
+**Never type the token's value into a command either.** The token is already in this conversation
+(`get_environments` returns it), but fetching it inside each command keeps it out of your command
+lines. Use this one form for every command that needs the environment, curl included:
 
 ```
-SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token)
+SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token) && export SHIPYARD_TOKEN SHIPYARD_URL=<url> && <command>
 ```
 
-`<id>` is the environment's id and `<org>` the org from Step 0. The CLI prints only the token.
-Fetch it inside every command that needs it: variables do not carry over between separate
-commands. As a prefix (`SHIPYARD_TOKEN=$(...) <command>`) it reaches a command that reads the
-variable itself, such as an acceptance script; for `curl`, set it first with `&&`
-(`SHIPYARD_TOKEN=$(...) && curl ...`), because the shell expands `$SHIPYARD_TOKEN` in a command's
-own arguments before a prefix assignment applies. If the fetch fails (`shipyard` is not on this
-shell's `PATH`, is not configured, or is too old to have `--bypass-token`), use the value from
-the response, only in that assignment, and say in the report that the token appeared in commands.
+`<id>` is the environment's id, `<url>` its `url`, and `<org>` the org's name alone (not
+`get_org`'s `Current organization:` prefix). The CLI prints only the token. Run the whole line as
+one command: variables do not carry over between separate commands. Every part matters: `&&`
+stops the command when the fetch fails instead of running it with an empty token, and `export`
+passes both values to scripts and test runners the command starts. Do not turn on shell tracing
+(`set -x`) in these commands; it prints the token.
+
+If the fetch fails (`shipyard` is not on this shell's `PATH`, is not logged in, which happens when
+only the MCP client is configured, or is too old to have `--bypass-token`), use the token from the
+response in place of the `$(...)` and nowhere else, and add this line to the report:
+
+```
+  Token:       typed into commands; run `shipyard login` in this shell so the agent can fetch it
+```
+
+Checks inside a container through `exec_service` have no local shell to fetch from, and need no
+token: call the service on `localhost` inside the container, which is behind no gate.
 
 ## Step 5 — Check the change, not just the build
 
@@ -298,7 +310,7 @@ by how it reads, not by whether its first word happens to be a program:
 **With a command:** run it with the environment in two variables, set only for that command:
 
 ```
-SHIPYARD_URL=<url> SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token) <acceptance command>
+SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token) && export SHIPYARD_TOKEN SHIPYARD_URL=<url> && <acceptance command>
 ```
 
 The command decides pass or fail, not you. "The page returned 200" is not verification. A command
@@ -377,8 +389,8 @@ Rules:
   quote its full contents in the report; its name and assertion alone cannot be rerun. A check that exists only in your reasoning ("I looked, it worked") is
   **Observed**, never part of Verified.
 - **Keep the token out of everything you report.** Send it only as a cookie from the variable,
-  fetched as in Step 4, for example
-  `SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token) && curl -b "shipyard_token=$SHIPYARD_TOKEN" "$SHIPYARD_URL/..."`, never on the URL
+  with the Step 4 form, for example
+  `SHIPYARD_TOKEN=$(shipyard get environment <id> --org <org> --bypass-token) && export SHIPYARD_TOKEN SHIPYARD_URL=<url> && curl -b "shipyard_token=$SHIPYARD_TOKEN" "$SHIPYARD_URL/..."`, never on the URL
   and never with `-v`. Before quoting any command or output, remove the token's value and any
   application credentials.
 - **Cover only what is uncovered.** Never edit or weaken an existing test to make it pass.
@@ -426,7 +438,9 @@ the Step 4 command).
 
 ## Step 6 — Re-check the commit before you report
 
-Call `get_environments` once more and compare `commit_hash` against `PUSHED_SHA`.
+First run `git ls-remote origin <BRANCH>`. If it no longer shows `PUSHED_SHA` and you did not
+push, the branch moved: report as below, even if the environment still serves your commit.
+Then call `get_environments` once more and compare `commit_hash` against `PUSHED_SHA`.
 
 - Unchanged → your result is valid, go to Step 7.
 - Changed because **you** pushed (a test in 5c, or a fix) → not a conflict. Set `PUSHED_SHA` to
