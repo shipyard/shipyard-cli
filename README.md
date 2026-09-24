@@ -542,8 +542,9 @@ Before it checks anything, the agent proposes a test plan and waits for you to
 approve it. The plan covers the change and its blast radius: callers of changed
 code, shared templates and components, access and permissions, data and
 migrations, and other services in the environment. Each item says why it's at
-risk (citing the diff), how it will be checked, whether it's new or changed
-behavior, whether it writes data, and roughly how long it takes. Where the
+risk (citing the diff), how it will be checked, whether it's new, changed or
+unchanged behavior (an unchanged item is a guard that must pass on the base
+branch too), whether it writes data, and roughly how long it takes. Where the
 client can start a subagent, a fresh one with no conversation history drafts
 the plan, so it doesn't inherit the blind spots of the agent that wrote the
 change; the plan says how it was drafted.
@@ -555,7 +556,7 @@ Test plan for 3f2a9c1 (drafted by a fresh subagent)
 |---|-------------------|----------------------------|---------------------------------------------|-------------|--------------|------------|
 | 1 | The change itself | routes/widgets.py:40-52    | curl GET /api/widgets, assert count is int  | new         | no           | 1 min      |
 | 2 | Access            | route has no @login check  | curl without a token, assert 401            | new         | no           | 1 min      |
-| 3 | Shared pieces     | partials/nav.html is shared | curl /settings, assert nav renders          | changed     | no           | 1 min      |
+| 3 | Shared pieces     | partials/nav.html is shared | curl /settings, assert nav renders          | unchanged   | no           | 1 min      |
 
 Reply: yes · drop 3 · add: <what> · change 2: <how> · no
 ```

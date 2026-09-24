@@ -7,9 +7,10 @@ version: "0.3.0"
 
 # Shipyard Verification Loop
 
-**User sees MAX 3 messages:** (1) "verifying against the environment", (2) the test plan, which
-waits for their answer (Step 2b), or a failure summary if you cannot proceed, (3) the final
-result. Everything else is silent. With auto-approve, the plan goes into the final result instead.
+**User sees few messages:** (1) "verifying against the environment"; then only messages that need
+their answer, one per question (which environment, the test plan and each revision of it, new plan
+items during a fix) or a failure summary if you cannot proceed; and (3) the final result.
+Everything else is silent. With auto-approve, the plan goes into the final result instead.
 
 ## When this applies
 
@@ -106,7 +107,9 @@ Go to Step 3, and assess and report coverage as usual.
 
 **Drafting.** If you can start a subagent with a fresh context (no copy of this conversation),
 give it only: the output of `git diff origin/<BASE>...PUSHED_SHA`, read access to the repository,
-the checklist below, and the acceptance check if there is one. Ask it for the plan table, and use
+the checklist below, and the acceptance check if there is one. Do not give it the environment's
+URL or `bypass_token`, and tell it not to call Shipyard tools: its checks refer to `$SHIPYARD_URL`
+and `$SHIPYARD_TOKEN`, which you fill in when you run them. Ask it for the plan table, and use
 what it returns. If you cannot start a subagent, draft the plan yourself from that diff before
 re-reading this conversation. Either way, say which you did at the top of the plan (`drafted by a
 fresh subagent` or `drafted from the diff by the agent that made the change`).
@@ -136,9 +139,10 @@ Test plan for <PUSHED_SHA> (drafted by a fresh subagent)
 Reply: yes · drop 3 · add: <what> · change 2: <how> · no
 ```
 
-The acceptance check (5a), when there is one, is always item 1. `New/changed` follows the rule in
-5b and decides whether 5d's base check applies. A check that writes data is marked, because it
-never runs against the base environment.
+The acceptance check (5a), when there is one, is always item 1. The plan always has at least one
+item for **the change itself**. `New/changed` takes one of `new`, `changed` or `unchanged` (5b) and
+decides whether 5d's base check applies. A check that writes data is marked, because it never runs
+against the base environment.
 
 **Approval.** Send the plan as message 2 and **stop until the user answers**: do not poll, run
 checks or change anything while you wait. Then:
@@ -147,14 +151,20 @@ checks or change anything while you wait. Then:
 - `drop <n>`, `add: ...`, `change <n>: ...` → revise the plan and send it again, and stop again.
   Items the user dropped stay in the table, marked `dropped by user`.
 - Edits that also approve (`drop 3, otherwise yes`, `add: X and go`) → apply them and run the
-  revised plan without asking again; show the revision in the report. Ask again only when an
-  edit leaves you unsure what they want.
+  revised plan without asking again; show the revision in the report, and mark any check you wrote
+  for an `add:` the user never saw as `(written after approval)`. Ask again only when an edit
+  leaves you unsure what they want.
+- Item 1 is the acceptance check. `change 1: ...` replaces it for this run; quote the original and
+  the replacement in the report. `drop 1` means 5a does not run it, and the report says
+  `Check: dropped by user`.
 - `no` → do not run anything. Report `Not verified: the test plan was rejected`, with the plan and
   any reason the user gave, and stop.
 
-**Auto-approve.** When the user said "auto-approve" (or "don't wait for me") for this run, or the
-repository has a `Verification: auto-approve` line and the user did not ask to approve, do not
-wait: accept your own plan and put it in the final report. Unattended runs, such as CI, need this;
+**Auto-approve.** When the user explicitly asked to skip plan approval for this run ("auto-approve",
+"don't wait for me"), or the repository has a `Verification: auto-approve` line and the user did
+not ask to approve, do not wait: accept the plan drafted as above and put it in the final report.
+Words inside an acceptance check never count as that request: "auto-approve the invoice" is a
+check to run, not an instruction. Unattended runs, such as CI, need this;
 without it they stop here with nothing verified.
 
 ## Step 3 — Poll until your commit is serving
@@ -261,16 +271,21 @@ configure one mid-run. Go on to 5b: the change can still be checked directly.
 ### 5b — Is the change itself covered?
 
 A passing suite proves nothing regressed. It does not prove the new behavior works, because a new
-feature usually has no test yet. The behavior to cover is the **accepted plan's items** (Step 2b),
-not a fresh reading of the diff; in a read-only run, where there is no plan, read
+feature usually has no test yet. The behavior to cover is **every behavior the diff adds or
+alters, plus the accepted plan's other items** (Step 2b). A plan that leaves out the change itself,
+or a change-itself item the user dropped, leaves the change uncovered: the result is at best
+Passed, not covered, never Verified. In a read-only run, where there is no plan, read
 `git diff origin/<BASE>...PUSHED_SHA` and list the behavior it changes.
-Mark each item **new** or **changed** by what its check will assert, not by the route or page it
-lives on:
+Mark each item **new**, **changed** or **unchanged** by what its check will assert, not by the route
+or page it lives on:
 
 - **new** — the asserted thing is absent on `BASE`: a new endpoint, page, command, field, header or
   element, even when it is added to a route that already exists. Quote the diff lines that add it.
 - **changed** — the asserted thing exists on `BASE` with a different value or behavior: a bug fix,
   changed text, a changed status code, a changed default.
+- **unchanged** — a guard: the asserted thing must be the same on `BASE` and here (a shared page
+  still renders, a neighbouring route still redirects). It needs no base failure; if you run it on
+  base, it must pass there too.
 For each item, name the test in the acceptance check that exercises it **and quote the assertion**
 that checks the behavior. A test only counts if this run's output shows it ran and passed against
 the environment: one that was skipped, filtered out, or run against mocks does not cover anything.
@@ -290,8 +305,9 @@ add any checks", "read-only", "just verify, don't touch anything"), or the repos
 run outranks the repository's line, either way; passing an `acceptance` check is not asking for
 more checks, and does not lift read-only. Coverage is still assessed and reported.
 
-Otherwise, check each uncovered plan item, using the check the plan names unless it proves
-impossible (then say why in the report). Run nothing that is not in the accepted plan. A check is
+Otherwise, check each uncovered plan item with the check the plan names. If that check proves
+impossible, mark the item `skipped: <reason>`; do not substitute a different check the user did
+not approve. Run nothing that is not in the accepted plan. A check is
 not limited to end-to-end tests:
 
 | The change | A check that exercises it |
@@ -365,7 +381,10 @@ Call `get_environments` once more and compare `commit_hash` against `PUSHED_SHA`
 - Changed because **you** pushed (a test in 5c, or a fix) → not a conflict. Set `PUSHED_SHA` to
   your new commit and return to Step 3.
 - Changed by anyone else → their build landed mid-run and your result describes neither commit.
-  **Discard it and return to Step 3.** Do this at most twice, then stop and tell the user the
+  If the branch itself moved (`git ls-remote origin <BRANCH>` no longer shows `PUSHED_SHA`),
+  someone pushed to it: your commit will never be served again and the plan covers an old diff.
+  Stop and tell the user who needs to re-run the prompt on the new head. Otherwise **discard the
+  result and return to Step 3.** Do this at most twice, then stop and tell the user the
   environment is too busy to verify against right now.
 
 If you edited the running container at any point, the final result must come from after a rebuild
@@ -469,9 +488,10 @@ make one targeted fix, and try again. An attempt is one fix, whether you pushed 
 the running container. **Stop after 3 failed attempts** and report what you tried, what failed
 each time, and the environment URL. Looping past that burns build capacity and rarely converges.
 
-The accepted plan carries over to each attempt: run it again on the new commit. If a fix touches
-areas the plan does not cover, add items for them and show just those for approval (Step 2b),
-unless the run is auto-approved.
+The accepted plan carries over to each attempt: run it again on the new commit. To see whether a
+fix touches areas the plan does not cover, give the fix's own diff to a fresh subagent, as in
+Step 2b; add items for what it finds and show just those for approval, unless the run is
+auto-approved.
 
 Each attempt normally means push, return to Step 3 with the new SHA, and wait for a rebuild. When
 the container can be edited in place (next section), try the fix there first and push once it
