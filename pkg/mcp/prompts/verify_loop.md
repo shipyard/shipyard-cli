@@ -146,6 +146,9 @@ checks or change anything while you wait. Then:
 - `yes` → the plan is accepted as shown.
 - `drop <n>`, `add: ...`, `change <n>: ...` → revise the plan and send it again, and stop again.
   Items the user dropped stay in the table, marked `dropped by user`.
+- Edits that also approve (`drop 3, otherwise yes`, `add: X and go`) → apply them and run the
+  revised plan without asking again; show the revision in the report. Ask again only when an
+  edit leaves you unsure what they want.
 - `no` → do not run anything. Report `Not verified: the test plan was rejected`, with the plan and
   any reason the user gave, and stop.
 

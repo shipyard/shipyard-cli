@@ -405,6 +405,7 @@ func TestEmbeddedLoopPlansBeforeChecking(t *testing.T) {
 		"| # | Area | Why at risk (diff lines) | Check (tool + assertion) | New/changed | Writes data? | Rough time |": "the plan table's columns",
 		"Reply: yes · drop 3 · add: <what> · change 2: <how> · no":                                                     "how to answer the plan",
 		"**stop until the user answers**":                                 "nothing runs before approval",
+		"apply them and run the\n  revised plan without asking again":     "\"drop 3, otherwise yes\" approves the revised plan",
 		"`Verification: auto-approve`":                                    "unattended runs can opt in to auto-approve",
 		"**Skip this step in a read-only run**":                           "read-only runs have nothing to approve",
 		"Run nothing that is not in the accepted plan":                    "only the accepted plan runs",
