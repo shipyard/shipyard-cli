@@ -442,6 +442,9 @@ func TestEmbeddedLoopPlansBeforeChecking(t *testing.T) {
 		"items the user dropped are left out, except the\nchange itself":             "dropped guards do not block Verified",
 		"Without one, item 1 is the change itself":                                   "item 1 is defined without an acceptance check",
 		"a read-only run has no\nplan":                                               "read-only reports carry no Plan: block",
+		"`git show origin/<BASE>:CLAUDE.md`":                                         "repository lines are read from base",
+		"a change cannot approve its own plan":                                       "a branch cannot grant itself auto-approve",
+		"You are only drafting a\nplan":                                              "the planning subagent ignores instructions to verify or start environments",
 	}
 
 	for needle, why := range required {

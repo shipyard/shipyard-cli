@@ -575,7 +575,9 @@ approved item passed.
 
 For unattended runs such as CI, add `Verification: auto-approve` to
 `CLAUDE.md` or `AGENTS.md`, or say "auto-approve" when you run the prompt: the
-agent then runs its own plan and includes it in the report. A read-only run
+agent then runs its own plan and includes it in the report. The agent reads
+`Verification:` lines from the base branch, so a branch that adds the line
+cannot approve its own plan; the line takes effect once it merges. A read-only run
 skips the plan, since nothing gets added.
 
 #### Checking the change itself
