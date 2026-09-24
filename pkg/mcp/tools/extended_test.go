@@ -111,6 +111,19 @@ func TestExtendedTool_RestartService(t *testing.T) {
 	}
 }
 
+func TestExtendedTool_DeleteEnvVarEscapesName(t *testing.T) {
+	rec := &recordingRequester{}
+	tool := NewExtendedTool(client.Client{Requester: rec, OrgLookupFn: func() string { return "acme" }}, "delete_env_var")
+
+	_, err := tool.Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123","name":"../x?org=other"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rec.uri, "env-vars/..%2Fx%3Forg=other?org=acme") {
+		t.Fatalf("name not path-escaped: %s", rec.uri)
+	}
+}
+
 func TestExtendedTool_Definition(t *testing.T) {
 	tool := NewExtendedTool(client.Client{}, "get_env_vars")
 	def := tool.Definition()

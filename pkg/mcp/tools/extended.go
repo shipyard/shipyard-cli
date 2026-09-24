@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
@@ -78,7 +79,12 @@ func (t *ExtendedTool) Definition() ToolDefinition {
 
 // Execute runs the named tool.
 func (t *ExtendedTool) Execute(ctx context.Context, params json.RawMessage) (string, error) {
-	log.Printf("MCP tool execution started: %s with params: %s", t.name, string(params))
+	if t.name == "put_env_vars" {
+		// Params carry env var values, which are often secrets.
+		log.Printf("MCP tool execution started: %s", t.name)
+	} else {
+		log.Printf("MCP tool execution started: %s with params: %s", t.name, string(params))
+	}
 	switch t.name {
 	case "get_build_history":
 		return t.executeGetBuildHistory(params)
@@ -240,7 +246,7 @@ func (t *ExtendedTool) executeDeleteEnvVar(params json.RawMessage) (string, erro
 		return "", errors.ValidationError("delete_env_var", "name", "name is required")
 	}
 
-	subresource := fmt.Sprintf("env-vars/%s", toolParams.Name)
+	subresource := fmt.Sprintf("env-vars/%s", url.PathEscape(toolParams.Name))
 	_, err := t.client.Requester.Do(
 		http.MethodDelete,
 		uri.CreateResourceURI("", "environment", toolParams.EnvironmentID, subresource, t.orgParams()),
@@ -283,10 +289,10 @@ func (t *ExtendedTool) executeRestartService(params json.RawMessage) (string, er
 
 func (t *ExtendedTool) executeDeployDetached(params json.RawMessage) (string, error) {
 	var toolParams struct {
-		ApplicationBuildID      string            `json:"application_build_id"`
-		DisplayName             string            `json:"display_name,omitempty"`
-		ProjectBranchOverrides  map[string]string `json:"project_branch_overrides,omitempty"`
-		BuildOnCommit           json.RawMessage   `json:"build_on_commit,omitempty"`
+		ApplicationBuildID     string            `json:"application_build_id"`
+		DisplayName            string            `json:"display_name,omitempty"`
+		ProjectBranchOverrides map[string]string `json:"project_branch_overrides,omitempty"`
+		BuildOnCommit          json.RawMessage   `json:"build_on_commit,omitempty"`
 	}
 	if err := json.Unmarshal(params, &toolParams); err != nil {
 		return "", errors.ValidationError("deploy_detached", "parameters", err.Error())

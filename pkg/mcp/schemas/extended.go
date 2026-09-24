@@ -56,7 +56,7 @@ func PutEnvVarsSchema() map[string]interface{} {
 						},
 						"hidden": map[string]interface{}{
 							"type":        "boolean",
-							"description": "Mask the value in API responses (default true)",
+							"description": "Mask the value in API responses (default true). Only applies when creating a variable; an existing variable keeps its current visibility",
 						},
 						"services": map[string]interface{}{
 							"type":        "array",

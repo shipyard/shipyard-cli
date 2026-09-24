@@ -2,6 +2,7 @@ package commands
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,9 @@ import (
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/spf13/cobra"
 )
+
+// maxRequestBytes caps --input bodies; larger bodies are refused, never truncated.
+const maxRequestBytes = 1 << 20 // 1 MiB
 
 var allowedAPIMethods = map[string]bool{
 	http.MethodGet:    true,
@@ -86,13 +90,16 @@ func runAPI(c client.Client, method, path, inputFile string, includeSecrets bool
 
 	resp, err := c.Requester.Do(method, requestURI, "application/json", body)
 	if err != nil {
-		return err
+		// Non-2xx bodies come back inside the error; they can carry secrets too.
+		return errors.New(string(requests.RedactAPIResponse([]byte(err.Error()), includeSecrets)))
 	}
 
+	// Redact before truncating: a cut-off JSON body can't be parsed for redaction.
+	resp = requests.RedactAPIResponse(resp, includeSecrets)
 	if len(resp) > uri.MaxResponseBytes() {
+		fmt.Fprintf(os.Stderr, "warning: response truncated from %d to %d bytes\n", len(resp), uri.MaxResponseBytes())
 		resp = resp[:uri.MaxResponseBytes()]
 	}
-	resp = requests.RedactAPIResponse(resp, includeSecrets)
 
 	if len(resp) == 0 {
 		display.Println(fmt.Sprintf("%s %s → empty body", method, path))
@@ -128,10 +135,12 @@ func buildAPIBody(inputFile string, fieldArgs []string) ([]byte, error) {
 		r = f
 	}
 
-	limited := io.LimitReader(r, int64(uri.MaxResponseBytes()))
-	raw, err := io.ReadAll(limited)
+	raw, err := io.ReadAll(io.LimitReader(r, maxRequestBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read --input: %w", err)
+	}
+	if len(raw) > maxRequestBytes {
+		return nil, fmt.Errorf("--input is larger than %d bytes", maxRequestBytes)
 	}
 	if len(fields) == 0 {
 		return raw, nil

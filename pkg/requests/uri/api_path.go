@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	defaultAPIBase = "https://shipyard.build/api/v1"
+	defaultAPIBase   = "https://shipyard.build/api/v1"
 	maxResponseBytes = 1 << 20 // 1 MiB
 )
 
@@ -49,19 +49,18 @@ func ResolveAPIPath(path string, org string) (string, error) {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
-	if !strings.HasPrefix(path, "/api/v1") && !strings.HasPrefix(path, "/api/v2") {
-		return "", fmt.Errorf("path must start with /api/v1 or /api/v2, got %q", path)
-	}
-	if strings.HasPrefix(path, "/api/application") || strings.HasPrefix(path, "/api/me") {
-		return "", fmt.Errorf("browser session routes are not allowed via shipyard api")
-	}
-
 	parsed, err := url.Parse(path)
 	if err != nil {
 		return "", fmt.Errorf("invalid path: %w", err)
 	}
-	if parsed.Path == "" || parsed.Path == "/" {
-		return "", fmt.Errorf("path must include a resource after /api/v1 or /api/v2")
+	// parsed.Path is percent-decoded, so %2e%2e is caught here too.
+	for _, seg := range strings.Split(parsed.Path, "/") {
+		if seg == "." || seg == ".." {
+			return "", fmt.Errorf("path must not contain . or .. segments, got %q", path)
+		}
+	}
+	if !hasAPIPrefix(parsed.Path) {
+		return "", fmt.Errorf("path must start with /api/v1/ or /api/v2/ followed by a resource, got %q", path)
 	}
 
 	q := parsed.Query()
@@ -71,4 +70,13 @@ func ResolveAPIPath(path string, org string) (string, error) {
 	parsed.RawQuery = q.Encode()
 
 	return APIHost() + parsed.String(), nil
+}
+
+func hasAPIPrefix(p string) bool {
+	for _, prefix := range []string{"/api/v1/", "/api/v2/"} {
+		if strings.HasPrefix(p, prefix) && len(p) > len(prefix) {
+			return true
+		}
+	}
+	return false
 }

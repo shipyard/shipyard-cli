@@ -51,7 +51,27 @@ func TestResolveAPIPath(t *testing.T) {
 		{
 			name:    "rejects non api prefix",
 			path:    "/api/application/foo/deploy",
-			wantErr: "must start with /api/v1 or /api/v2",
+			wantErr: "must start with /api/v1/ or /api/v2/",
+		},
+		{
+			name:    "rejects dot-dot escape from api prefix",
+			path:    "/api/v1/../application/foo",
+			wantErr: "must not contain . or ..",
+		},
+		{
+			name:    "rejects encoded dot-dot",
+			path:    "/api/v1/%2e%2e/me",
+			wantErr: "must not contain . or ..",
+		},
+		{
+			name:    "rejects lookalike prefix",
+			path:    "/api/v1foo/environment",
+			wantErr: "must start with /api/v1/ or /api/v2/",
+		},
+		{
+			name:    "rejects bare version root",
+			path:    "/api/v1",
+			wantErr: "must start with /api/v1/ or /api/v2/",
 		},
 		{
 			name:    "empty path",

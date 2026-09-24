@@ -246,6 +246,16 @@ shipyard load snapshot --env {environment_uuid} --sequence-number {n}
 shipyard upload volume --env {environment_uuid} --volume {volume} --file {filepath.bz2}
 ```
 
+### Call the REST API directly
+
+```bash
+shipyard api /api/v1/environment
+shipyard api -X PUT /api/v1/environment/{environment_uuid}/env-vars --input body.json
+```
+
+Paths must start with `/api/v1` or `/api/v2`; your token and org are added for you.
+`bypass_token` and kubeconfig credentials are redacted unless you pass `--include-secrets`.
+
 ### Connect to telepresence
 ```bash
 shipyard telepresence connect --env {environment_uuid}
@@ -371,9 +381,18 @@ The Shipyard CLI provides an MCP server for AI assistant integration. This allow
 - `cancel_environment` - Cancel environment's latest build
 - `revive_environment` - Revive a deleted environment
 
-#### Service Management (2 tools)
+#### Environment Configuration (6 tools)
+- `get_build_history` - List an environment's builds, optionally only successful ones
+- `get_env_vars` - List environment variables (hidden values are masked)
+- `put_env_vars` - Create or update environment variables
+- `delete_env_var` - Delete an environment variable by name
+- `update_branches` - Change the branch of every repo in an environment
+- `deploy_detached` - Deploy a detached environment cloned from an application build
+
+#### Service Management (3 tools)
 - `get_services` - List services in an environment
 - `get_logs` - Get logs from a service
+- `restart_service` - Restart one service without rebuilding the environment
 
 #### Volume Management (5 tools)
 - `get_volumes` - List volumes in an environment
