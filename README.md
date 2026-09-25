@@ -20,6 +20,36 @@ Using an AI assistant? The CLI includes an MCP server: see [Use Shipyard from an
     brew install shipyard
     ```
 
+## Upgrading
+
+```bash
+shipyard upgrade
+```
+
+`shipyard update` does the same thing. It installs the latest release and shows its release notes. A Homebrew install
+is upgraded with `brew upgrade shipyard`; any other install downloads the release binary, verifies it against the
+release's `checksums.txt`, and replaces the running binary. If that binary is in a directory you can't write to, such as
+`/usr/local/bin`, run `sudo shipyard upgrade`.
+
+Add `--prerelease` to include pre-releases, or `--force` to reinstall the current release.
+
+The CLI also checks for a new release once a day when you run a command in a terminal, and asks before installing it:
+
+```
+A new version of shipyard is available: 1.9.0 → 1.10.0
+Upgrade now? [Y/n/s] (s = skip this version)
+```
+
+- **Y** (or Enter) upgrades, shows the release notes, and then runs your command on the new version.
+- **n** asks again tomorrow.
+- **s** skips that version, and asks again when a newer one is released.
+
+However you upgrade, including `brew upgrade`, the first run of a new version shows the release notes you haven't
+seen. The check only runs when stdin, stdout and stderr are all a terminal, so it stays out of pipes, redirects, CI, and
+`shipyard mcp serve`. A script you start from a terminal can't be told apart from you typing, so set
+`SHIPYARD_NO_UPDATE_CHECK=1` in scripts that call `shipyard`. To turn the check off everywhere, add `update_check: false`
+to `~/.shipyard/config.yaml`.
+
 ## Login
 
 Run `shipyard login` to initialize the CLI. This will prompt you to log in to Shipyard in the browser. The CLI will then
