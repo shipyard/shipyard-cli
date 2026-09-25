@@ -1,268 +1,109 @@
 package commands
 
 import (
-	"encoding/json"
+	"context"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
-	"runtime"
-	"strings"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/util/homedir"
 
+	"github.com/shipyard/shipyard-cli/pkg/selfupdate"
 	"github.com/shipyard/shipyard-cli/version"
 )
 
-const (
-	githubAPIBaseURL = "https://api.github.com"
-	repoOwner        = "shipyard"
-	repoName         = "shipyard-cli"
-)
-
-type GitHubRelease struct {
-	TagName    string `json:"tag_name"`
-	Name       string `json:"name"`
-	Body       string `json:"body"`
-	Prerelease bool   `json:"prerelease"`
-	Assets     []struct {
-		Name               string `json:"name"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-	} `json:"assets"`
-}
-
-func NewUpdateCmd() *cobra.Command {
+func NewUpgradeCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "update",
-		Short: "Update shipyard CLI to the latest version",
-		Long:  `Check for the latest release on GitHub and update the CLI binary if a newer version is available.`,
-		RunE:  runUpdate,
+		Use:     "upgrade",
+		Aliases: []string{"update"},
+		Short:   "Upgrade shipyard CLI to the latest version",
+		Long: `Check GitHub for the latest release and install it if it is newer, then show
+its release notes.
+
+A Homebrew install is upgraded with 'brew upgrade shipyard'. Any other install
+downloads the release binary, verifies it against the release's checksums.txt,
+and replaces the running binary.`,
+		Example: `  # Upgrade to the latest stable release
+  shipyard upgrade
+
+  # Include pre-releases
+  shipyard upgrade --prerelease
+
+  # Reinstall the latest release even if it's the running version
+  shipyard upgrade --force`,
+		RunE: runUpgrade,
 	}
 
-	cmd.Flags().BoolP("force", "f", false, "Force update even if already on latest version")
+	cmd.Flags().BoolP("force", "f", false, "Reinstall even if already on the latest version")
 	cmd.Flags().BoolP("prerelease", "p", false, "Include prerelease versions")
 
 	return cmd
 }
 
-func runUpdate(cmd *cobra.Command, args []string) error {
+func runUpgrade(cmd *cobra.Command, _ []string) error {
 	force, _ := cmd.Flags().GetBool("force")
 	includePrerelease, _ := cmd.Flags().GetBool("prerelease")
 
 	green := color.New(color.FgHiGreen)
-	yellow := color.New(color.FgHiYellow)
 	blue := color.New(color.FgHiBlue)
+	out := cmd.OutOrStdout()
 
-	_, _ = blue.Println("Checking for updates...")
-
-	// Get current version
-	currentVersion := version.Version
-	if currentVersion == "undefined" {
-		return fmt.Errorf("unable to determine current version")
+	current := version.Version
+	if !selfupdate.IsRelease(current) {
+		return fmt.Errorf("this is a development build (version %q); install a release to upgrade it", current)
 	}
 
-	// Fetch latest release from GitHub
-	latestRelease, err := getLatestRelease(includePrerelease)
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	client := selfupdate.NewClient(15 * time.Second)
+
+	_, _ = blue.Fprintln(out, "Checking for updates...")
+	latest, err := client.Latest(ctx, includePrerelease)
 	if err != nil {
 		return fmt.Errorf("failed to fetch latest release: %w", err)
 	}
+	_, _ = blue.Fprintf(out, "Current version: %s\n", current)
+	_, _ = blue.Fprintf(out, "Latest version:  %s\n", latest.Version())
 
-	_, _ = blue.Printf("Current version: %s\n", currentVersion)
-	_, _ = blue.Printf("Latest version: %s\n", latestRelease.TagName)
-
-	// Check if update is needed
-	if !force && !isNewerVersion(currentVersion, latestRelease.TagName) {
-		_, _ = green.Println("✓ You're already running the latest version!")
+	if !force && !selfupdate.IsNewer(current, latest.TagName) {
+		_, _ = green.Fprintln(out, "✓ You're already running the latest version!")
 		return nil
 	}
 
-	// Find the appropriate asset for the current platform
-	assetURL, err := findAssetForPlatform(latestRelease.Assets)
+	installer, err := selfupdate.NewInstaller(out, current)
 	if err != nil {
-		return fmt.Errorf("failed to find compatible release asset: %w", err)
+		return err
 	}
-
-	_, _ = yellow.Printf("Downloading %s...\n", latestRelease.TagName)
-
-	// Download the new binary
-	tempFile, err := downloadBinary(assetURL)
-	if err != nil {
-		return fmt.Errorf("failed to download binary: %w", err)
+	if installer.Method == selfupdate.MethodHomebrew && force && !selfupdate.IsNewer(current, latest.TagName) {
+		return errors.New("installed with Homebrew: run 'brew reinstall shipyard' to reinstall")
 	}
-	defer func() { _ = os.Remove(tempFile) }()
-
-	// Get the current executable path
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to get executable path: %w", err)
+	if err := installer.Install(ctx, latest); err != nil {
+		return err
 	}
+	_, _ = green.Fprintf(out, "✓ Upgraded to %s\n\n", latest.Version())
 
-	// Make the downloaded binary executable
-	if err := os.Chmod(tempFile, 0755); err != nil {
-		return fmt.Errorf("failed to make binary executable: %w", err)
+	notes, err := client.Between(ctx, current, latest.Version())
+	if err != nil || len(notes) == 0 {
+		// --force on the same version, or GitHub unreachable after the download.
+		notes = []selfupdate.Release{*latest}
 	}
+	selfupdate.RenderNotes(out, notes, selfupdate.DefaultNotesLines)
 
-	// Create backup of current binary
-	backupPath := execPath + ".backup"
-	if err := copyFile(execPath, backupPath); err != nil {
-		return fmt.Errorf("failed to create backup: %w", err)
+	// The notes were just shown; don't show them again on the next run.
+	if home := homedir.HomeDir(); home != "" {
+		path := selfupdate.StatePath(home)
+		st := selfupdate.LoadState(path)
+		st.LastSeenVersion = latest.Version()
+		st.LatestVersion = latest.Version()
+		st.LastChecked = time.Now()
+		if err := st.Save(path); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "warning: could not save update state: %v\n", err)
+		}
 	}
-
-	// Replace the current binary
-	if err := copyFile(tempFile, execPath); err != nil {
-		// Restore backup on failure
-		_ = copyFile(backupPath, execPath)
-		return fmt.Errorf("failed to update binary: %w", err)
-	}
-
-	// Remove backup file
-	_ = os.Remove(backupPath)
-
-	_, _ = green.Printf("✓ Successfully updated to %s!\n", latestRelease.TagName)
-	_, _ = blue.Println("Please restart your terminal or run 'shipyard --version' to verify the update.")
-
 	return nil
-}
-
-func getLatestRelease(includePrerelease bool) (*GitHubRelease, error) {
-	client := &http.Client{}
-
-	if includePrerelease {
-		// Fetch all releases — the first entry is the most recent,
-		// which may be a pre-release or stable.
-		url := fmt.Sprintf("%s/repos/%s/%s/releases", githubAPIBaseURL, repoOwner, repoName)
-		req, err := http.NewRequest("GET", url, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("User-Agent", "shipyard-cli-updater")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
-		}
-
-		var releases []GitHubRelease
-		if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-			return nil, err
-		}
-
-		if len(releases) == 0 {
-			return nil, fmt.Errorf("no releases found")
-		}
-
-		return &releases[0], nil
-	}
-
-	// Stable only — /releases/latest always excludes pre-releases.
-	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", githubAPIBaseURL, repoOwner, repoName)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "shipyard-cli-updater")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
-	}
-
-	var release GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, err
-	}
-
-	return &release, nil
-}
-
-func findAssetForPlatform(assets []struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-}) (string, error) {
-	osName := runtime.GOOS
-	arch := runtime.GOARCH
-
-	// Assets use Go's OS/arch naming (e.g. shipyard-darwin-amd64)
-	expectedName := fmt.Sprintf("shipyard-%s-%s", osName, arch)
-
-	for _, asset := range assets {
-		if strings.Contains(asset.Name, expectedName) {
-			return asset.BrowserDownloadURL, nil
-		}
-	}
-
-	// Fallback: look for any asset with our OS
-	for _, asset := range assets {
-		if strings.Contains(asset.Name, osName) {
-			return asset.BrowserDownloadURL, nil
-		}
-	}
-
-	return "", fmt.Errorf("no compatible release asset found for %s/%s", osName, arch)
-}
-
-func downloadBinary(url string) (string, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download failed with status %d", resp.StatusCode)
-	}
-
-	// Create temporary file
-	tempFile, err := os.CreateTemp("", "shipyard-update-*")
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = tempFile.Close() }()
-
-	// Download to temp file
-	_, err = io.Copy(tempFile, resp.Body)
-	if err != nil {
-		_ = os.Remove(tempFile.Name())
-		return "", err
-	}
-
-	return tempFile.Name(), nil
-}
-
-func copyFile(src, dst string) error {
-	sourceFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = sourceFile.Close() }()
-
-	destFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = destFile.Close() }()
-
-	_, err = io.Copy(destFile, sourceFile)
-	return err
-}
-
-func isNewerVersion(current, latest string) bool {
-	// Remove 'v' prefix if present
-	current = strings.TrimPrefix(current, "v")
-	latest = strings.TrimPrefix(latest, "v")
-
-	// Simple version comparison - this could be enhanced with proper semver parsing
-	// For now, we'll do a basic string comparison
-	return latest > current
 }
