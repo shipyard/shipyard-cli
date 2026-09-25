@@ -15,22 +15,20 @@ import (
 )
 
 const (
-	// noUpdateCheckEnv turns the startup check off.
+	// noUpdateCheckEnv turns the update check off.
 	noUpdateCheckEnv = "SHIPYARD_NO_UPDATE_CHECK"
-	// reexecEnv marks the process the CLI starts after upgrading, so the new
-	// binary doesn't check again. It's cleared on arrival: a shell that
-	// command starts (exec, telepresence) must not inherit it.
-	reexecEnv = "SHIPYARD_UPGRADE_REEXEC"
+	// noticeWait is how long a finished command waits for the background
+	// check. A slower check prints nothing this time and is retried next run.
+	noticeWait = time.Second
 )
 
-// checkForUpdate runs the startup update check before cmd, and re-runs the
-// command on the new binary if the user chose to upgrade.
-func checkForUpdate(cmd *cobra.Command) {
+// pendingNotice receives the background check's result; nil when no check runs.
+var pendingNotice chan *selfupdate.Notice
+
+// startUpdateCheck starts checking for a new release in the background while
+// cmd runs. showUpdateNotice prints the result once the command is done.
+func startUpdateCheck(cmd *cobra.Command) {
 	selfupdate.CleanupOld()
-	if os.Getenv(reexecEnv) != "" {
-		_ = os.Unsetenv(reexecEnv)
-		return
-	}
 	if !shouldCheckForUpdate(cmd) {
 		return
 	}
@@ -38,25 +36,34 @@ func checkForUpdate(cmd *cobra.Command) {
 	if home == "" {
 		return
 	}
-	installer, err := selfupdate.NewInstaller(os.Stderr, version.Version)
-	if err != nil {
-		return
-	}
-	s := &selfupdate.Startup{
+	n := &selfupdate.Notifier{
 		Current:   version.Version,
 		StatePath: selfupdate.StatePath(home),
 		Client:    selfupdate.NewClient(15 * time.Second),
-		Ask:       selfupdate.AskTerminal(os.Stdin),
-		Out:       os.Stderr,
 		Now:       time.Now,
-		Install:   installer.Install,
 	}
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if s.Run(ctx) {
-		reexec(installer)
+	pendingNotice = make(chan *selfupdate.Notice, 1)
+	go func() { pendingNotice <- n.Check(ctx) }()
+}
+
+// showUpdateNotice prints what the background check found, on stderr, after
+// the command's own output.
+func showUpdateNotice() {
+	if pendingNotice == nil {
+		return
+	}
+	select {
+	case notice := <-pendingNotice:
+		if notice.Text == "" {
+			return
+		}
+		_, _ = os.Stderr.WriteString("\n" + notice.Text)
+		notice.Shown()
+	case <-time.After(noticeWait):
 	}
 }
 
@@ -70,11 +77,8 @@ func shouldCheckForUpdate(cmd *cobra.Command) bool {
 	if underAgent() {
 		return false
 	}
-	// Only prompt a person at a terminal: stdin to answer, stderr to see the
-	// prompt, and stdout so `shipyard ... | jq` and redirects never block. A
-	// script started from a terminal inherits all three and can't be told
-	// apart; SHIPYARD_NO_UPDATE_CHECK covers that.
-	if !isTerminal(os.Stdin) || !isTerminal(os.Stdout) || !isTerminal(os.Stderr) {
+	// The notice goes to stderr; only print it where a person will see it.
+	if !isTerminal(os.Stderr) {
 		return false
 	}
 	switch topLevelName(cmd) {
@@ -87,8 +91,7 @@ func shouldCheckForUpdate(cmd *cobra.Command) bool {
 }
 
 // agentEnvVars are set by AI coding agents in the shells they run commands
-// in. Some of those shells are terminals, so the TTY checks alone would let
-// the prompt through; PromptTimeout is the backstop for agents not listed.
+// in. The notice never blocks, but it's noise in output an agent parses.
 var agentEnvVars = []string{
 	"CLAUDECODE",                     // Claude Code
 	"GEMINI_CLI",                     // Gemini CLI

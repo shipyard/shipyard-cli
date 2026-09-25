@@ -15,11 +15,9 @@ type State struct {
 	LastChecked time.Time `json:"last_checked"`
 	// LatestVersion is the newest release that check found.
 	LatestVersion string `json:"latest_version,omitempty"`
-	// SkippedVersion is a release the user chose to skip; they aren't asked
-	// about it again, only about releases after it.
-	SkippedVersion string `json:"skipped_version,omitempty"`
-	// SnoozedUntil holds off the prompt after the user answers "not now".
-	SnoozedUntil time.Time `json:"snoozed_until,omitzero"`
+	// NotifiedAt is when the "new version available" message was last shown;
+	// it's shown at most once per CheckInterval.
+	NotifiedAt time.Time `json:"notified_at,omitzero"`
 	// LastSeenVersion is the version whose release notes the user has seen,
 	// or the version they first ran. A newer running version means it was
 	// upgraded since, by any method, and its notes are shown once.
@@ -34,11 +32,8 @@ func (cur State) merge(before, after State) State {
 	if after.LatestVersion != before.LatestVersion {
 		cur.LatestVersion = after.LatestVersion
 	}
-	if after.SkippedVersion != before.SkippedVersion {
-		cur.SkippedVersion = after.SkippedVersion
-	}
-	if !after.SnoozedUntil.Equal(before.SnoozedUntil) {
-		cur.SnoozedUntil = after.SnoozedUntil
+	if !after.NotifiedAt.Equal(before.NotifiedAt) {
+		cur.NotifiedAt = after.NotifiedAt
 	}
 	if after.LastSeenVersion != before.LastSeenVersion {
 		cur.LastSeenVersion = after.LastSeenVersion

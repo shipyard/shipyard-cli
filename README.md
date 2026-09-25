@@ -33,26 +33,20 @@ release's `checksums.txt`, and replaces the running binary. If that binary is in
 
 Add `--prerelease` to include pre-releases, or `--force` to reinstall the current release.
 
-The CLI also checks for a new release once a day when you run a command in a terminal, and asks before installing it:
+When a new release is out, the CLI tells you after a command finishes, at most once a day:
 
 ```
 A new version of shipyard is available: 1.9.0 → 1.10.0
-Upgrade now? [Y/n/s] (s = skip this version)
+Run `shipyard upgrade` to install it. Release notes: https://github.com/shipyard/shipyard-cli/releases/tag/v1.10.0
 ```
 
-- **Y** (or Enter) upgrades, shows the release notes, and then runs your command on the new version.
-- **n** asks again tomorrow.
-- **s** skips that version, and asks again when a newer one is released.
-- No answer within 10 seconds counts as **n**, and your command runs, so nothing ever waits on a prompt nobody sees.
+It never asks anything or waits for input. The check runs in the background while your command runs, so it doesn't slow
+the command down. The first run after an upgrade made any other way, such as `brew upgrade`, shows the release notes you
+missed.
 
-However you upgrade, including `brew upgrade`, the first run of a new version shows the release notes you haven't
-seen.
-
-The check only runs when stdin, stdout and stderr are all a terminal, so it stays out of pipes, redirects, CI, and
-`shipyard mcp serve`. It also stays off inside AI coding agents that identify themselves (Claude Code, Codex, Cursor's
-agent, Gemini CLI). A script started from a terminal can't be told apart from you typing: it gets the prompt, and
-carries on after 10 seconds. Set `SHIPYARD_NO_UPDATE_CHECK=1` in scripts and agent environments to skip the check
-entirely, or add `update_check: false` to `~/.shipyard/config.yaml` to turn it off everywhere.
+The message goes to stderr, and only when stderr is a terminal. It's never shown in CI, inside AI coding agents that
+identify themselves (Claude Code, Codex, Cursor's agent, Gemini CLI), or for `shipyard mcp serve`. To turn it off, set
+`SHIPYARD_NO_UPDATE_CHECK=1` or add `update_check: false` to `~/.shipyard/config.yaml`.
 
 ## Login
 

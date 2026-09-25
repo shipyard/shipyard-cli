@@ -35,7 +35,7 @@ var rootCmd = &cobra.Command{
 		logging.Register()
 		log.Println("Git commit:", version.GitCommit)
 		log.Println("Current config file:", viper.ConfigFileUsed())
-		checkForUpdate(cmd)
+		startUpdateCheck(cmd)
 	},
 }
 
@@ -47,7 +47,13 @@ var (
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		fail("Command", err)
+		red := color.New(color.FgHiRed)
+		_, _ = red.Fprintf(os.Stderr, "Command error: %s\n", err)
+	}
+	// After the command's own output, including its error, as gh does.
+	showUpdateNotice()
+	if err != nil {
+		os.Exit(1)
 	}
 }
 

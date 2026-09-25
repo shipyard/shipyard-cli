@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +27,8 @@ type fakeGitHub struct {
 	releases []Release
 	files    map[string][]byte // download path -> body
 	hits     map[string]int
+	// onRequest, if set, runs before each request is served.
+	onRequest func()
 }
 
 func newFakeGitHub(t *testing.T, releases ...Release) (*fakeGitHub, *httptest.Server) {
@@ -35,6 +36,9 @@ func newFakeGitHub(t *testing.T, releases ...Release) (*fakeGitHub, *httptest.Se
 	f := &fakeGitHub{releases: releases, files: map[string][]byte{}, hits: map[string]int{}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.hits[r.URL.Path]++
+		if f.onRequest != nil {
+			f.onRequest()
+		}
 		base := "/repos/shipyard/shipyard-cli/releases"
 		switch {
 		case r.URL.Path == base+"/latest":
@@ -297,7 +301,7 @@ func TestStateRoundTrip(t *testing.T) {
 	if s := LoadState(path); s != (State{}) {
 		t.Errorf("missing file: %+v", s)
 	}
-	want := State{LastChecked: time.Unix(1700000000, 0).UTC(), LatestVersion: "1.10.0", SkippedVersion: "1.9.5", LastSeenVersion: "1.9.0"}
+	want := State{LastChecked: time.Unix(1700000000, 0).UTC(), LatestVersion: "1.10.0", NotifiedAt: time.Unix(1700000500, 0).UTC(), LastSeenVersion: "1.9.0"}
 	if err := want.Save(path); err != nil {
 		t.Fatal(err)
 	}
@@ -313,238 +317,155 @@ func TestStateRoundTrip(t *testing.T) {
 	}
 }
 
-// startupFixture runs Startup against a fake GitHub with 1.9.0 installed and
-// 1.10.0 released.
-type startupFixture struct {
-	gh        *fakeGitHub
-	s         *Startup
-	out       bytes.Buffer
-	installed []string
-	now       time.Time
+// notifyFixture runs a Notifier against a fake GitHub with 1.9.0 installed
+// and 1.10.0 released.
+type notifyFixture struct {
+	gh  *fakeGitHub
+	n   *Notifier
+	now time.Time
 }
 
-func newStartup(t *testing.T, answer string, st State) *startupFixture {
+func newNotify(t *testing.T, st State) *notifyFixture {
 	t.Helper()
 	gh, srv := newFakeGitHub(t,
 		Release{TagName: "v1.10.0", Body: "- new in 1.10"},
 		Release{TagName: "v1.9.0", Body: "- new in 1.9"},
 	)
-	fx := &startupFixture{gh: gh, now: time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}
+	fx := &notifyFixture{gh: gh, now: time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}
 	path := filepath.Join(t.TempDir(), "update-state.json")
 	if err := st.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	fx.s = &Startup{
-		Current:   "1.9.0",
-		StatePath: path,
-		Client:    testClient(srv),
-		Ask:       AskFrom(strings.NewReader(answer)),
-		Out:       &fx.out,
-		Now:       func() time.Time { return fx.now },
-		Install: func(_ context.Context, rel *Release) error {
-			fx.installed = append(fx.installed, rel.TagName)
-			return nil
-		},
-	}
+	fx.n = &Notifier{Current: "1.9.0", StatePath: path, Client: testClient(srv), Now: func() time.Time { return fx.now }}
 	return fx
 }
 
-func (fx *startupFixture) state() State { return LoadState(fx.s.StatePath) }
+func (fx *notifyFixture) state() State { return LoadState(fx.n.StatePath) }
 
-func TestStartupYesInstallsAndShowsNotes(t *testing.T) {
-	fx := newStartup(t, "\n", State{LastSeenVersion: "1.9.0"})
-	if !fx.s.Run(context.Background()) {
-		t.Fatal("Run returned false after installing")
-	}
-	if strings.Join(fx.installed, ",") != "v1.10.0" {
-		t.Errorf("installed %v", fx.installed)
-	}
-	out := fx.out.String()
-	for _, want := range []string{"1.9.0 → 1.10.0", "✓ Upgraded to 1.10.0", "What's new in 1.10.0", "new in 1.10"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output missing %q:\n%s", want, out)
+// checkedEarlierToday is a state whose last check, a few hours ago, found
+// nothing newer, so Check makes no request for the latest release.
+func checkedEarlierToday(lastSeen string) State {
+	return State{LastSeenVersion: lastSeen, LastChecked: time.Date(2026, 9, 25, 1, 0, 0, 0, time.UTC), LatestVersion: "1.9.0"}
+}
+
+func TestNotifyNewVersion(t *testing.T) {
+	fx := newNotify(t, State{LastSeenVersion: "1.9.0"})
+	notice := fx.n.Check(context.Background())
+	for _, want := range []string{
+		"A new version of shipyard is available: 1.9.0 → 1.10.0",
+		"Run `shipyard upgrade` to install it.",
+		"releases/tag/v1.10.0",
+	} {
+		if !strings.Contains(notice.Text, want) {
+			t.Errorf("notice missing %q:\n%s", want, notice.Text)
 		}
 	}
-	if strings.Contains(out, "new in 1.9") {
-		t.Errorf("showed notes the user already had:\n%s", out)
+	if st := fx.state(); st.LatestVersion != "1.10.0" || !st.LastChecked.Equal(fx.now) || !st.NotifiedAt.IsZero() {
+		t.Errorf("before Shown: %+v", st)
 	}
-	if st := fx.state(); st.LastSeenVersion != "1.10.0" || st.LatestVersion != "1.10.0" {
-		t.Errorf("state %+v", st)
+	notice.Shown()
+	if st := fx.state(); !st.NotifiedAt.Equal(fx.now) {
+		t.Errorf("after Shown: %+v", st)
 	}
 }
 
-func TestStartupNoSnoozesForADay(t *testing.T) {
-	fx := newStartup(t, "n\n", State{LastSeenVersion: "1.9.0"})
-	if fx.s.Run(context.Background()) {
-		t.Fatal("installed after no")
-	}
-	if len(fx.installed) != 0 {
-		t.Errorf("installed %v", fx.installed)
-	}
-	if st := fx.state(); !st.SnoozedUntil.Equal(fx.now.Add(CheckInterval)) {
-		t.Errorf("snoozed until %v", st.SnoozedUntil)
-	}
+func TestNotifyAtMostDaily(t *testing.T) {
+	fx := newNotify(t, State{LastSeenVersion: "1.9.0"})
+	fx.n.Check(context.Background()).Shown()
 
-	// Within the day: no prompt, and no request to GitHub.
-	fx.out.Reset()
 	fx.now = fx.now.Add(23 * time.Hour)
 	fx.gh.hits = map[string]int{}
-	fx.s.Run(context.Background())
-	if fx.out.Len() != 0 || len(fx.gh.hits) != 0 {
-		t.Errorf("prompted or checked while snoozed: %q %v", fx.out.String(), fx.gh.hits)
+	if text := fx.n.Check(context.Background()).Text; text != "" || len(fx.gh.hits) != 0 {
+		t.Errorf("within a day: %q, requests %v", text, fx.gh.hits)
 	}
 
-	// After it: asked again.
 	fx.now = fx.now.Add(2 * time.Hour)
-	fx.s.Ask = AskFrom(strings.NewReader("n\n"))
-	fx.s.Run(context.Background())
-	if !strings.Contains(fx.out.String(), "Upgrade now?") {
-		t.Errorf("not asked again after the snooze:\n%s", fx.out.String())
+	if text := fx.n.Check(context.Background()).Text; !strings.Contains(text, "1.9.0 → 1.10.0") {
+		t.Errorf("not shown again the next day: %q", text)
 	}
 }
 
-func TestStartupSkipIgnoresThatVersionOnly(t *testing.T) {
-	fx := newStartup(t, "s\n", State{LastSeenVersion: "1.9.0"})
-	fx.s.Run(context.Background())
-	if st := fx.state(); st.SkippedVersion != "1.10.0" {
-		t.Fatalf("state %+v", st)
+func TestNotifyNotShownIsShownNextTime(t *testing.T) {
+	// The command finished before the check did, so nothing was printed.
+	fx := newNotify(t, State{LastSeenVersion: "1.9.0"})
+	fx.n.Check(context.Background())
+	fx.gh.hits = map[string]int{}
+	if text := fx.n.Check(context.Background()).Text; !strings.Contains(text, "1.9.0 → 1.10.0") {
+		t.Errorf("unshown notice lost: %q", text)
 	}
-
-	fx.out.Reset()
-	fx.now = fx.now.Add(48 * time.Hour)
-	fx.s.Run(context.Background())
-	if fx.out.Len() != 0 {
-		t.Errorf("asked about a skipped version:\n%s", fx.out.String())
-	}
-
-	fx.gh.releases = append([]Release{{TagName: "v1.11.0"}}, fx.gh.releases...)
-	fx.now = fx.now.Add(48 * time.Hour)
-	fx.s.Ask = AskFrom(strings.NewReader("n\n"))
-	fx.s.Run(context.Background())
-	if !strings.Contains(fx.out.String(), "1.9.0 → 1.11.0") {
-		t.Errorf("not asked about the next version:\n%s", fx.out.String())
+	if len(fx.gh.hits) != 0 {
+		t.Errorf("re-fetched a fresh result: %v", fx.gh.hits)
 	}
 }
 
-func TestStartupEOFDoesNotInstall(t *testing.T) {
-	fx := newStartup(t, "", State{LastSeenVersion: "1.9.0"})
-	if fx.s.Run(context.Background()) || len(fx.installed) != 0 {
-		t.Error("installed on end of input")
+func TestNotifyUpToDate(t *testing.T) {
+	fx := newNotify(t, State{LastSeenVersion: "1.10.0"})
+	fx.n.Current = "1.10.0"
+	if text := fx.n.Check(context.Background()).Text; text != "" {
+		t.Errorf("printed when up to date: %q", text)
 	}
 }
 
-func TestStartupUnknownAnswerDoesNotInstall(t *testing.T) {
-	fx := newStartup(t, "maybe\n", State{LastSeenVersion: "1.9.0"})
-	if fx.s.Run(context.Background()) || len(fx.installed) != 0 {
-		t.Error("installed on an unrecognized answer")
+func TestNotifyOfflineRetriesInAnHour(t *testing.T) {
+	fx := newNotify(t, State{LastSeenVersion: "1.9.0"})
+	fx.n.Client.BaseURL = "http://127.0.0.1:1" // nothing listens here
+	if text := fx.n.Check(context.Background()).Text; text != "" {
+		t.Errorf("printed while offline: %q", text)
 	}
-}
-
-func TestStartupNoAnswerContinuesWithoutInstalling(t *testing.T) {
-	fx := newStartup(t, "", State{LastSeenVersion: "1.9.0"})
-	var waited time.Duration
-	fx.s.Ask = func(timeout time.Duration) (string, error) {
-		waited = timeout
-		return "", ErrNoAnswer
-	}
-	if fx.s.Run(context.Background()) || len(fx.installed) != 0 {
-		t.Fatal("installed with no answer")
-	}
-	if waited != PromptTimeout {
-		t.Errorf("asked with timeout %v, want %v", waited, PromptTimeout)
-	}
-	if out := fx.out.String(); !strings.Contains(out, "continuing in 10s") || !strings.Contains(out, "No answer, continuing") {
-		t.Errorf("output:\n%s", out)
-	}
-	if st := fx.state(); !st.SnoozedUntil.Equal(fx.now.Add(CheckInterval)) {
-		t.Errorf("not snoozed: %+v", st)
-	}
-}
-
-func TestStartupInstallFailureContinues(t *testing.T) {
-	fx := newStartup(t, "y\n", State{LastSeenVersion: "1.9.0"})
-	fx.s.Install = func(context.Context, *Release) error { return errors.New("disk full") }
-	if fx.s.Run(context.Background()) {
-		t.Fatal("reported success after a failed install")
-	}
-	out := fx.out.String()
-	if !strings.Contains(out, "Upgrade failed: disk full") || !strings.Contains(out, "shipyard upgrade") {
-		t.Errorf("output:\n%s", out)
-	}
-	if st := fx.state(); st.LastSeenVersion != "1.9.0" || st.SnoozedUntil.IsZero() {
-		t.Errorf("state %+v", st)
-	}
-}
-
-func TestStartupKeepsAnswerFromAnotherShell(t *testing.T) {
-	// This shell prompts; while it waits, another shell skips 1.10.0.
-	fx := newStartup(t, "n\n", State{LastSeenVersion: "1.9.0"})
-	fx.s.Ask = AskFrom(readerFunc(func(p []byte) (int, error) {
-		other := LoadState(fx.s.StatePath)
-		other.SkippedVersion = "1.10.0"
-		if err := other.Save(fx.s.StatePath); err != nil {
-			t.Fatal(err)
-		}
-		return copy(p, "n\n"), nil
-	}))
-	fx.s.Run(context.Background())
-	st := fx.state()
-	if st.SkippedVersion != "1.10.0" || st.SnoozedUntil.IsZero() {
-		t.Errorf("lost one shell's answer: %+v", st)
-	}
-}
-
-type readerFunc func([]byte) (int, error)
-
-func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
-
-func TestStartupChecksAtMostDaily(t *testing.T) {
-	fx := newStartup(t, "", State{LastSeenVersion: "1.9.0", LastChecked: time.Date(2026, 9, 25, 1, 0, 0, 0, time.UTC), LatestVersion: "1.9.0"})
-	fx.s.Run(context.Background())
-	if len(fx.gh.hits) != 0 || fx.out.Len() != 0 {
-		t.Errorf("checked within the interval: %v %q", fx.gh.hits, fx.out.String())
-	}
-}
-
-func TestStartupOfflineRetriesInAnHour(t *testing.T) {
-	fx := newStartup(t, "", State{LastSeenVersion: "1.9.0"})
-	fx.s.Client.BaseURL = "http://127.0.0.1:1" // nothing listens here
-	fx.s.Run(context.Background())
-	st := fx.state()
-	if fx.out.Len() != 0 {
-		t.Errorf("printed while offline: %q", fx.out.String())
-	}
-	if next := st.LastChecked.Add(CheckInterval); !next.Equal(fx.now.Add(time.Hour)) {
+	if next := fx.state().LastChecked.Add(CheckInterval); !next.Equal(fx.now.Add(time.Hour)) {
 		t.Errorf("next check at %v, want an hour from now", next)
 	}
 }
 
-func TestStartupFreshInstallRecordsVersionQuietly(t *testing.T) {
-	fx := newStartup(t, "", State{LastChecked: time.Date(2026, 9, 25, 1, 0, 0, 0, time.UTC), LatestVersion: "1.9.0"})
-	fx.s.Run(context.Background())
-	if fx.out.Len() != 0 {
-		t.Errorf("printed on first run: %q", fx.out.String())
+func TestNotifyFreshInstallRecordsVersionQuietly(t *testing.T) {
+	fx := newNotify(t, checkedEarlierToday(""))
+	if text := fx.n.Check(context.Background()).Text; text != "" {
+		t.Errorf("printed on first run: %q", text)
 	}
 	if st := fx.state(); st.LastSeenVersion != "1.9.0" {
 		t.Errorf("state %+v", st)
 	}
 }
 
-func TestStartupShowsNotesAfterUpgradeElsewhere(t *testing.T) {
+func TestNotifyNotesAfterUpgradeElsewhere(t *testing.T) {
 	// e.g. `brew upgrade` from 1.8.1: the first run of 1.9.0 shows its notes once.
-	fx := newStartup(t, "", State{LastSeenVersion: "1.8.1", LastChecked: time.Date(2026, 9, 25, 1, 0, 0, 0, time.UTC), LatestVersion: "1.9.0"})
-	fx.s.Run(context.Background())
-	out := fx.out.String()
-	if !strings.Contains(out, "shipyard was upgraded to 1.9.0") || !strings.Contains(out, "new in 1.9") {
-		t.Errorf("output:\n%s", out)
+	fx := newNotify(t, checkedEarlierToday("1.8.1"))
+	notice := fx.n.Check(context.Background())
+	if !strings.Contains(notice.Text, "shipyard was upgraded to 1.9.0") || !strings.Contains(notice.Text, "new in 1.9") {
+		t.Errorf("notice:\n%s", notice.Text)
 	}
-	if st := fx.state(); st.LastSeenVersion != "1.9.0" {
-		t.Errorf("state %+v", st)
+	if strings.Contains(notice.Text, "new in 1.10") {
+		t.Errorf("showed notes for a version not installed:\n%s", notice.Text)
 	}
+	if st := fx.state(); st.LastSeenVersion != "1.8.1" {
+		t.Errorf("recorded as seen before it was shown: %+v", st)
+	}
+	notice.Shown()
+	if text := fx.n.Check(context.Background()).Text; text != "" {
+		t.Errorf("notes shown twice:\n%s", text)
+	}
+}
 
-	fx.out.Reset()
-	fx.s.Run(context.Background())
-	if fx.out.Len() != 0 {
-		t.Errorf("notes shown twice:\n%s", fx.out.String())
+func TestNotifyNotesAndNewVersionTogether(t *testing.T) {
+	// Upgraded from 1.8.1 to 1.9.0 with 1.10.0 already out.
+	fx := newNotify(t, State{LastSeenVersion: "1.8.1"})
+	text := fx.n.Check(context.Background()).Text
+	notes, available := strings.Index(text, "new in 1.9"), strings.Index(text, "1.9.0 → 1.10.0")
+	if notes < 0 || available < 0 || notes > available {
+		t.Errorf("want notes, then the new-version line:\n%s", text)
+	}
+}
+
+func TestNotifyKeepsStateWrittenMeanwhile(t *testing.T) {
+	// Another shell's `shipyard upgrade` records notes as seen during this check.
+	fx := newNotify(t, State{LastSeenVersion: "1.9.0"})
+	fx.gh.onRequest = func() {
+		st := LoadState(fx.n.StatePath)
+		st.LastSeenVersion = "1.10.0"
+		_ = st.Save(fx.n.StatePath)
+	}
+	fx.n.Check(context.Background())
+	if st := fx.state(); st.LastSeenVersion != "1.10.0" || st.LatestVersion != "1.10.0" {
+		t.Errorf("lost a write: %+v", st)
 	}
 }
