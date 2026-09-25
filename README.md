@@ -43,12 +43,16 @@ Upgrade now? [Y/n/s] (s = skip this version)
 - **Y** (or Enter) upgrades, shows the release notes, and then runs your command on the new version.
 - **n** asks again tomorrow.
 - **s** skips that version, and asks again when a newer one is released.
+- No answer within 10 seconds counts as **n**, and your command runs, so nothing ever waits on a prompt nobody sees.
 
 However you upgrade, including `brew upgrade`, the first run of a new version shows the release notes you haven't
-seen. The check only runs when stdin, stdout and stderr are all a terminal, so it stays out of pipes, redirects, CI, and
-`shipyard mcp serve`. A script you start from a terminal can't be told apart from you typing, so set
-`SHIPYARD_NO_UPDATE_CHECK=1` in scripts that call `shipyard`. To turn the check off everywhere, add `update_check: false`
-to `~/.shipyard/config.yaml`.
+seen.
+
+The check only runs when stdin, stdout and stderr are all a terminal, so it stays out of pipes, redirects, CI, and
+`shipyard mcp serve`. It also stays off inside AI coding agents that identify themselves (Claude Code, Codex, Cursor's
+agent, Gemini CLI). A script started from a terminal can't be told apart from you typing: it gets the prompt, and
+carries on after 10 seconds. Set `SHIPYARD_NO_UPDATE_CHECK=1` in scripts and agent environments to skip the check
+entirely, or add `update_check: false` to `~/.shipyard/config.yaml` to turn it off everywhere.
 
 ## Login
 

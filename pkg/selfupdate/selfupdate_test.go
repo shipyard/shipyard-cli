@@ -338,7 +338,7 @@ func newStartup(t *testing.T, answer string, st State) *startupFixture {
 		Current:   "1.9.0",
 		StatePath: path,
 		Client:    testClient(srv),
-		In:        strings.NewReader(answer),
+		Ask:       AskFrom(strings.NewReader(answer)),
 		Out:       &fx.out,
 		Now:       func() time.Time { return fx.now },
 		Install: func(_ context.Context, rel *Release) error {
@@ -396,7 +396,7 @@ func TestStartupNoSnoozesForADay(t *testing.T) {
 
 	// After it: asked again.
 	fx.now = fx.now.Add(2 * time.Hour)
-	fx.s.In = strings.NewReader("n\n")
+	fx.s.Ask = AskFrom(strings.NewReader("n\n"))
 	fx.s.Run(context.Background())
 	if !strings.Contains(fx.out.String(), "Upgrade now?") {
 		t.Errorf("not asked again after the snooze:\n%s", fx.out.String())
@@ -419,7 +419,7 @@ func TestStartupSkipIgnoresThatVersionOnly(t *testing.T) {
 
 	fx.gh.releases = append([]Release{{TagName: "v1.11.0"}}, fx.gh.releases...)
 	fx.now = fx.now.Add(48 * time.Hour)
-	fx.s.In = strings.NewReader("n\n")
+	fx.s.Ask = AskFrom(strings.NewReader("n\n"))
 	fx.s.Run(context.Background())
 	if !strings.Contains(fx.out.String(), "1.9.0 → 1.11.0") {
 		t.Errorf("not asked about the next version:\n%s", fx.out.String())
@@ -437,6 +437,27 @@ func TestStartupUnknownAnswerDoesNotInstall(t *testing.T) {
 	fx := newStartup(t, "maybe\n", State{LastSeenVersion: "1.9.0"})
 	if fx.s.Run(context.Background()) || len(fx.installed) != 0 {
 		t.Error("installed on an unrecognized answer")
+	}
+}
+
+func TestStartupNoAnswerContinuesWithoutInstalling(t *testing.T) {
+	fx := newStartup(t, "", State{LastSeenVersion: "1.9.0"})
+	var waited time.Duration
+	fx.s.Ask = func(timeout time.Duration) (string, error) {
+		waited = timeout
+		return "", ErrNoAnswer
+	}
+	if fx.s.Run(context.Background()) || len(fx.installed) != 0 {
+		t.Fatal("installed with no answer")
+	}
+	if waited != PromptTimeout {
+		t.Errorf("asked with timeout %v, want %v", waited, PromptTimeout)
+	}
+	if out := fx.out.String(); !strings.Contains(out, "continuing in 10s") || !strings.Contains(out, "No answer, continuing") {
+		t.Errorf("output:\n%s", out)
+	}
+	if st := fx.state(); !st.SnoozedUntil.Equal(fx.now.Add(CheckInterval)) {
+		t.Errorf("not snoozed: %+v", st)
 	}
 }
 
@@ -458,14 +479,14 @@ func TestStartupInstallFailureContinues(t *testing.T) {
 func TestStartupKeepsAnswerFromAnotherShell(t *testing.T) {
 	// This shell prompts; while it waits, another shell skips 1.10.0.
 	fx := newStartup(t, "n\n", State{LastSeenVersion: "1.9.0"})
-	fx.s.In = readerFunc(func(p []byte) (int, error) {
+	fx.s.Ask = AskFrom(readerFunc(func(p []byte) (int, error) {
 		other := LoadState(fx.s.StatePath)
 		other.SkippedVersion = "1.10.0"
 		if err := other.Save(fx.s.StatePath); err != nil {
 			t.Fatal(err)
 		}
 		return copy(p, "n\n"), nil
-	})
+	}))
 	fx.s.Run(context.Background())
 	st := fx.state()
 	if st.SkippedVersion != "1.10.0" || st.SnoozedUntil.IsZero() {

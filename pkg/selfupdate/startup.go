@@ -3,6 +3,7 @@ package selfupdate
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -21,7 +22,14 @@ const (
 	checkTimeout = 2 * time.Second
 	// notesTimeout bounds fetching release notes after an upgrade.
 	notesTimeout = 5 * time.Second
+	// PromptTimeout is how long the prompt waits before carrying on as if
+	// the answer were "not now". A script or agent that runs the CLI in a
+	// terminal must never block on a question nobody is there to answer.
+	PromptTimeout = 10 * time.Second
 )
+
+// ErrNoAnswer is returned by an Ask function when the timeout passes.
+var ErrNoAnswer = errors.New("no answer")
 
 // Startup runs before a command in an interactive terminal: it shows the notes
 // for a version the user upgraded to since the last run, checks for a new
@@ -30,9 +38,11 @@ type Startup struct {
 	Current   string
 	StatePath string
 	Client    *Client
-	In        io.Reader
-	Out       io.Writer
-	Now       func() time.Time
+	// Ask reads the answer to the prompt, returning ErrNoAnswer if none
+	// arrives within the timeout.
+	Ask func(timeout time.Duration) (string, error)
+	Out io.Writer
+	Now func() time.Time
 	// Install upgrades to rel; it prints its own progress to Out.
 	Install func(ctx context.Context, rel *Release) error
 }
@@ -69,9 +79,17 @@ func (s *Startup) Run(ctx context.Context) bool {
 	yellow := color.New(color.FgHiYellow)
 	_, _ = fmt.Fprintln(s.Out)
 	_, _ = yellow.Fprintf(s.Out, "A new version of shipyard is available: %s → %s\n", s.Current, latest)
-	_, _ = fmt.Fprint(s.Out, "Upgrade now? [Y/n/s] (s = skip this version) ")
+	_, _ = fmt.Fprintf(s.Out, "Upgrade now? [Y/n/s] (s = skip this version; continuing in %ds) ", int(PromptTimeout.Seconds()))
 
-	switch readAnswer(s.In) {
+	answer, err := s.Ask(PromptTimeout)
+	if err != nil {
+		st.SnoozedUntil = now.Add(CheckInterval)
+		_, _ = fmt.Fprintln(s.Out)
+		_, _ = fmt.Fprintln(s.Out, "No answer, continuing. Run `shipyard upgrade` whenever you're ready.")
+		_, _ = fmt.Fprintln(s.Out)
+		return false
+	}
+	switch answer {
 	case "n", "no":
 		st.SnoozedUntil = now.Add(CheckInterval)
 		_, _ = fmt.Fprintln(s.Out, "OK. Run `shipyard upgrade` whenever you're ready.")
@@ -138,10 +156,18 @@ func (s *Startup) renderBetween(ctx context.Context, from, to string) {
 	_, _ = fmt.Fprintln(s.Out)
 }
 
-// readAnswer reads one line. Enter alone means yes, but end of input (Ctrl-D)
-// means no: closing the prompt shouldn't install anything.
-func readAnswer(in io.Reader) string {
-	line, err := bufio.NewReader(in).ReadString('\n')
+// AskFrom reads answers from r with no timeout. It's for tests and other
+// readers that can't block forever; a terminal needs AskTerminal.
+func AskFrom(r io.Reader) func(time.Duration) (string, error) {
+	return func(time.Duration) (string, error) {
+		line, err := bufio.NewReader(r).ReadString('\n')
+		return normalizeAnswer(line, err), nil
+	}
+}
+
+// normalizeAnswer lowercases and trims a line. Enter alone means yes, but end
+// of input (Ctrl-D) means no: closing the prompt shouldn't install anything.
+func normalizeAnswer(line string, err error) string {
 	answer := strings.ToLower(strings.TrimSpace(line))
 	if err != nil && answer == "" {
 		return "n"

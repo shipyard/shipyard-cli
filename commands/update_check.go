@@ -46,7 +46,7 @@ func checkForUpdate(cmd *cobra.Command) {
 		Current:   version.Version,
 		StatePath: selfupdate.StatePath(home),
 		Client:    selfupdate.NewClient(15 * time.Second),
-		In:        os.Stdin,
+		Ask:       selfupdate.AskTerminal(os.Stdin),
 		Out:       os.Stderr,
 		Now:       time.Now,
 		Install:   installer.Install,
@@ -67,6 +67,9 @@ func shouldCheckForUpdate(cmd *cobra.Command) bool {
 	if os.Getenv(noUpdateCheckEnv) != "" || os.Getenv("CI") != "" || !viper.GetBool("update_check") {
 		return false
 	}
+	if underAgent() {
+		return false
+	}
 	// Only prompt a person at a terminal: stdin to answer, stderr to see the
 	// prompt, and stdout so `shipyard ... | jq` and redirects never block. A
 	// script started from a terminal inherits all three and can't be told
@@ -81,6 +84,26 @@ func shouldCheckForUpdate(cmd *cobra.Command) bool {
 		return false
 	}
 	return true
+}
+
+// agentEnvVars are set by AI coding agents in the shells they run commands
+// in. Some of those shells are terminals, so the TTY checks alone would let
+// the prompt through; PromptTimeout is the backstop for agents not listed.
+var agentEnvVars = []string{
+	"CLAUDECODE",                     // Claude Code
+	"GEMINI_CLI",                     // Gemini CLI
+	"CURSOR_AGENT",                   // Cursor's agent terminal
+	"CODEX_SANDBOX",                  // Codex CLI
+	"CODEX_SANDBOX_NETWORK_DISABLED", // Codex CLI
+}
+
+func underAgent() bool {
+	for _, v := range agentEnvVars {
+		if os.Getenv(v) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // topLevelName is the name of the command directly under root that cmd
