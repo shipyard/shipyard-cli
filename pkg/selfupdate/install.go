@@ -128,9 +128,6 @@ func (in *Installer) installHomebrew(ctx context.Context, rel *Release) (string,
 	if rel.Prerelease {
 		return "", errors.New("pre-releases aren't published to Homebrew; install this one from " + rel.HTMLURL)
 	}
-	if os.Geteuid() == 0 {
-		return "", errors.New("brew refuses to run as root; run 'shipyard upgrade' without sudo")
-	}
 	// brew only refreshes taps once a day on its own, so a release from
 	// this morning is invisible to `brew upgrade` without an update first.
 	// A failure here is often an unrelated broken tap, so upgrade anyway;
@@ -287,9 +284,11 @@ func CleanupOld() {
 		return
 	}
 	if runtime.GOOS == "windows" {
-		olds, _ := filepath.Glob(exe + ".old*")
-		for _, o := range olds {
-			_ = os.Remove(o) // fails while that binary is still running
+		entries, _ := os.ReadDir(filepath.Dir(exe))
+		for _, e := range entries {
+			if isOldBinary(filepath.Base(exe), e.Name()) {
+				_ = os.Remove(filepath.Join(filepath.Dir(exe), e.Name())) // fails while it's still running
+			}
 		}
 	}
 	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(exe), ".shipyard-upgrade-*"))
@@ -298,6 +297,20 @@ func CleanupOld() {
 			_ = os.Remove(m)
 		}
 	}
+}
+
+// isOldBinary reports whether name is one replaceRenamingOld made for the
+// binary named exe: exe.old or exe.old-<n>, and nothing else a user may keep.
+func isOldBinary(exe, name string) bool {
+	rest, ok := strings.CutPrefix(name, exe+".old")
+	if !ok {
+		return false
+	}
+	if rest == "" {
+		return true
+	}
+	digits, ok := strings.CutPrefix(rest, "-")
+	return ok && digits != "" && strings.Trim(digits, "0123456789") == ""
 }
 
 func permissionHint(err error) error {

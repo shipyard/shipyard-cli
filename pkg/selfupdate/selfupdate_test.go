@@ -689,3 +689,20 @@ func TestAfterUpgradeForceSameVersion(t *testing.T) {
 		t.Errorf("output:\n%s", buf.String())
 	}
 }
+
+func TestIsOldBinary(t *testing.T) {
+	for name, want := range map[string]bool{
+		"shipyard.exe.old":         true,
+		"shipyard.exe.old-1790000": true,
+		"shipyard.exe":             false,
+		"shipyard.exe.old.bak":     false,
+		"shipyard.exe.older":       false,
+		"shipyard.exe.old-":        false,
+		"shipyard.exe.old-1a":      false,
+		"other.exe.old":            false,
+	} {
+		if got := isOldBinary("shipyard.exe", name); got != want {
+			t.Errorf("isOldBinary(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

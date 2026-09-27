@@ -41,8 +41,9 @@ Run `shipyard upgrade` to install it. Release notes: https://github.com/shipyard
 ```
 
 It never asks anything or waits for input. The check runs in the background while your command runs; if it hasn't
-finished when the command does, the CLI waits at most a second for it, and only when a check is due. The first run
-after an upgrade made any other way, such as `brew upgrade`, shows the release notes you missed.
+finished when the command does, the CLI waits at most a second for it. That only happens when it's asking GitHub, about
+once a day or to fetch release notes you missed. The first run after an upgrade made any other way, such as
+`brew upgrade`, shows those notes.
 
 The message goes to stderr, and only when stderr is a terminal. It's never shown in CI, inside AI coding agents that
 identify themselves (Claude Code, Codex, Cursor's agent, Gemini CLI), or for `shipyard mcp serve`. To turn it off, set
