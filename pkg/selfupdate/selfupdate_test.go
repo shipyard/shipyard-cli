@@ -706,3 +706,14 @@ func TestIsOldBinary(t *testing.T) {
 		}
 	}
 }
+
+func TestNotifySkipsWhenStateCantBeSaved(t *testing.T) {
+	fx := newNotify(t, State{LastSeenVersion: "1.9.0"})
+	// A directory where the state file should be: nothing can be saved there.
+	fx.n.StatePath = filepath.Join(t.TempDir(), "update-state.json")
+	_ = os.MkdirAll(filepath.Join(fx.n.StatePath, "x"), 0o755)
+	fx.gh.hits = map[string]int{}
+	if text := fx.n.Check(context.Background()).Text; text != "" || len(fx.gh.hits) != 0 {
+		t.Errorf("checked without being able to remember it: %q, requests %v", text, fx.gh.hits)
+	}
+}

@@ -50,11 +50,15 @@ func TestParseVersion(t *testing.T) {
 
 func TestIsRelease(t *testing.T) {
 	for v, want := range map[string]bool{
-		"1.9.0":                  true,
-		"1.10.0-rc.1":            true,
-		"undefined":              false,
-		"1.9.1-SNAPSHOT-73de7fe": false,
-		"1.9.1-snapshot":         false,
+		"1.9.0":                   true,
+		"1.10.0-rc.1":             true,
+		"undefined":               false,
+		"1.9.1-SNAPSHOT-73de7fe":  false,
+		"1.9.1-snapshot":          false,
+		"v1.9.0-8-g94afae8":       false,
+		"v1.9.0-8-g94afae8-dirty": false,
+		"v1.10.0-rc.1-3-gabc1234": false,
+		"v1.9.0-dirty":            false,
 	} {
 		if got := IsRelease(v); got != want {
 			t.Errorf("IsRelease(%q) = %v, want %v", v, got, want)

@@ -58,7 +58,11 @@ func (n *Notifier) Check(ctx context.Context) *Notice {
 		if notesDue {
 			attempt.NotesTried = now
 		}
-		_ = LoadState(n.StatePath).merge(st, attempt).Save(n.StatePath)
+		if err := LoadState(n.StatePath).merge(st, attempt).Save(n.StatePath); err != nil {
+			// Nothing can be remembered (e.g. ~/.shipyard isn't writable), so
+			// checking would ask GitHub and print the notice on every run.
+			return &Notice{}
+		}
 		st = attempt
 	}
 	loaded := st

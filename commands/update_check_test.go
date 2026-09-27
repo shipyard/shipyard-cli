@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/shipyard/shipyard-cli/pkg/selfupdate"
 	"github.com/shipyard/shipyard-cli/version"
 )
 
@@ -84,4 +85,25 @@ func TestShouldCheckForUpdate(t *testing.T) {
 			t.Error("checked under mcp serve")
 		}
 	})
+}
+
+func TestCheckUpgradeTarget(t *testing.T) {
+	stable := &selfupdate.Release{TagName: "v1.9.0"}
+	for _, c := range []struct {
+		current  string
+		force    bool
+		upToDate bool
+		err      bool
+	}{
+		{current: "1.8.0", upToDate: false},
+		{current: "1.9.0", upToDate: true},
+		{current: "1.9.0", force: true, upToDate: false},
+		{current: "1.10.0-rc.1", upToDate: true},
+		{current: "1.10.0-rc.1", force: true, err: true},
+	} {
+		upToDate, err := checkUpgradeTarget(c.current, stable, c.force)
+		if (err != nil) != c.err || upToDate != c.upToDate {
+			t.Errorf("current %s force %v: upToDate %v, err %v", c.current, c.force, upToDate, err)
+		}
+	}
 }

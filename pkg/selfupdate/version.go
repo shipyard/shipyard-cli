@@ -4,6 +4,7 @@ package selfupdate
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -122,9 +123,15 @@ func IsNewer(current, candidate string) bool {
 	return n.Compare(c) > 0
 }
 
+// gitDescribeRe matches what `git describe --dirty --tags`, which `make build`
+// stamps, adds after the tag: "-8-g94afae8" commits past it, and "-dirty".
+var gitDescribeRe = regexp.MustCompile(`-\d+-g[0-9a-f]+(-dirty)?$|-dirty$`)
+
 // IsRelease reports whether v looks like a released version, as opposed to a
-// local build ("undefined") or a goreleaser snapshot ("1.9.1-SNAPSHOT-abc").
+// local build ("undefined", "1.9.0-8-g94afae8") or a goreleaser snapshot
+// ("1.9.1-SNAPSHOT-abc"). A local build parses as a pre-release older than the
+// tag it's based on, so treating it as a release would "upgrade" it backwards.
 func IsRelease(v string) bool {
 	p, err := ParseVersion(v)
-	return err == nil && !strings.Contains(strings.ToUpper(p.Pre), "SNAPSHOT")
+	return err == nil && !strings.Contains(strings.ToUpper(p.Pre), "SNAPSHOT") && !gitDescribeRe.MatchString(v)
 }

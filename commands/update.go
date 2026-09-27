@@ -69,7 +69,9 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	_, _ = blue.Fprintf(out, "Current version: %s\n", current)
 	_, _ = blue.Fprintf(out, "Latest version:  %s\n", latest.Version())
 
-	if !force && !selfupdate.IsNewer(current, latest.TagName) {
+	if upToDate, err := checkUpgradeTarget(current, latest, force); err != nil {
+		return err
+	} else if upToDate {
 		_, _ = green.Fprintln(out, "✓ You're already running the latest version!")
 		return nil
 	}
@@ -93,4 +95,14 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 		_, _ = fmt.Fprintf(os.Stderr, "warning: could not save update state: %v\n", err)
 	}
 	return nil
+}
+
+// checkUpgradeTarget decides whether to install latest over current: not when
+// current is already up to date, unless force. It never installs an older
+// version, which --force would otherwise do to a pre-release build.
+func checkUpgradeTarget(current string, latest *selfupdate.Release, force bool) (upToDate bool, err error) {
+	if force && selfupdate.IsNewer(latest.TagName, current) {
+		return false, fmt.Errorf("the latest release, %s, is older than this version (%s); add --prerelease to include pre-releases", latest.Version(), current)
+	}
+	return !force && !selfupdate.IsNewer(current, latest.TagName), nil
 }
