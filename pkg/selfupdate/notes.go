@@ -5,6 +5,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/fatih/color"
 )
@@ -37,7 +38,7 @@ func RenderNotes(w io.Writer, releases []Release, maxLines int) {
 			lines = append(lines, "")
 		}
 		lines = append(lines, title.Sprintf("What's new in %s", r.Version()))
-		body := strings.TrimSpace(strings.ReplaceAll(r.Body, "\r\n", "\n"))
+		body := strings.TrimSpace(stripControl(strings.ReplaceAll(r.Body, "\r\n", "\n")))
 		if body == "" {
 			lines = append(lines, dim.Sprintf("  No release notes. See %s", r.HTMLURL))
 			continue
@@ -68,6 +69,17 @@ func RenderNotes(w io.Writer, releases []Release, maxLines int) {
 	for _, l := range lines {
 		_, _ = fmt.Fprintln(w, l)
 	}
+}
+
+// stripControl removes control characters other than newline and tab, so the
+// release text can't send escape sequences to the terminal.
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || !unicode.IsControl(r) {
+			return r
+		}
+		return -1
+	}, s)
 }
 
 func renderLine(l string, heading, code *color.Color) string {

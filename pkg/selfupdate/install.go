@@ -30,13 +30,6 @@ const (
 	MethodHomebrew
 )
 
-func (m Method) String() string {
-	if m == MethodHomebrew {
-		return "Homebrew"
-	}
-	return "direct download"
-}
-
 // Executable returns the running binary's path with symlinks resolved, which
 // is where a direct install has to write the new binary.
 func Executable() (string, error) {
@@ -100,34 +93,43 @@ func NewInstaller(out io.Writer, current string) (*Installer, error) {
 	}, nil
 }
 
-// Install replaces the running binary with the release's.
-func (in *Installer) Install(ctx context.Context, rel *Release) error {
+// Install replaces the running binary with the release's and returns the
+// version now installed. Homebrew can install an older version than rel when
+// its formula lags the GitHub release.
+func (in *Installer) Install(ctx context.Context, rel *Release) (string, error) {
 	if in.Method == MethodHomebrew {
-		if rel.Prerelease {
-			return errors.New("pre-releases aren't published to Homebrew; install this one from " + rel.HTMLURL)
-		}
-		// brew only refreshes taps once a day on its own, so a release from
-		// this morning is invisible to `brew upgrade` without an update first.
-		_, _ = fmt.Fprintln(in.Out, "Updating Homebrew...")
-		if err := in.Brew(ctx, in.Out, "update", "--quiet"); err != nil {
-			return fmt.Errorf("brew update failed: %w", err)
-		}
-		_, _ = fmt.Fprintln(in.Out, "Upgrading with Homebrew...")
-		if err := in.Brew(ctx, in.Out, "upgrade", "shipyard"); err != nil {
-			return fmt.Errorf("brew upgrade shipyard failed: %w", err)
-		}
-		// brew exits 0 when there's nothing to upgrade, which happens when
-		// GitHub has the release before the formula in the tap is updated.
-		installed, err := in.BrewVersion(ctx)
-		if err != nil {
-			return fmt.Errorf("could not read the version Homebrew installed: %w", err)
-		}
-		if !IsNewer(in.Current, installed) {
-			return fmt.Errorf("the Homebrew formula doesn't have %s yet (it has %s); try again later", rel.Version(), installed)
-		}
-		return nil
+		return in.installHomebrew(ctx, rel)
 	}
-	return in.installDirect(ctx, rel)
+	if err := in.installDirect(ctx, rel); err != nil {
+		return "", err
+	}
+	return rel.Version(), nil
+}
+
+func (in *Installer) installHomebrew(ctx context.Context, rel *Release) (string, error) {
+	if rel.Prerelease {
+		return "", errors.New("pre-releases aren't published to Homebrew; install this one from " + rel.HTMLURL)
+	}
+	// brew only refreshes taps once a day on its own, so a release from
+	// this morning is invisible to `brew upgrade` without an update first.
+	_, _ = fmt.Fprintln(in.Out, "Updating Homebrew...")
+	if err := in.Brew(ctx, in.Out, "update", "--quiet"); err != nil {
+		return "", fmt.Errorf("brew update failed: %w", err)
+	}
+	_, _ = fmt.Fprintln(in.Out, "Upgrading with Homebrew...")
+	if err := in.Brew(ctx, in.Out, "upgrade", "shipyard"); err != nil {
+		return "", fmt.Errorf("brew upgrade shipyard failed: %w", err)
+	}
+	// brew exits 0 when there's nothing to upgrade, which happens when
+	// GitHub has the release before the formula in the tap is updated.
+	installed, err := in.BrewVersion(ctx)
+	if err != nil {
+		return "", fmt.Errorf("could not read the version Homebrew installed: %w", err)
+	}
+	if !IsNewer(in.Current, installed) {
+		return "", fmt.Errorf("the Homebrew formula doesn't have %s yet (it has %s); try again later", rel.Version(), installed)
+	}
+	return installed, nil
 }
 
 func (in *Installer) installDirect(ctx context.Context, rel *Release) error {
@@ -273,18 +275,30 @@ func permissionHint(err error) error {
 	return fmt.Errorf("%w\nThe binary's directory isn't writable by you. Try: sudo shipyard upgrade", err)
 }
 
-// brewVersion parses `brew list --versions shipyard`, e.g. "shipyard 1.9.0",
-// whose last field is the newest installed version.
 func brewVersion(ctx context.Context) (string, error) {
 	out, err := exec.CommandContext(ctx, "brew", "list", "--versions", "shipyard").Output()
 	if err != nil {
 		return "", err
 	}
-	fields := strings.Fields(string(out))
-	if len(fields) < 2 {
-		return "", fmt.Errorf("unexpected output %q", strings.TrimSpace(string(out)))
+	return parseBrewVersions(string(out))
+}
+
+// parseBrewVersions returns the newest version in `brew list --versions`
+// output such as "shipyard 1.10.0 1.9.0_1". Several are listed, in no set
+// order, when old kegs haven't been cleaned up; "_1" is a formula revision.
+func parseBrewVersions(out string) (string, error) {
+	var newest string
+	fields := strings.Fields(out)
+	for _, f := range fields[min(1, len(fields)):] {
+		v, _, _ := strings.Cut(f, "_")
+		if _, err := ParseVersion(v); err == nil && (newest == "" || IsNewer(newest, v)) {
+			newest = v
+		}
 	}
-	return fields[len(fields)-1], nil
+	if newest == "" {
+		return "", fmt.Errorf("unexpected output %q", strings.TrimSpace(out))
+	}
+	return newest, nil
 }
 
 func runBrew(ctx context.Context, out io.Writer, args ...string) error {

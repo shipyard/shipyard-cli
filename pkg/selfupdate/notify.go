@@ -43,6 +43,17 @@ type Notice struct {
 // seen is only recorded by Notice.Shown.
 func (n *Notifier) Check(ctx context.Context) *Notice {
 	st := LoadState(n.StatePath)
+	now := n.Now()
+	checkDue := now.Sub(st.LastChecked) >= CheckInterval
+	if checkDue {
+		// Record the attempt as failed before asking GitHub. The command
+		// usually exits before a slow request finishes, and without this every
+		// run would ask again and wait for it.
+		failed := st
+		failed.LastChecked = now.Add(checkRetry - CheckInterval)
+		_ = LoadState(n.StatePath).merge(st, failed).Save(n.StatePath)
+		st = failed
+	}
 	loaded := st
 	notice := &Notice{statePath: n.StatePath}
 	var buf bytes.Buffer
@@ -68,14 +79,11 @@ func (n *Notifier) Check(ctx context.Context) *Notice {
 		}
 	}
 
-	now := n.Now()
-	if now.Sub(st.LastChecked) >= CheckInterval {
+	if checkDue {
 		rctx, cancel := context.WithTimeout(ctx, requestTimeout)
 		rel, err := n.Client.Latest(rctx, false)
 		cancel()
-		if err != nil {
-			st.LastChecked = now.Add(checkRetry - CheckInterval)
-		} else {
+		if err == nil {
 			st.LastChecked = now
 			st.LatestVersion = rel.Version()
 		}

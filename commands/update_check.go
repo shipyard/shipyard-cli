@@ -8,7 +8,6 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"k8s.io/client-go/util/homedir"
 
 	"github.com/shipyard/shipyard-cli/pkg/selfupdate"
 	"github.com/shipyard/shipyard-cli/version"
@@ -32,7 +31,7 @@ func startUpdateCheck(cmd *cobra.Command) {
 	if !shouldCheckForUpdate(cmd) {
 		return
 	}
-	home := homedir.HomeDir()
+	home := selfupdate.HomeDir()
 	if home == "" {
 		return
 	}
@@ -78,11 +77,11 @@ func shouldCheckForUpdate(cmd *cobra.Command) bool {
 		return false
 	}
 	// The notice goes to stderr; only print it where a person will see it.
-	if !isTerminal(os.Stderr) {
+	if !stderrIsTerminal() {
 		return false
 	}
 	switch topLevelName(cmd) {
-	case "mcp", "upgrade", "update", "completion", "help", "__complete", "__completeNoDesc":
+	case "mcp", "upgrade", "completion", "help", "__complete", "__completeNoDesc":
 		// mcp serve speaks JSON-RPC to a client, not a person; upgrade does
 		// its own check; completion runs on every Tab.
 		return false
@@ -118,6 +117,8 @@ func topLevelName(cmd *cobra.Command) string {
 	return cmd.Name()
 }
 
-func isTerminal(f *os.File) bool {
-	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
+// stderrIsTerminal is a variable so tests can stub it.
+var stderrIsTerminal = func() bool {
+	fd := os.Stderr.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
 }

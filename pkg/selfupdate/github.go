@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"sort"
 	"time"
 )
@@ -94,15 +93,6 @@ func (c *Client) Latest(ctx context.Context, prerelease bool) (*Release, error) 
 		return nil, fmt.Errorf("no releases found")
 	}
 	return newest, nil
-}
-
-// ByTag returns the release for a tag such as "v1.9.0".
-func (c *Client) ByTag(ctx context.Context, tag string) (*Release, error) {
-	var r Release
-	if err := c.get(ctx, fmt.Sprintf("/repos/%s/%s/releases/tags/%s", repoOwner, repoName, url.PathEscape(tag)), &r); err != nil {
-		return nil, err
-	}
-	return &r, nil
 }
 
 // Releases returns the most recent releases, newest first as GitHub orders them.

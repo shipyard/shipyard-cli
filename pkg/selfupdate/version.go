@@ -109,7 +109,7 @@ func sign(n int) int {
 }
 
 // IsNewer reports whether candidate is a newer version than current. It is
-// false when either fails to parse, so a dev build never prompts to upgrade.
+// false when either fails to parse, so a dev build is never told to upgrade.
 func IsNewer(current, candidate string) bool {
 	c, err := ParseVersion(current)
 	if err != nil {

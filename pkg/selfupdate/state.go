@@ -2,10 +2,15 @@ package selfupdate
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"k8s.io/client-go/util/homedir"
 )
 
 // State is what the updater remembers between runs. It lives in its own file,
@@ -47,7 +52,7 @@ func StatePath(home string) string {
 }
 
 // LoadState reads the state, returning an empty one if the file is missing or
-// unreadable: losing it only means asking again.
+// unreadable: losing it only means checking again.
 func LoadState(path string) State {
 	var s State
 	b, err := os.ReadFile(path)
@@ -65,40 +70,57 @@ func (s State) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		// Lchown: a directory we just made, never whatever a symlink points to.
+		if uid, gid, ok := sudoUser(); ok {
+			_ = os.Lchown(dir, uid, gid)
+		}
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".update-state-*")
+	tmp, err := os.CreateTemp(dir, ".update-state-*")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(append(b, '\n')); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
+	// Permissions and ownership are set on the open file, before it's moved
+	// into place, so they can't be redirected to another file by a symlink.
 	// CreateTemp makes the file 0600; a root-owned 0600 file left by
 	// `sudo shipyard upgrade` would be unreadable to the user afterwards.
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+	err = tmp.Chmod(0o644)
+	if uid, gid, ok := sudoUser(); ok && err == nil {
+		err = tmp.Chown(uid, gid)
+	}
+	if err == nil {
+		_, err = tmp.Write(append(b, '\n'))
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return err
-	}
-	chownToSudoUser(path)
-	return nil
+	return os.Rename(tmp.Name(), path)
 }
 
-// chownToSudoUser gives a file written under sudo back to the invoking user,
-// who keeps their HOME under sudo on macOS and so shares this state file.
-func chownToSudoUser(path string) {
+// sudoUser returns the user who ran `sudo shipyard ...`, when running as root
+// under sudo.
+func sudoUser() (uid, gid int, ok bool) {
 	uid, err1 := strconv.Atoi(os.Getenv("SUDO_UID"))
 	gid, err2 := strconv.Atoi(os.Getenv("SUDO_GID"))
-	if err1 != nil || err2 != nil || os.Geteuid() != 0 {
-		return
+	return uid, gid, err1 == nil && err2 == nil && os.Geteuid() == 0
+}
+
+// HomeDir is the home directory whose state file to use: the invoking user's
+// under sudo, which on Linux sets HOME to root's, so that notes recorded as
+// seen by `sudo shipyard upgrade` aren't shown to the user again.
+func HomeDir() string {
+	if _, _, ok := sudoUser(); ok {
+		if u, err := user.LookupId(os.Getenv("SUDO_UID")); err == nil && u.HomeDir != "" {
+			return u.HomeDir
+		}
 	}
-	_ = os.Chown(path, uid, gid)
+	return homedir.HomeDir()
 }

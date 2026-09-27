@@ -29,6 +29,8 @@ type fakeGitHub struct {
 	hits     map[string]int
 	// onRequest, if set, runs before each request is served.
 	onRequest func()
+	// fail lists API paths that return 500.
+	fail map[string]bool
 }
 
 func newFakeGitHub(t *testing.T, releases ...Release) (*fakeGitHub, *httptest.Server) {
@@ -39,20 +41,15 @@ func newFakeGitHub(t *testing.T, releases ...Release) (*fakeGitHub, *httptest.Se
 		if f.onRequest != nil {
 			f.onRequest()
 		}
+		if f.fail[r.URL.Path] {
+			http.Error(w, "unavailable", http.StatusInternalServerError)
+			return
+		}
 		base := "/repos/shipyard/shipyard-cli/releases"
 		switch {
 		case r.URL.Path == base+"/latest":
 			for _, rel := range f.releases {
 				if !rel.Prerelease && !rel.Draft {
-					_ = json.NewEncoder(w).Encode(rel)
-					return
-				}
-			}
-			http.NotFound(w, r)
-		case strings.HasPrefix(r.URL.Path, base+"/tags/"):
-			tag := strings.TrimPrefix(r.URL.Path, base+"/tags/")
-			for _, rel := range f.releases {
-				if rel.TagName == tag {
 					_ = json.NewEncoder(w).Encode(rel)
 					return
 				}
@@ -206,8 +203,8 @@ func TestInstallDirectReplacesBinary(t *testing.T) {
 	rel := releaseWithBinary(f, srv, "v1.10.0", []byte("new binary"), "")
 	in, exe := directInstaller(t, srv)
 
-	if err := in.Install(context.Background(), rel); err != nil {
-		t.Fatal(err)
+	if installed, err := in.Install(context.Background(), rel); err != nil || installed != "1.10.0" {
+		t.Fatalf("installed %q, err %v", installed, err)
 	}
 	got, _ := os.ReadFile(exe)
 	if string(got) != "new binary" {
@@ -229,7 +226,7 @@ func TestInstallDirectRejectsChecksumMismatch(t *testing.T) {
 	rel := releaseWithBinary(f, srv, "v1.10.0", []byte("tampered"), strings.Repeat("ab", 32))
 	in, exe := directInstaller(t, srv)
 
-	err := in.Install(context.Background(), rel)
+	_, err := in.Install(context.Background(), rel)
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("got %v, want checksum mismatch", err)
 	}
@@ -248,7 +245,7 @@ func TestInstallDirectRequiresChecksums(t *testing.T) {
 	rel := releaseWithBinary(f, srv, "v1.10.0", []byte("new"), "")
 	rel.Assets = rel.Assets[:1]
 	in, _ := directInstaller(t, srv)
-	if err := in.Install(context.Background(), rel); err == nil || !strings.Contains(err.Error(), "checksums.txt") {
+	if _, err := in.Install(context.Background(), rel); err == nil || !strings.Contains(err.Error(), "checksums.txt") {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -256,7 +253,7 @@ func TestInstallDirectRequiresChecksums(t *testing.T) {
 func TestInstallDirectMissingPlatformAsset(t *testing.T) {
 	_, srv := newFakeGitHub(t)
 	in, _ := directInstaller(t, srv)
-	err := in.Install(context.Background(), &Release{TagName: "v1.10.0"})
+	_, err := in.Install(context.Background(), &Release{TagName: "v1.10.0"})
 	if err == nil || !strings.Contains(err.Error(), "has no "+AssetName(runtime.GOOS, runtime.GOARCH)) {
 		t.Fatalf("got %v", err)
 	}
@@ -276,13 +273,13 @@ func homebrewInstaller(installed string, calls *[]string) *Installer {
 func TestInstallHomebrew(t *testing.T) {
 	var calls []string
 	in := homebrewInstaller("1.10.0", &calls)
-	if err := in.Install(context.Background(), &Release{TagName: "v1.10.0"}); err != nil {
-		t.Fatal(err)
+	if installed, err := in.Install(context.Background(), &Release{TagName: "v1.10.0"}); err != nil || installed != "1.10.0" {
+		t.Fatalf("installed %q, err %v", installed, err)
 	}
 	if strings.Join(calls, "; ") != "update --quiet; upgrade shipyard" {
 		t.Errorf("brew calls: %v", calls)
 	}
-	if err := in.Install(context.Background(), &Release{TagName: "v1.11.0-rc.1", Prerelease: true}); err == nil {
+	if _, err := in.Install(context.Background(), &Release{TagName: "v1.11.0-rc.1", Prerelease: true}); err == nil {
 		t.Error("Homebrew pre-release install should fail")
 	}
 }
@@ -290,7 +287,7 @@ func TestInstallHomebrew(t *testing.T) {
 func TestInstallHomebrewNoOpIsAFailure(t *testing.T) {
 	// The tap's formula lags the GitHub release: brew exits 0 with nothing done.
 	var calls []string
-	err := homebrewInstaller("1.9.0", &calls).Install(context.Background(), &Release{TagName: "v1.10.0"})
+	_, err := homebrewInstaller("1.9.0", &calls).Install(context.Background(), &Release{TagName: "v1.10.0"})
 	if err == nil || !strings.Contains(err.Error(), "the Homebrew formula doesn't have 1.10.0 yet (it has 1.9.0)") {
 		t.Fatalf("got %v", err)
 	}
@@ -467,5 +464,76 @@ func TestNotifyKeepsStateWrittenMeanwhile(t *testing.T) {
 	fx.n.Check(context.Background())
 	if st := fx.state(); st.LastSeenVersion != "1.10.0" || st.LatestVersion != "1.10.0" {
 		t.Errorf("lost a write: %+v", st)
+	}
+}
+
+func TestInstallHomebrewFormulaBehindRelease(t *testing.T) {
+	// GitHub has 1.10.0 but the formula only reached 1.9.5: report what's installed.
+	var calls []string
+	in := homebrewInstaller("1.9.5", &calls)
+	installed, err := in.Install(context.Background(), &Release{TagName: "v1.10.0"})
+	if err != nil || installed != "1.9.5" {
+		t.Fatalf("installed %q, err %v", installed, err)
+	}
+}
+
+func TestParseBrewVersions(t *testing.T) {
+	for out, want := range map[string]string{
+		"shipyard 1.9.0\n":          "1.9.0",
+		"shipyard 1.10.0 1.9.0\n":   "1.10.0",
+		"shipyard 1.9.0 1.10.0\n":   "1.10.0",
+		"shipyard 1.10.0_1 1.9.0\n": "1.10.0",
+	} {
+		if got, err := parseBrewVersions(out); err != nil || got != want {
+			t.Errorf("parseBrewVersions(%q) = %q, %v; want %q", out, got, err, want)
+		}
+	}
+	for _, out := range []string{"", "shipyard\n", "shipyard HEAD\n"} {
+		if got, err := parseBrewVersions(out); err == nil {
+			t.Errorf("parseBrewVersions(%q) = %q, want an error", out, got)
+		}
+	}
+}
+
+func TestRenderNotesStripsControlCharacters(t *testing.T) {
+	var buf bytes.Buffer
+	RenderNotes(&buf, []Release{{TagName: "v1.10.0", Body: "- fixed\x1b]52;c;aGk=\x07 a bug\x1b[2J\tdone"}}, 0)
+	if strings.ContainsAny(buf.String(), "\x1b\x07") {
+		t.Errorf("control characters reached the output: %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "\tdone") {
+		t.Errorf("tab was stripped: %q", buf.String())
+	}
+}
+
+func TestNotifyRecordsBackoffBeforeRequesting(t *testing.T) {
+	// The command exits while the request is in flight, so the backoff must
+	// already be saved by then or every run asks GitHub again.
+	fx := newNotify(t, State{LastSeenVersion: "1.9.0"})
+	var during State
+	fx.gh.onRequest = func() { during = LoadState(fx.n.StatePath) }
+	fx.n.Check(context.Background())
+	if next := during.LastChecked.Add(CheckInterval); !next.Equal(fx.now.Add(time.Hour)) {
+		t.Errorf("during the request, next check at %v, want an hour from now", next)
+	}
+	if st := fx.state(); !st.LastChecked.Equal(fx.now) || st.LatestVersion != "1.10.0" {
+		t.Errorf("after a successful check: %+v", st)
+	}
+}
+
+func TestNotifyNotesRetriedWhenFetchFails(t *testing.T) {
+	fx := newNotify(t, checkedEarlierToday("1.8.1"))
+	fx.gh.fail = map[string]bool{"/repos/shipyard/shipyard-cli/releases": true}
+	notice := fx.n.Check(context.Background())
+	if strings.Contains(notice.Text, "was upgraded") {
+		t.Errorf("printed notes it couldn't fetch:\n%s", notice.Text)
+	}
+	notice.Shown()
+	if st := fx.state(); st.LastSeenVersion != "1.8.1" {
+		t.Errorf("notes marked seen after a failed fetch: %+v", st)
+	}
+	fx.gh.fail = nil
+	if text := fx.n.Check(context.Background()).Text; !strings.Contains(text, "new in 1.9") {
+		t.Errorf("notes not retried:\n%s", text)
 	}
 }
