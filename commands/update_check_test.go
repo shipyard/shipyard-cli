@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -100,10 +101,23 @@ func TestCheckUpgradeTarget(t *testing.T) {
 		{current: "1.9.0", force: true, upToDate: false},
 		{current: "1.10.0-rc.1", upToDate: true},
 		{current: "1.10.0-rc.1", force: true, err: true},
+		{current: "1.9.1", upToDate: true},
+		{current: "1.9.1", force: true, err: true}, // 1.9.1 was withdrawn
 	} {
 		upToDate, err := checkUpgradeTarget(c.current, stable, c.force)
 		if (err != nil) != c.err || upToDate != c.upToDate {
 			t.Errorf("current %s force %v: upToDate %v, err %v", c.current, c.force, upToDate, err)
 		}
+	}
+}
+
+func TestCheckUpgradeTargetAdvice(t *testing.T) {
+	stable := &selfupdate.Release{TagName: "v1.9.0", HTMLURL: "https://example.test/v1.9.0"}
+	if _, err := checkUpgradeTarget("1.10.0-rc.1", stable, true); err == nil || !strings.Contains(err.Error(), "--prerelease") {
+		t.Errorf("pre-release build: %v", err)
+	}
+	_, err := checkUpgradeTarget("1.9.1", stable, true)
+	if err == nil || strings.Contains(err.Error(), "--prerelease") || !strings.Contains(err.Error(), stable.HTMLURL) {
+		t.Errorf("withdrawn stable release: %v", err)
 	}
 }

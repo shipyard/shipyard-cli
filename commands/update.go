@@ -102,7 +102,12 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 // version, which --force would otherwise do to a pre-release build.
 func checkUpgradeTarget(current string, latest *selfupdate.Release, force bool) (upToDate bool, err error) {
 	if force && selfupdate.IsNewer(latest.TagName, current) {
-		return false, fmt.Errorf("the latest release, %s, is older than this version (%s); add --prerelease to include pre-releases", latest.Version(), current)
+		err := fmt.Errorf("the latest release, %s, is older than this version (%s)", latest.Version(), current)
+		if v, perr := selfupdate.ParseVersion(current); perr == nil && v.Pre != "" {
+			return false, fmt.Errorf("%w; add --prerelease to include pre-releases", err)
+		}
+		// This release was withdrawn; going back to an older one is a deliberate reinstall.
+		return false, fmt.Errorf("%w; to go back to it, download it from %s", err, latest.HTMLURL)
 	}
 	return !force && !selfupdate.IsNewer(current, latest.TagName), nil
 }

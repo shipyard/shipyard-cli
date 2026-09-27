@@ -216,8 +216,15 @@ func TestInstallDirectReplacesBinary(t *testing.T) {
 			t.Errorf("mode is %v", fi.Mode().Perm())
 		}
 	}
-	entries, _ := os.ReadDir(filepath.Dir(exe))
-	if len(entries) != 1 {
+	// Windows keeps the replaced binary as .old until a later run removes it.
+	want := 1
+	if runtime.GOOS == "windows" {
+		want = 2
+		if b, _ := os.ReadFile(exe + ".old"); string(b) != "old binary" {
+			t.Errorf(".old holds %q", b)
+		}
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(exe)); len(entries) != want {
 		t.Errorf("left files behind: %v", entries)
 	}
 }
