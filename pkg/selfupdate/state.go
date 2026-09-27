@@ -27,6 +27,9 @@ type State struct {
 	// or the version they first ran. A newer running version means it was
 	// upgraded since, by any method, and its notes are shown once.
 	LastSeenVersion string `json:"last_seen_version,omitempty"`
+	// NotesTried is when the notes for an upgrade made elsewhere were last
+	// fetched; a failed fetch is retried at most hourly.
+	NotesTried time.Time `json:"notes_tried,omitzero"`
 }
 
 // merge returns cur with the fields that changed from before to after applied.
@@ -42,6 +45,9 @@ func (cur State) merge(before, after State) State {
 	}
 	if after.LastSeenVersion != before.LastSeenVersion {
 		cur.LastSeenVersion = after.LastSeenVersion
+	}
+	if !after.NotesTried.Equal(before.NotesTried) {
+		cur.NotesTried = after.NotesTried
 	}
 	return cur
 }

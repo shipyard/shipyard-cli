@@ -44,15 +44,22 @@ type Notice struct {
 func (n *Notifier) Check(ctx context.Context) *Notice {
 	st := LoadState(n.StatePath)
 	now := n.Now()
-	checkDue := now.Sub(st.LastChecked) >= CheckInterval
-	if checkDue {
-		// Record the attempt as failed before asking GitHub. The command
+	checkDue := elapsed(now, st.LastChecked, CheckInterval)
+	notesDue := st.LastSeenVersion != "" && IsNewer(st.LastSeenVersion, n.Current) &&
+		elapsed(now, st.NotesTried, checkRetry)
+	if checkDue || notesDue {
+		// Record the attempts as failed before asking GitHub. The command
 		// usually exits before a slow request finishes, and without this every
 		// run would ask again and wait for it.
-		failed := st
-		failed.LastChecked = now.Add(checkRetry - CheckInterval)
-		_ = LoadState(n.StatePath).merge(st, failed).Save(n.StatePath)
-		st = failed
+		attempt := st
+		if checkDue {
+			attempt.LastChecked = now.Add(checkRetry - CheckInterval)
+		}
+		if notesDue {
+			attempt.NotesTried = now
+		}
+		_ = LoadState(n.StatePath).merge(st, attempt).Save(n.StatePath)
+		st = attempt
 	}
 	loaded := st
 	notice := &Notice{statePath: n.StatePath}
@@ -62,9 +69,10 @@ func (n *Notifier) Check(ctx context.Context) *Notice {
 		// A fresh install: nothing was missed, and its own notes would only
 		// repeat what the user just chose to install.
 		st.LastSeenVersion = n.Current
-	} else if IsNewer(st.LastSeenVersion, n.Current) {
+	} else if notesDue {
 		// Upgraded since the last run, by `shipyard upgrade` in another
-		// shell, `brew upgrade`, or the install script.
+		// shell, `brew upgrade`, or the install script. A failed fetch is
+		// retried at most hourly.
 		rctx, cancel := context.WithTimeout(ctx, requestTimeout)
 		releases, err := n.Client.Between(rctx, st.LastSeenVersion, n.Current)
 		cancel()
@@ -89,7 +97,7 @@ func (n *Notifier) Check(ctx context.Context) *Notice {
 		}
 	}
 
-	if IsNewer(n.Current, st.LatestVersion) && now.Sub(st.NotifiedAt) >= CheckInterval {
+	if IsNewer(n.Current, st.LatestVersion) && elapsed(now, st.NotifiedAt, CheckInterval) {
 		if buf.Len() > 0 {
 			_, _ = fmt.Fprintln(&buf)
 		}
@@ -116,6 +124,14 @@ func (nt *Notice) Shown() {
 		st.NotifiedAt = nt.notified
 	}
 	_ = st.Save(nt.statePath)
+}
+
+// elapsed reports whether interval has passed since t. A t in the future,
+// left by a clock that was wrong or has since been set back, counts as
+// elapsed rather than holding everything off until the clock catches up.
+func elapsed(now, t time.Time, interval time.Duration) bool {
+	d := now.Sub(t)
+	return d >= interval || d < 0
 }
 
 func releaseURL(version string) string {

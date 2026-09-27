@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -533,7 +534,158 @@ func TestNotifyNotesRetriedWhenFetchFails(t *testing.T) {
 		t.Errorf("notes marked seen after a failed fetch: %+v", st)
 	}
 	fx.gh.fail = nil
+	fx.gh.hits = map[string]int{}
+	if text := fx.n.Check(context.Background()).Text; text != "" || len(fx.gh.hits) != 0 {
+		t.Errorf("retried within the hour: %q, requests %v", text, fx.gh.hits)
+	}
+	fx.now = fx.now.Add(time.Hour)
 	if text := fx.n.Check(context.Background()).Text; !strings.Contains(text, "new in 1.9") {
-		t.Errorf("notes not retried:\n%s", text)
+		t.Errorf("notes not retried after an hour:\n%s", text)
+	}
+}
+
+func TestNotifyFutureTimestampsCountAsElapsed(t *testing.T) {
+	// A clock that was wrong left timestamps a year ahead.
+	fx := newNotify(t, State{LastSeenVersion: "1.9.0"})
+	ahead := fx.now.AddDate(1, 0, 0)
+	st := fx.state()
+	st.LastChecked, st.NotifiedAt, st.LatestVersion = ahead, ahead, "1.10.0"
+	_ = st.Save(fx.n.StatePath)
+	if text := fx.n.Check(context.Background()).Text; !strings.Contains(text, "1.9.0 → 1.10.0") {
+		t.Errorf("held off by a future timestamp: %q", text)
+	}
+	if st := fx.state(); !st.LastChecked.Equal(fx.now) {
+		t.Errorf("did not re-check: %+v", st)
+	}
+}
+
+func TestBrewPath(t *testing.T) {
+	prefix := t.TempDir()
+	exe := filepath.Join(prefix, "Cellar", "shipyard", "1.9.0", "bin", "shipyard")
+	if got := brewPath(exe); got != "brew" {
+		t.Errorf("no brew in the prefix: got %q, want PATH lookup", got)
+	}
+	brew := filepath.Join(prefix, "bin", "brew")
+	_ = os.MkdirAll(filepath.Dir(brew), 0o755)
+	_ = os.WriteFile(brew, nil, 0o755)
+	if got := brewPath(exe); got != brew {
+		t.Errorf("got %q, want %q", got, brew)
+	}
+	if got := brewPath("/usr/local/bin/shipyard"); got != "brew" {
+		t.Errorf("not a Cellar path: got %q", got)
+	}
+}
+
+func TestInstallHomebrewUpgradesWhenUpdateFails(t *testing.T) {
+	// An unrelated broken tap fails `brew update`; the upgrade still runs.
+	var calls []string
+	in := homebrewInstaller("1.10.0", &calls)
+	in.Brew = func(_ context.Context, _ io.Writer, args ...string) error {
+		calls = append(calls, strings.Join(args, " "))
+		if args[0] == "update" {
+			return errors.New("exit status 1")
+		}
+		return nil
+	}
+	if installed, err := in.Install(context.Background(), &Release{TagName: "v1.10.0"}); err != nil || installed != "1.10.0" {
+		t.Fatalf("installed %q, err %v", installed, err)
+	}
+	if strings.Join(calls, "; ") != "update --quiet; upgrade shipyard" {
+		t.Errorf("brew calls: %v", calls)
+	}
+}
+
+func TestReplaceRenamingOldWhenOldIsInUse(t *testing.T) {
+	dir := t.TempDir()
+	exe, newPath := filepath.Join(dir, "shipyard.exe"), filepath.Join(dir, "new")
+	_ = os.WriteFile(exe, []byte("current"), 0o755)
+	_ = os.WriteFile(newPath, []byte("new"), 0o755)
+	// An .old that can't be removed, standing in for one that's still running.
+	_ = os.MkdirAll(filepath.Join(exe+".old", "busy"), 0o755)
+
+	if err := replaceRenamingOld(exe, newPath); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "new" {
+		t.Errorf("exe holds %q", b)
+	}
+	olds, _ := filepath.Glob(exe + ".old-*")
+	if len(olds) != 1 {
+		t.Fatalf("want the current binary moved to a unique .old-*, got %v", olds)
+	}
+	if b, _ := os.ReadFile(olds[0]); string(b) != "current" {
+		t.Errorf("moved-aside binary holds %q", b)
+	}
+}
+
+func afterUpgradeFixture(t *testing.T) (*fakeGitHub, *Client, string) {
+	t.Helper()
+	gh, srv := newFakeGitHub(t,
+		Release{TagName: "v1.10.0", Body: "- new in 1.10"},
+		Release{TagName: "v1.9.5", Body: "- new in 1.9.5"},
+		Release{TagName: "v1.9.0", Body: "- new in 1.9"},
+	)
+	path := filepath.Join(t.TempDir(), "update-state.json")
+	_ = State{LastSeenVersion: "1.9.0"}.Save(path)
+	return gh, testClient(srv), path
+}
+
+func TestAfterUpgrade(t *testing.T) {
+	_, c, path := afterUpgradeFixture(t)
+	var buf bytes.Buffer
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	if err := AfterUpgrade(context.Background(), &buf, c, path, "1.9.0", "1.10.0", &Release{TagName: "v1.10.0"}, now); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "✓ Upgraded to 1.10.0") || !strings.Contains(out, "new in 1.10") || !strings.Contains(out, "new in 1.9.5") {
+		t.Errorf("output:\n%s", out)
+	}
+	if strings.Contains(out, "Homebrew doesn't have") {
+		t.Errorf("lag message without lag:\n%s", out)
+	}
+	if st := LoadState(path); st.LastSeenVersion != "1.10.0" || st.LatestVersion != "1.10.0" || !st.LastChecked.Equal(now) {
+		t.Errorf("state %+v", st)
+	}
+}
+
+func TestAfterUpgradeHomebrewBehind(t *testing.T) {
+	// Homebrew installed 1.9.5 while GitHub has 1.10.0.
+	_, c, path := afterUpgradeFixture(t)
+	var buf bytes.Buffer
+	if err := AfterUpgrade(context.Background(), &buf, c, path, "1.9.0", "1.9.5", &Release{TagName: "v1.10.0", Body: "- new in 1.10"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "✓ Upgraded to 1.9.5") || !strings.Contains(out, "Homebrew doesn't have 1.10.0 yet") || !strings.Contains(out, "new in 1.9.5") {
+		t.Errorf("output:\n%s", out)
+	}
+	if strings.Contains(out, "new in 1.10") {
+		t.Errorf("showed notes for a version not installed:\n%s", out)
+	}
+	if st := LoadState(path); st.LastSeenVersion != "1.9.5" || st.LatestVersion != "1.10.0" {
+		t.Errorf("state %+v", st)
+	}
+}
+
+func TestAfterUpgradeHomebrewBehindAndNotesUnavailable(t *testing.T) {
+	// No notes could be shown, so they mustn't be recorded as seen.
+	gh, c, path := afterUpgradeFixture(t)
+	gh.fail = map[string]bool{"/repos/shipyard/shipyard-cli/releases": true}
+	var buf bytes.Buffer
+	_ = AfterUpgrade(context.Background(), &buf, c, path, "1.9.0", "1.9.5", &Release{TagName: "v1.10.0"}, time.Now())
+	if st := LoadState(path); st.LastSeenVersion != "1.9.0" {
+		t.Errorf("notes marked seen without being shown: %+v", st)
+	}
+}
+
+func TestAfterUpgradeForceSameVersion(t *testing.T) {
+	// --force reinstalls 1.10.0 over 1.10.0: there's nothing in between, so
+	// the release's own notes are shown.
+	_, c, path := afterUpgradeFixture(t)
+	var buf bytes.Buffer
+	_ = AfterUpgrade(context.Background(), &buf, c, path, "1.10.0", "1.10.0", &Release{TagName: "v1.10.0", Body: "- new in 1.10"}, time.Now())
+	if !strings.Contains(buf.String(), "new in 1.10") {
+		t.Errorf("output:\n%s", buf.String())
 	}
 }

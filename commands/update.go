@@ -85,32 +85,12 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	_, _ = green.Fprintf(out, "✓ Upgraded to %s\n", installed)
-	if installed != latest.Version() {
-		// Homebrew's formula is behind the GitHub release.
-		_, _ = fmt.Fprintf(out, "Homebrew doesn't have %s yet; run 'shipyard upgrade' again later to get it.\n", latest.Version())
-	}
-	_, _ = fmt.Fprintln(out)
-
-	notes, err := client.Between(ctx, current, installed)
-	if (err != nil || len(notes) == 0) && installed == latest.Version() {
-		// --force on the same version, or GitHub unreachable after the download.
-		notes = []selfupdate.Release{*latest}
-	}
-	selfupdate.RenderNotes(out, notes, selfupdate.DefaultNotesLines)
-
-	// The notes were just shown; don't show them again on the next run.
+	var statePath string
 	if home := selfupdate.HomeDir(); home != "" {
-		path := selfupdate.StatePath(home)
-		st := selfupdate.LoadState(path)
-		if len(notes) > 0 {
-			st.LastSeenVersion = installed
-		}
-		st.LatestVersion = latest.Version()
-		st.LastChecked = time.Now()
-		if err := st.Save(path); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "warning: could not save update state: %v\n", err)
-		}
+		statePath = selfupdate.StatePath(home)
+	}
+	if err := selfupdate.AfterUpgrade(ctx, out, client, statePath, current, installed, latest, time.Now()); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "warning: could not save update state: %v\n", err)
 	}
 	return nil
 }

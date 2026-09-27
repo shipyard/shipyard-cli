@@ -27,7 +27,6 @@ type Asset struct {
 // Release is the subset of a GitHub release the updater uses.
 type Release struct {
 	TagName    string  `json:"tag_name"`
-	Name       string  `json:"name"`
 	Body       string  `json:"body"`
 	HTMLURL    string  `json:"html_url"`
 	Draft      bool    `json:"draft"`

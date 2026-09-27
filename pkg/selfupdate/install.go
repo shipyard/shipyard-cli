@@ -82,15 +82,33 @@ func NewInstaller(out io.Writer, current string) (*Installer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not find the running binary: %w", err)
 	}
-	return &Installer{
-		HTTP:        &http.Client{Timeout: downloadTimeout},
-		Out:         out,
-		Exe:         exe,
-		Method:      DetectMethod(exe),
-		Current:     current,
-		Brew:        runBrew,
-		BrewVersion: brewVersion,
-	}, nil
+	in := &Installer{
+		HTTP:    &http.Client{Timeout: downloadTimeout},
+		Out:     out,
+		Exe:     exe,
+		Method:  DetectMethod(exe),
+		Current: current,
+	}
+	brew := brewPath(exe)
+	in.Brew = func(ctx context.Context, out io.Writer, args ...string) error {
+		return runBrew(ctx, brew, out, args...)
+	}
+	in.BrewVersion = func(ctx context.Context) (string, error) { return brewVersion(ctx, brew) }
+	return in, nil
+}
+
+// brewPath is the brew that owns the binary at exe: <prefix>/bin/brew for
+// <prefix>/Cellar/shipyard/..., so the right Homebrew is used when there are
+// two (Apple silicon and Intel) or brew isn't on PATH. Falls back to PATH.
+func brewPath(exe string) string {
+	slashed := filepath.ToSlash(exe)
+	if i := strings.Index(slashed, "/Cellar/"); i >= 0 {
+		brew := filepath.Join(filepath.FromSlash(slashed[:i]), "bin", "brew")
+		if fi, err := os.Stat(brew); err == nil && !fi.IsDir() {
+			return brew
+		}
+	}
+	return "brew"
 }
 
 // Install replaces the running binary with the release's and returns the
@@ -110,11 +128,16 @@ func (in *Installer) installHomebrew(ctx context.Context, rel *Release) (string,
 	if rel.Prerelease {
 		return "", errors.New("pre-releases aren't published to Homebrew; install this one from " + rel.HTMLURL)
 	}
+	if os.Geteuid() == 0 {
+		return "", errors.New("brew refuses to run as root; run 'shipyard upgrade' without sudo")
+	}
 	// brew only refreshes taps once a day on its own, so a release from
 	// this morning is invisible to `brew upgrade` without an update first.
+	// A failure here is often an unrelated broken tap, so upgrade anyway;
+	// the version check below catches an upgrade that did nothing.
 	_, _ = fmt.Fprintln(in.Out, "Updating Homebrew...")
 	if err := in.Brew(ctx, in.Out, "update", "--quiet"); err != nil {
-		return "", fmt.Errorf("brew update failed: %w", err)
+		_, _ = fmt.Fprintf(in.Out, "warning: brew update failed (%v); upgrading with what Homebrew already knows\n", err)
 	}
 	_, _ = fmt.Fprintln(in.Out, "Upgrading with Homebrew...")
 	if err := in.Brew(ctx, in.Out, "upgrade", "shipyard"); err != nil {
@@ -231,10 +254,19 @@ func replace(exe, newPath string) error {
 	if runtime.GOOS != "windows" {
 		return os.Rename(newPath, exe)
 	}
-	// Windows can't replace a running executable, but it can rename one.
-	// The .old file is removed on the next run by CleanupOld.
+	return replaceRenamingOld(exe, newPath)
+}
+
+// replaceRenamingOld is how Windows replaces a running executable: it can't
+// overwrite one, but it can rename it. The old binary is removed on a later
+// run by CleanupOld. An .old left by an earlier upgrade can itself still be
+// running, e.g. a long-lived `shipyard mcp serve`, so it may not be removable;
+// then the binary is moved aside under a unique name.
+func replaceRenamingOld(exe, newPath string) error {
 	old := exe + ".old"
-	_ = os.Remove(old)
+	if err := os.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		old = fmt.Sprintf("%s.old-%d", exe, time.Now().UnixNano())
+	}
 	if err := os.Rename(exe, old); err != nil {
 		return err
 	}
@@ -255,7 +287,10 @@ func CleanupOld() {
 		return
 	}
 	if runtime.GOOS == "windows" {
-		_ = os.Remove(exe + ".old")
+		olds, _ := filepath.Glob(exe + ".old*")
+		for _, o := range olds {
+			_ = os.Remove(o) // fails while that binary is still running
+		}
 	}
 	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(exe), ".shipyard-upgrade-*"))
 	for _, m := range matches {
@@ -275,8 +310,8 @@ func permissionHint(err error) error {
 	return fmt.Errorf("%w\nThe binary's directory isn't writable by you. Try: sudo shipyard upgrade", err)
 }
 
-func brewVersion(ctx context.Context) (string, error) {
-	out, err := exec.CommandContext(ctx, "brew", "list", "--versions", "shipyard").Output()
+func brewVersion(ctx context.Context, brew string) (string, error) {
+	out, err := exec.CommandContext(ctx, brew, "list", "--versions", "shipyard").Output()
 	if err != nil {
 		return "", err
 	}
@@ -301,8 +336,8 @@ func parseBrewVersions(out string) (string, error) {
 	return newest, nil
 }
 
-func runBrew(ctx context.Context, out io.Writer, args ...string) error {
-	cmd := exec.CommandContext(ctx, "brew", args...)
+func runBrew(ctx context.Context, brew string, out io.Writer, args ...string) error {
+	cmd := exec.CommandContext(ctx, brew, args...)
 	cmd.Stdout, cmd.Stderr = out, out
 	return cmd.Run()
 }
