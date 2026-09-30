@@ -1,6 +1,8 @@
 package k8s
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -57,6 +59,9 @@ func handlePortForwardCmd(c client.Client) error {
 	if err != nil {
 		return err
 	}
+
+	stop := k8s.StartActivityHeartbeat(context.Background(), c, id, k8s.ActivitySourcePortForward, k8s.ActivityHeartbeatInterval)
+	defer stop()
 
 	return k.PortForward(ports)
 }
