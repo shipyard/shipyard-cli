@@ -35,6 +35,7 @@ var rootCmd = &cobra.Command{
 		logging.Register()
 		log.Println("Git commit:", version.GitCommit)
 		log.Println("Current config file:", viper.ConfigFileUsed())
+		startUpdateCheck(cmd)
 	},
 }
 
@@ -46,7 +47,13 @@ var (
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		fail("Command", err)
+		red := color.New(color.FgHiRed)
+		_, _ = red.Fprintf(os.Stderr, "Command error: %s\n", err)
+	}
+	// After the command's own output, including its error, as gh does.
+	showUpdateNotice()
+	if err != nil {
+		os.Exit(1)
 	}
 }
 
@@ -55,6 +62,7 @@ func init() {
 	viper.SetEnvKeyReplacer(replacer)
 	viper.SetEnvPrefix("shipyard")
 	viper.AutomaticEnv()
+	viper.SetDefault("update_check", true)
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.shipyard/config.yaml)")
@@ -82,7 +90,7 @@ func setupCommands() {
 	rootCmd.AddCommand(NewAPICmd(c))
 	rootCmd.AddCommand(NewGetCmd(c))
 	rootCmd.AddCommand(NewSetCmd())
-	rootCmd.AddCommand(NewUpdateCmd())
+	rootCmd.AddCommand(NewUpgradeCmd())
 	rootCmd.AddCommand(NewModeCmd())
 	rootCmd.AddCommand(volumes.NewResetCmd(c))
 	rootCmd.AddCommand(volumes.NewCreateCmd(c))
