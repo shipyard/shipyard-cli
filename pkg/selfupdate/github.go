@@ -81,7 +81,9 @@ func (c *Client) Latest(ctx context.Context, prerelease bool) (*Release, error) 
 	var newest *Release
 	for i := range releases {
 		r := &releases[i]
-		if r.Draft {
+		// A tag that isn't a version, e.g. "nightly", can't be compared, and
+		// as the first pick it would never be replaced.
+		if _, err := ParseVersion(r.TagName); err != nil || r.Draft {
 			continue
 		}
 		if newest == nil || IsNewer(newest.TagName, r.TagName) {

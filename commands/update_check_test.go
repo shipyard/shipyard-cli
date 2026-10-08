@@ -3,6 +3,7 @@ package commands
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -86,6 +87,37 @@ func TestShouldCheckForUpdate(t *testing.T) {
 			t.Error("checked under mcp serve")
 		}
 	})
+
+	// upgrade does its own check; completion and __complete run on every Tab.
+	for _, name := range []string{"upgrade", "completion", "__complete", "__completeNoDesc", "help"} {
+		c := &cobra.Command{Use: name}
+		root.AddCommand(c)
+		t.Run(name, func(t *testing.T) {
+			setup(t)
+			if shouldCheckForUpdate(c) {
+				t.Errorf("checked under %s", name)
+			}
+		})
+	}
+}
+
+func TestShowUpdateNoticeWaitsAtMostNoticeWait(t *testing.T) {
+	old := pendingNotice
+	t.Cleanup(func() { pendingNotice = old })
+
+	pendingNotice = nil // no check running
+	start := time.Now()
+	showUpdateNotice()
+	if d := time.Since(start); d > 100*time.Millisecond {
+		t.Errorf("waited %v with no check running", d)
+	}
+
+	pendingNotice = make(chan *selfupdate.Notice) // a check that never answers
+	start = time.Now()
+	showUpdateNotice()
+	if d := time.Since(start); d < noticeWait || d > noticeWait+500*time.Millisecond {
+		t.Errorf("waited %v for a slow check, want about %v", d, noticeWait)
+	}
 }
 
 func TestCheckUpgradeTarget(t *testing.T) {
@@ -107,6 +139,14 @@ func TestCheckUpgradeTarget(t *testing.T) {
 		upToDate, err := checkUpgradeTarget(c.current, stable, c.force)
 		if (err != nil) != c.err || upToDate != c.upToDate {
 			t.Errorf("current %s force %v: upToDate %v, err %v", c.current, c.force, upToDate, err)
+		}
+	}
+}
+
+func TestCheckUpgradeTargetRejectsTagThatIsntAVersion(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		if _, err := checkUpgradeTarget("1.9.0", &selfupdate.Release{TagName: "nightly"}, force); err == nil {
+			t.Errorf("force %v: installed a release tagged nightly", force)
 		}
 	}
 }

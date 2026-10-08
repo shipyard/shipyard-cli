@@ -101,6 +101,9 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 // current is already up to date, unless force. It never installs an older
 // version, which --force would otherwise do to a pre-release build.
 func checkUpgradeTarget(current string, latest *selfupdate.Release, force bool) (upToDate bool, err error) {
+	if _, err := selfupdate.ParseVersion(latest.TagName); err != nil {
+		return false, fmt.Errorf("the latest release's tag %q isn't a version: %w", latest.TagName, err)
+	}
 	if force && selfupdate.IsNewer(latest.TagName, current) {
 		err := fmt.Errorf("the latest release, %s, is older than this version (%s)", latest.Version(), current)
 		if v, perr := selfupdate.ParseVersion(current); perr == nil && v.Pre != "" {

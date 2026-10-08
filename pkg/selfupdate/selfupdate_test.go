@@ -117,6 +117,20 @@ func TestLatestPrereleasePicksHighestVersion(t *testing.T) {
 	}
 }
 
+func TestLatestPrereleaseSkipsTagsThatArentVersions(t *testing.T) {
+	_, srv := newFakeGitHub(t,
+		Release{TagName: "nightly", Prerelease: true},
+		Release{TagName: "v1.10.0-rc.1", Prerelease: true},
+	)
+	rel, err := testClient(srv).Latest(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.TagName != "v1.10.0-rc.1" {
+		t.Errorf("got %s", rel.TagName)
+	}
+}
+
 func TestRenderNotes(t *testing.T) {
 	var buf bytes.Buffer
 	RenderNotes(&buf, []Release{{
@@ -451,6 +465,22 @@ func TestNotifyNotesAfterUpgradeElsewhere(t *testing.T) {
 	}
 }
 
+func TestNotifyShownKeepsNewerStateWrittenMeanwhile(t *testing.T) {
+	// The 1.9.0 notes are queued; before the command exits, `shipyard upgrade`
+	// in another shell installs 1.10.0 and shows its notes.
+	fx := newNotify(t, checkedEarlierToday("1.8.1"))
+	notice := fx.n.Check(context.Background())
+	st := fx.state()
+	st.LastSeenVersion = "1.10.0"
+	if err := st.Save(fx.n.StatePath); err != nil {
+		t.Fatal(err)
+	}
+	notice.Shown()
+	if st := fx.state(); st.LastSeenVersion != "1.10.0" {
+		t.Errorf("newer seen version rolled back: %+v", st)
+	}
+}
+
 func TestNotifyNotesAndNewVersionTogether(t *testing.T) {
 	// Upgraded from 1.8.1 to 1.9.0 with 1.10.0 already out.
 	fx := newNotify(t, State{LastSeenVersion: "1.8.1"})
@@ -711,6 +741,38 @@ func TestIsOldBinary(t *testing.T) {
 		if got := isOldBinary("shipyard.exe", name); got != want {
 			t.Errorf("isOldBinary(%q) = %v, want %v", name, got, want)
 		}
+	}
+}
+
+func TestSaveUnderSudoRefusesSymlinkedDir(t *testing.T) {
+	// ~/.shipyard made a symlink to a directory root owns.
+	home, target := t.TempDir(), t.TempDir()
+	if err := os.Symlink(target, filepath.Join(home, ".shipyard")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	path := StatePath(home)
+	if err := (State{LatestVersion: "1.10.0"}).save(path, true); err == nil {
+		t.Error("saved through a symlinked directory")
+	}
+	if entries, _ := os.ReadDir(target); len(entries) != 0 {
+		t.Errorf("wrote into the symlink's target: %v", entries)
+	}
+	// Without sudo, the user's own symlinked ~/.shipyard is fine.
+	if err := (State{LatestVersion: "1.10.0"}).save(path, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadState(path); got.LatestVersion != "1.10.0" {
+		t.Errorf("got %+v", got)
+	}
+}
+
+func TestSaveUnderSudoWritesRealDir(t *testing.T) {
+	path := StatePath(t.TempDir())
+	if err := (State{LatestVersion: "1.10.0"}).save(path, true); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(path)); len(entries) != 1 {
+		t.Errorf("left temp files behind: %v", entries)
 	}
 }
 

@@ -46,7 +46,16 @@ func startUpdateCheck(cmd *cobra.Command) {
 		ctx = context.Background()
 	}
 	pendingNotice = make(chan *selfupdate.Notice, 1)
-	go func() { pendingNotice <- n.Check(ctx) }()
+	go func() {
+		// main's recover doesn't cover this goroutine; a bug in the check
+		// must not take down the command the user ran.
+		defer func() {
+			if recover() != nil {
+				pendingNotice <- &selfupdate.Notice{}
+			}
+		}()
+		pendingNotice <- n.Check(ctx)
+	}()
 }
 
 // showUpdateNotice prints what the background check found, on stderr, after

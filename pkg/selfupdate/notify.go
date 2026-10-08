@@ -115,13 +115,15 @@ func (n *Notifier) Check(ctx context.Context) *Notice {
 	return notice
 }
 
-// Shown records that the notice was printed.
+// Shown records that the notice was printed. It keeps a newer seen version:
+// while the command ran, another shell may have upgraded further and shown
+// those notes, which would otherwise be shown again.
 func (nt *Notice) Shown() {
 	if nt.lastSeen == "" && nt.notified.IsZero() {
 		return
 	}
 	st := LoadState(nt.statePath)
-	if nt.lastSeen != "" {
+	if nt.lastSeen != "" && !IsNewer(nt.lastSeen, st.LastSeenVersion) {
 		st.LastSeenVersion = nt.lastSeen
 	}
 	if !nt.notified.IsZero() {

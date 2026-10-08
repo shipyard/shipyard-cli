@@ -31,7 +31,19 @@ is upgraded with `brew upgrade shipyard`; any other install downloads the releas
 release's `checksums.txt`, and replaces the running binary. If that binary is in a directory you can't write to, such as
 `/usr/local/bin`, run `sudo shipyard upgrade`.
 
-Add `--prerelease` to include pre-releases, or `--force` to reinstall the current release.
+Add `--prerelease` to include pre-releases, or `--force` to reinstall the current release (for a Homebrew install, use
+`brew reinstall shipyard` instead).
+
+### Upgrading from 1.9.0 or earlier
+
+The `shipyard update` in 1.9.0 and earlier compares versions as text, so it reports 1.10.0 and later as older than
+what you have. Upgrade once the way you installed, and `shipyard upgrade` works from then on:
+
+- **Linux and macOS:** `curl https://www.shipyard.sh/install.sh | bash`
+- **Windows:** download the executable from the [releases page](https://github.com/shipyard/shipyard-cli/releases)
+- **Homebrew:** `brew upgrade shipyard`
+
+### Update notices
 
 When a new release is out, the CLI tells you after a command finishes, at most once a day:
 
