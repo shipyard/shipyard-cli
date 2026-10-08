@@ -137,13 +137,21 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err != nil {
 		if errors.As(err, &viper.ConfigFileNotFoundError{}) {
 			// Create an empty config for the user.
-			if err := config.CreateDefaultConfig(home); err != nil {
+			path, err := config.CreateDefaultConfig(home)
+			if err != nil {
 				fail("Init", err)
 			}
 			// Stderr, not stdout: on a first run `shipyard mcp serve` would
 			// otherwise open its JSON-RPC stream with this line and the client
 			// would fail to parse the initialize response.
 			_, _ = fmt.Fprintln(os.Stderr, "Creating a default config.yaml in $HOME/.shipyard")
+			// Load the new file so config.Save can write to it in this same
+			// run: without this, ConfigFileUsed stays empty and `shipyard login`
+			// fails on the first run after the config is deleted.
+			viper.SetConfigFile(path)
+			if err := viper.ReadInConfig(); err != nil {
+				fail("Init", err)
+			}
 			return
 		} else if errors.As(err, &viper.ConfigParseError{}) {
 			fail("Init", errConfigParse)

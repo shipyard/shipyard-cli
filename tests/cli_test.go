@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -379,6 +381,46 @@ func newCmd(args []string) *cmdWrapper {
 	c.stdErr = stderr
 	c.stdOut = stdout
 	return &c
+}
+
+// sc-20426: with no config in $HOME, the CLI creates a default one. The same
+// run must be able to write to it, or `shipyard login` fails right after the
+// user deletes their config and only works on the second try.
+func TestSaveWorksOnTheRunThatCreatesTheConfig(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+
+	cmd := exec.Command("./shipyard", "set", "token", "fresh-token")
+	cmd.Env = append(withoutEnv(os.Environ(), "HOME", "SHIPYARD_API_TOKEN"), "HOME="+home)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("set token failed on a fresh $HOME: %v\n%s", err, stderr.String())
+	}
+
+	written, err := os.ReadFile(filepath.Join(home, ".shipyard", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(written), "api_token: fresh-token") {
+		t.Errorf("token not saved to the new config:\n%s", written)
+	}
+}
+
+func withoutEnv(env []string, keys ...string) []string {
+	var out []string
+	for _, kv := range env {
+		keep := true
+		for _, k := range keys {
+			if strings.HasPrefix(kv, k+"=") {
+				keep = false
+			}
+		}
+		if keep {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 func commandLine(in []string) []string {
