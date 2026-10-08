@@ -20,6 +20,47 @@ Using an AI assistant? The CLI includes an MCP server: see [Use Shipyard from an
     brew install shipyard
     ```
 
+## Upgrading
+
+```bash
+shipyard upgrade
+```
+
+`shipyard update` does the same thing. It installs the latest release and shows its release notes. A Homebrew install
+is upgraded with `brew upgrade shipyard`; any other install downloads the release binary, verifies it against the
+release's `checksums.txt`, and replaces the running binary. If that binary is in a directory you can't write to, such as
+`/usr/local/bin`, run `sudo shipyard upgrade`.
+
+Add `--prerelease` to include pre-releases, or `--force` to reinstall the current release (for a Homebrew install, use
+`brew reinstall shipyard` instead).
+
+### Upgrading from 1.9.0 or earlier
+
+The `shipyard update` in 1.9.0 and earlier compares versions as text, so it reports 1.10.0 and later as older than
+what you have. Upgrade once the way you installed, and `shipyard upgrade` works from then on:
+
+- **Linux and macOS:** `curl https://www.shipyard.sh/install.sh | bash`
+- **Windows:** download the executable from the [releases page](https://github.com/shipyard/shipyard-cli/releases)
+- **Homebrew:** `brew upgrade shipyard`
+
+### Update notices
+
+When a new release is out, the CLI tells you after a command finishes, at most once a day:
+
+```
+A new version of shipyard is available: 1.9.0 → 1.10.0
+Run `shipyard upgrade` to install it. Release notes: https://github.com/shipyard/shipyard-cli/releases/tag/v1.10.0
+```
+
+It never asks anything or waits for input. The check runs in the background while your command runs; if it hasn't
+finished when the command does, the CLI waits at most a second for it. That only happens when it's asking GitHub, about
+once a day or to fetch release notes you missed. The first run after an upgrade made any other way, such as
+`brew upgrade`, shows those notes.
+
+The message goes to stderr, and only when stderr is a terminal. It's never shown in CI, inside AI coding agents that
+identify themselves (Claude Code, Codex, Cursor's agent, Gemini CLI), or for `shipyard mcp serve`. To turn it off, set
+`SHIPYARD_NO_UPDATE_CHECK=1` or add `update_check: false` to `~/.shipyard/config.yaml`.
+
 ## Login
 
 Run `shipyard login` to initialize the CLI. This will prompt you to log in to Shipyard in the browser. The CLI will then
