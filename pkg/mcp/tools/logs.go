@@ -118,7 +118,7 @@ func (t *LogsTool) formatLogsResponse(resp *logs.LogsResponse, environmentID, se
 				"For the crash logs Shipyard stored, call get_build_logs(environment_id=%q, kind=\"crash\", service_name=%q).",
 				environmentID, serviceName)
 		case resp.Run == logs.RunCurrent && len(resp.Lines) == 0:
-			return result + "The container has not restarted, so it has no previous run, and its current run has no output yet."
+			return result + "The container has not restarted, so it has no previous run, and its current run has written no output."
 		case resp.Run == logs.RunCurrent:
 			result += "The container has not restarted, so it has no previous run. This is its current run:\n"
 		case len(resp.Lines) == 0 && page > 1:

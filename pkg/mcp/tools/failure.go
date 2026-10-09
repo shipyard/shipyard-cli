@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -104,7 +105,7 @@ func logsAPIError(operation string, err error, environmentID, buildID, serviceNa
 		return mcpErr
 	case strings.Contains(msg, "service not found") && serviceName != "":
 		mcpErr := errors.NotFoundError(operation, "service", serviceName)
-		mcpErr.Suggestion = "The service is not enabled in this build. Use 'get_services' to list the enabled services"
+		mcpErr.Suggestion = "The service is not enabled in this build. get_failure_details lists the services enabled in a build"
 		mcpErr.Cause = err
 		return mcpErr
 	case strings.Contains(msg, "application not found"):
@@ -128,14 +129,50 @@ var inProgress = map[string]bool{
 	"DISTRIBUTING": true, "DEPLOYING": true, "STARTING": true, "CONNECTING": true,
 }
 
+// maxRepeatBlock is the longest block of lines checked for back-to-back repeats: a stack trace
+// written on every restart of a crash loop is usually well under this.
+const maxRepeatBlock = 50
+
 // writeLogLines writes log lines from the customer's build or app, each prefixed so none can
-// pass for the tool's own headers or instructions.
+// pass for the tool's own headers or instructions. A block of lines repeated back to back, like
+// the same stack trace from every restart of a crash loop, is written once with a count.
 func writeLogLines(b *strings.Builder, lines []string) {
-	for _, line := range lines {
-		b.WriteString("| ")
-		b.WriteString(line)
-		b.WriteByte('\n')
+	for i := 0; i < len(lines); {
+		size, repeats := repeatedBlock(lines[i:])
+		for _, line := range lines[i : i+size] {
+			b.WriteString("| ")
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+		if repeats > 1 {
+			block, times := "the line above repeats", "times"
+			if size > 1 {
+				block = fmt.Sprintf("the %d lines above repeat", size)
+			}
+			if repeats == 2 {
+				times = "time"
+			}
+			fmt.Fprintf(b, "(%s %d more %s)\n", block, repeats-1, times)
+		}
+		i += size * repeats
 	}
+}
+
+// repeatedBlock finds the block at the start of lines that repeats back to back over the most
+// lines, counting only repeats that save at least two lines once collapsed into a note. It
+// returns a block of one line, once, when nothing repeats.
+func repeatedBlock(lines []string) (size, repeats int) {
+	size, repeats = 1, 1
+	for k := 1; k <= maxRepeatBlock && 2*k <= len(lines); k++ {
+		r := 1
+		for (r+1)*k <= len(lines) && slices.Equal(lines[:k], lines[r*k:(r+1)*k]) {
+			r++
+		}
+		if (r-1)*k >= 2 && r*k > size*repeats {
+			size, repeats = k, r
+		}
+	}
+	return size, repeats
 }
 
 // unreadableLogs is said of a service whose log store couldn't be read.
@@ -187,8 +224,12 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 			strings.Join(data.EnabledServices, ", "))
 	}
 
+	if summary := imageBuildSummary(data.Services); summary != "" {
+		fmt.Fprintf(&b, "Image builds: %s\n", summary)
+	}
+
 	for _, svc := range data.Services {
-		if svc.ImageBuild == nil && svc.HealthCheck == nil && svc.Excerpt == nil && !svc.Unavailable {
+		if !hasDetails(svc) {
 			continue
 		}
 		state := ""
@@ -196,7 +237,8 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 			state = " (failing)"
 		}
 		fmt.Fprintf(&b, "\n== %s%s ==\n", svc.Name, state)
-		if svc.ImageBuild != nil {
+		// A healthy service is here for its log; its built image is in the summary
+		if svc.ImageBuild != nil && (svc.Failing || svc.ImageBuild.Status == "FAILED") {
 			reason := ""
 			if r := deref(svc.ImageBuild.FailureReason); r != "" {
 				reason = " (" + r + ")"
@@ -225,31 +267,93 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 			"Otherwise rebuild once with rebuild_environment(environment_id=%q). If that build fails the same way, stop and report the failure to the user instead of changing the app.\n",
 			environmentID, environmentID)
 	default:
-		b.WriteString("\nMore output:\n")
+		phase := deref(failure.Phase)
+		var hints []string
 		for _, svc := range data.Services {
-			if !svc.Failing {
-				continue
+			if svc.Failing {
+				hints = append(hints, fmt.Sprintf("- get_build_logs(environment_id=%q, build_id=%q, kind=%q, service_name=%q)\n",
+					environmentID, resp.ID, hintKind(svc, phase), svc.Name))
 			}
-			fmt.Fprintf(&b, "- get_build_logs(environment_id=%q, build_id=%q, kind=%q, service_name=%q)\n",
-				environmentID, resp.ID, hintKind(svc), svc.Name)
 		}
-		fmt.Fprintf(&b, "- get_build_logs(environment_id=%q, build_id=%q, kind=\"run\") for every service's run log\n",
-			environmentID, resp.ID)
+		if servicesRan(phase) {
+			hints = append(hints, fmt.Sprintf("- get_build_logs(environment_id=%q, build_id=%q, kind=\"run\") for every service's run log\n",
+				environmentID, resp.ID))
+		}
+		if len(hints) > 0 {
+			b.WriteString("\nMore output:\n" + strings.Join(hints, ""))
+		} else {
+			fmt.Fprintf(&b, "\nNo service logs: the build stopped during %s, before any service ran.\n", phase)
+		}
+		if phase == "clone" {
+			fmt.Fprintf(&b, "Next step: check that each project's branch still exists and its repository is reachable; "+
+				"get_environment(environment_id=%q) lists the projects and branches.\n", environmentID)
+		}
 	}
 	return b.String()
 }
 
 // hintKind is the log most likely to explain a failing service: its excerpt's, else the build
-// log of an image that failed to build (the service never ran), else its run log.
-func hintKind(svc failureService) string {
+// log of an image that failed to build or of a build that stopped before services ran, else its run log.
+func hintKind(svc failureService, phase string) string {
 	switch {
 	case svc.Excerpt != nil:
 		return svc.Excerpt.Kind
-	case svc.ImageBuild != nil && svc.ImageBuild.Status == "FAILED":
+	case svc.ImageBuild != nil && svc.ImageBuild.Status == "FAILED", !servicesRan(phase):
 		return "build"
 	default:
 		return "run"
 	}
+}
+
+// servicesRan reports whether a build that failed during phase got as far as starting services,
+// so they have run logs. An unknown phase is assumed to have.
+func servicesRan(phase string) bool {
+	switch phase {
+	case "clone", "config", "build":
+		return false
+	}
+	return true
+}
+
+// hasDetails reports whether a service has more to say than an image status, which
+// imageBuildSummary counts instead.
+func hasDetails(svc failureService) bool {
+	return svc.Failing || svc.HealthCheck != nil || svc.Excerpt != nil || svc.Unavailable ||
+		(svc.ImageBuild != nil && svc.ImageBuild.Status == "FAILED")
+}
+
+// imageBuildStatusOrder lists failures first, then the common statuses; others follow by name.
+var imageBuildStatusOrder = []string{"FAILED", "BUILT", "STARTED", "QUEUED", "CANCELED"}
+
+// imageBuildSummary counts the services' image builds by status: "1 FAILED, 5 BUILT, 7 CANCELED".
+func imageBuildSummary(services []failureService) string {
+	counts := map[string]int{}
+	for _, svc := range services {
+		if svc.ImageBuild != nil {
+			counts[svc.ImageBuild.Status]++
+		}
+	}
+	var statuses []string
+	for status := range counts {
+		statuses = append(statuses, status)
+	}
+	slices.SortFunc(statuses, func(a, b string) int {
+		ai, bi := slices.Index(imageBuildStatusOrder, a), slices.Index(imageBuildStatusOrder, b)
+		switch {
+		case ai == bi:
+			return strings.Compare(a, b)
+		case ai == -1:
+			return 1
+		case bi == -1:
+			return -1
+		}
+		return ai - bi
+	})
+	parts := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		parts = append(parts, fmt.Sprintf("%d %s", counts[status], status))
+	}
+	return strings.Join(parts, ", ")
 }
 
 type buildLogsResponse struct {
@@ -356,15 +460,21 @@ func formatBuildLogs(environmentID string, resp *buildLogsResponse) string {
 			fmt.Fprintf(&b, "== %s (%s log%s): %s ==\n", svc.Name, resp.Data.Kind, state, unreadableLogs)
 			continue
 		}
+		if len(svc.Lines) == 0 && svc.Offset > 0 && svc.Offset >= svc.TotalLines {
+			fmt.Fprintf(&b, "== %s (%s log%s): no lines this far back; the log has only %d lines ==\n",
+				svc.Name, resp.Data.Kind, state, svc.TotalLines)
+			continue
+		}
 		fmt.Fprintf(&b, "== %s (%s log%s): %d of %d lines", svc.Name, resp.Data.Kind, state, len(svc.Lines), svc.TotalLines)
 		if svc.Offset > 0 {
 			fmt.Fprintf(&b, ", ending %d lines before the end", svc.Offset)
 		}
 		b.WriteString(" ==\n")
-		writeLogLines(&b, svc.Lines)
+		// The omitted lines come before these
 		if svc.Truncated {
 			b.WriteString("(earlier lines omitted)\n")
 		}
+		writeLogLines(&b, svc.Lines)
 	}
 	// The next link pins the build, kind, service, tail and failed_only; the hint keeps them all,
 	// so a newer build or a different tail can't shift the page.

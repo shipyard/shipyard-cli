@@ -1,6 +1,7 @@
 package errors
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -206,4 +207,19 @@ type testHTTPError struct {
 
 func (e *testHTTPError) Error() string {
 	return e.msg
+}
+
+// An environment that is stopped or still building has no services to read logs from or exec
+// into. Say that, and where its logs are, rather than "check the operation parameters".
+func TestParseHTTPError_NoRunningServices(t *testing.T) {
+	err := ParseHTTPError("get_logs", fmt.Errorf("failed to find service web: no services found for environment, check if it's running"), "env-123")
+	msg := err.Error()
+	for _, want := range []string{"environment 'env-123' has no running services", "get_environment", "get_build_logs"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "check the operation parameters") {
+		t.Errorf("error %q should not blame the parameters", msg)
+	}
 }

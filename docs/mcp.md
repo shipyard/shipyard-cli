@@ -215,7 +215,8 @@ Both work on the latest build by default; pass a `build_id` from
 rebuild, without details; the agent checks that no build is already running first.
 Hidden env var and secret values are masked in returned logs. Each log line is
 prefixed with `| `, so the agent can tell the app's output from the tool's own
-instructions.
+instructions. A block of lines repeated back to back, like the same stack trace
+from every restart of a crash loop, is shown once with a count.
 
 ### Services
 

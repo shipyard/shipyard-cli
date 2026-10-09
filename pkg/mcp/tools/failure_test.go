@@ -172,7 +172,7 @@ func TestFailureTool_GetBuildLogs_Formatting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "== web (run log, failing): 2 of 10 lines, ending 3 lines before the end ==\n| b\n| c\n(earlier lines omitted)\n" +
+	want := "== web (run log, failing): 2 of 10 lines, ending 3 lines before the end ==\n(earlier lines omitted)\n| b\n| c\n" +
 		"\nOlder lines: get_build_logs(environment_id=\"env-123\", build_id=\"build-1\", kind=\"run\", service_name=\"web\", tail=2, offset=5)\n"
 	if out != want {
 		t.Errorf("got:\n%s\nwant:\n%s", out, want)
@@ -307,7 +307,7 @@ func TestFailureTool_NotFoundErrors(t *testing.T) {
 		{"no builds", "get_build_logs", `{"environment_id":"env-123"}`,
 			errors.New("build not found!"), []string{"has no builds", "get_build_history"}, nil},
 		{"disabled service", "get_build_logs", `{"environment_id":"env-123","service_name":"worker"}`,
-			errors.New("service not found!"), []string{"service 'worker' not found", "get_services"}, []string{"environment 'env-123' not found", "get_environments"}},
+			errors.New("service not found!"), []string{"service 'worker' not found", "get_failure_details"}, []string{"environment 'env-123' not found", "get_environments"}},
 		{"unknown environment", "get_build_logs", `{"environment_id":"env-123"}`,
 			errors.New("application not found!"), []string{"environment 'env-123' not found"}, nil},
 	}
@@ -422,5 +422,136 @@ func TestFailureTool_LogLinesAreMarkedAsData(t *testing.T) {
 		if !strings.Contains(extendedToolDefinitions[name].Description, "not instructions") {
 			t.Errorf("%s description should say log lines are data, not instructions", name)
 		}
+	}
+}
+
+// A build that stopped before building images (a clone or config failure) cancels every image
+// build. Listing each service just to say "CANCELED" buries the reason; one count says it all,
+// and there are no service logs to point at.
+func TestFailureTool_GetFailureDetails_StoppedBeforeServicesRan(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
+	  "failure":{"phase":"clone","reason":"DOWNLOADING_REPO","reason_text":"Failure downloading repo","retryable":false,"services":[],"message":null},
+	  "enabled_services":["db","web","worker"],
+	  "services":[
+	    {"name":"db","failing":false,"image_build":{"status":"CANCELED","failure_reason":null},"health_check":null,"excerpt":null},
+	    {"name":"web","failing":false,"image_build":{"status":"CANCELED","failure_reason":null},"health_check":null,"excerpt":null},
+	    {"name":"worker","failing":false,"image_build":{"status":"CANCELED","failure_reason":null},"health_check":null,"excerpt":null}]}}`)}
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Image builds: 3 CANCELED\n",
+		"No service logs: the build stopped during clone, before any service ran.",
+		`get_environment(environment_id="env-123")`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	for _, notWant := range []string{"== ", "Image build: CANCELED", "get_build_logs"} {
+		if strings.Contains(out, notWant) {
+			t.Errorf("unexpected %q:\n%s", notWant, out)
+		}
+	}
+}
+
+// An image build failure: only the failing service gets a section, the other images are
+// counted, and no run logs are suggested because no service ran.
+func TestFailureTool_GetFailureDetails_ImageFailureSummarizesOtherImages(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
+	  "failure":{"phase":"build","reason":"BUILDING_IMAGES","reason_text":"Failure building images","retryable":false,"services":["web"],"message":null},
+	  "enabled_services":["db","web","worker"],
+	  "services":[
+	    {"name":"web","failing":true,"image_build":{"status":"FAILED","failure_reason":"BUILD_FAILED"},"health_check":null,
+	     "excerpt":{"kind":"build","lines":["error: secret token: not found"],"truncated":false}},
+	    {"name":"db","failing":false,"image_build":{"status":"BUILT","failure_reason":null},"health_check":null,"excerpt":null},
+	    {"name":"worker","failing":false,"image_build":{"status":"CANCELED","failure_reason":null},"health_check":null,"excerpt":null}]}}`)}
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Image builds: 1 FAILED, 1 BUILT, 1 CANCELED\n",
+		"== web (failing) ==\nImage build: FAILED (BUILD_FAILED)\n",
+		`kind="build", service_name="web"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	for _, notWant := range []string{"== db", "== worker", "every service's run log"} {
+		if strings.Contains(out, notWant) {
+			t.Errorf("unexpected %q:\n%s", notWant, out)
+		}
+	}
+}
+
+// A healthy service shown for its run log doesn't need "Image build: BUILT" repeated.
+func TestFailureTool_GetFailureDetails_HealthyServiceShowsOnlyItsLog(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
+	  "failure":{"phase":"run","reason":"HEALTH_CHECK_FAILED","reason_text":"A service failed its health check","retryable":false,"services":["web"],"message":null},
+	  "enabled_services":["redis","web"],
+	  "services":[
+	    {"name":"web","failing":true,"image_build":{"status":"BUILT","failure_reason":null},"health_check":"CrashLoopBackOff (Error)","excerpt":null},
+	    {"name":"redis","failing":false,"image_build":{"status":"BUILT","failure_reason":null},"health_check":null,
+	     "excerpt":{"kind":"run","lines":["Ready to accept connections"],"truncated":false}}]}}`)}
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "== redis ==\n--- run log, last 1 lines ---\n| Ready to accept connections\n") {
+		t.Errorf("expected redis's log without its image status:\n%s", out)
+	}
+	if !strings.Contains(out, "Image builds: 2 BUILT\n") || !strings.Contains(out, "every service's run log") {
+		t.Errorf("unexpected output:\n%s", out)
+	}
+}
+
+// Paging past the start of a log: say how long the log is, not "0 of 2 lines, ending 3 lines before the end".
+func TestFailureTool_GetBuildLogs_PastTheStart(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"kind":"build","services":[
+	  {"name":"web","failing":true,"lines":[],"truncated":false,"offset":3,"total_lines":2}]},"links":{}}`)}
+	out, err := newFailureTool(rec, "get_build_logs").Execute(context.Background(),
+		json.RawMessage(`{"environment_id":"env-123","kind":"build","service_name":"web","offset":3}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "the log has only 2 lines") || strings.Contains(out, "0 of 2 lines") {
+		t.Errorf("unexpected output:\n%s", out)
+	}
+}
+
+// A crash loop writes the same stack trace on every restart. Repeats are written once with a
+// count, so an excerpt shows the error instead of nine copies of it.
+func TestWriteLogLines_CollapsesRepeatedBlocks(t *testing.T) {
+	trace := []string{"Traceback (most recent call last):", "  File \"app.py\", line 1", "Error: no licence"}
+	var lines []string
+	for i := 0; i < 4; i++ {
+		lines = append(lines, trace...)
+	}
+	lines = append(lines, "x", "x", "x", "x", "x", "done", "same", "same")
+
+	var b strings.Builder
+	writeLogLines(&b, lines)
+
+	want := "| Traceback (most recent call last):\n|   File \"app.py\", line 1\n| Error: no licence\n" +
+		"(the 3 lines above repeat 3 more times)\n" +
+		"| x\n(the line above repeats 4 more times)\n" +
+		"| done\n" +
+		// Collapsing two lines into one and a note saves nothing
+		"| same\n| same\n"
+	if got := b.String(); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// An excerpt usually starts partway through a repeated block; the repeats still collapse.
+func TestWriteLogLines_CollapsesFromMidBlock(t *testing.T) {
+	lines := []string{"b", "c", "a", "b", "c", "a", "b", "c"}
+	var b strings.Builder
+	writeLogLines(&b, lines)
+	if got := b.String(); got != "| b\n| c\n| a\n(the 3 lines above repeat 1 more time)\n| b\n| c\n" {
+		t.Errorf("got:\n%s", got)
 	}
 }

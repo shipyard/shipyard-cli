@@ -171,6 +171,17 @@ func ParseHTTPError(operation string, err error, resourceID string) *MCPError {
 		resourceID = "requested"
 	}
 
+	// An environment that is stopped, or still building, has no services to reach
+	if strings.Contains(errStr, "no services found for environment") {
+		return &MCPError{
+			Operation: operation,
+			Message:   fmt.Sprintf("environment '%s' has no running services: it is stopped, or its build is still running or failed", resourceID),
+			Suggestion: "Call get_environment to check `processing` and `stopped`. For the logs of a failed or stopped build, " +
+				"use get_failure_details or get_build_logs",
+			Cause: err,
+		}
+	}
+
 	// Check for common HTTP status patterns
 	if strings.Contains(errStr, "404") || strings.Contains(errStr, "not found") {
 		// Try to extract resource type from operation

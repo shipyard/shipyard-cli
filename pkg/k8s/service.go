@@ -310,7 +310,9 @@ func (c *Service) GetLogsAsString(follow bool, tail int64) (string, error) {
 	return c.logsAsString(v1.PodLogOptions{
 		Container: c.container,
 		Follow:    follow,
-		TailLines: &tail,
+		// Each line's own time, parsed by the MCP logs service
+		Timestamps: true,
+		TailLines:  &tail,
 	})
 }
 
@@ -536,7 +538,9 @@ func (c *Service) GetPreviousLogsAsString(tail int64) (string, error) {
 	return c.logsAsString(v1.PodLogOptions{
 		Container: c.container,
 		Previous:  true,
-		TailLines: &tail,
+		// Each line's own time, parsed by the MCP logs service
+		Timestamps: true,
+		TailLines:  &tail,
 	})
 }
 

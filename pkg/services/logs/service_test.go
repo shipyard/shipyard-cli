@@ -315,3 +315,24 @@ func TestPreviousRun_ErrorWithoutReason(t *testing.T) {
 		t.Fatalf("unexpected error %v", err)
 	}
 }
+
+// Kubernetes stamps each line when asked; those are the times to show, not the time of the call.
+// A line with no stamp keeps no time rather than a made-up one.
+func TestParseLogTextWithService_ReadsKubernetesTimestamps(t *testing.T) {
+	m := &LogsManager{}
+	lines := m.parseLogTextWithService("2026-10-09T16:15:50.123456789Z Worker failed to boot.\nno stamp here\n", "web")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines", len(lines))
+	}
+	if want := time.Date(2026, 10, 9, 16, 15, 50, 123456789, time.UTC); !lines[0].Timestamp.Equal(want) || lines[0].Content != "Worker failed to boot." {
+		t.Errorf("got %+v", lines[0])
+	}
+	if !lines[1].Timestamp.IsZero() || lines[1].Content != "no stamp here" {
+		t.Errorf("got %+v", lines[1])
+	}
+
+	out := m.FormatLogsAsText(lines)
+	if !strings.Contains(out, "[2026-10-09 16:15:50] Worker failed to boot.\n") || !strings.Contains(out, "\nno stamp here\n") {
+		t.Errorf("unexpected text:\n%s", out)
+	}
+}

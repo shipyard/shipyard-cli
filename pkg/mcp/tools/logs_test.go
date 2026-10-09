@@ -450,7 +450,8 @@ func TestFormatLogsResponse(t *testing.T) {
 		{"never restarted", logs.LogsResponse{State: fresh, Run: logs.RunCurrent, Lines: lines}, 1,
 			[]string{"has not restarted", "current run", "boom\n"}, []string{"Call get_logs"}},
 		{"never restarted, no output", logs.LogsResponse{State: fresh, Run: logs.RunCurrent}, 1,
-			[]string{"has not restarted", "no output yet"}, []string{"Call get_logs"}},
+			// A container running for hours with no output hasn't written any "yet"
+			[]string{"has not restarted", "has written no output"}, []string{"Call get_logs", "yet"}},
 		{"live logs", logs.LogsResponse{Lines: lines, HasNext: true, NextPage: 2}, 1,
 			[]string{"boom\n", "More logs available on page 2"}, []string{"Pod "}},
 		{"live logs, none", logs.LogsResponse{}, 1,

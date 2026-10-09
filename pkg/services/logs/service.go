@@ -232,14 +232,28 @@ func (s *LogsManager) parseLogTextWithService(logText, serviceName string) []Log
 			continue
 		}
 
+		timestamp, content := splitTimestamp(line)
 		logLines = append(logLines, LogLine{
-			Timestamp: time.Now(), // TODO: Parse actual timestamp from log line if available
-			Content:   line,
+			Timestamp: timestamp,
+			Content:   content,
 			Service:   serviceName,
 		})
 	}
 
 	return logLines
+}
+
+// splitTimestamp splits the timestamp Kubernetes puts before each line (PodLogOptions.Timestamps)
+// from the line. A line without one keeps no time rather than a made-up one.
+func splitTimestamp(line string) (time.Time, string) {
+	stamp, content, found := strings.Cut(line, " ")
+	if !found {
+		stamp, content = line, ""
+	}
+	if t, err := time.Parse(time.RFC3339Nano, stamp); err == nil {
+		return t, content
+	}
+	return time.Time{}, line
 }
 
 // FormatLogsAsText formats logs for text display
@@ -250,9 +264,11 @@ func (s *LogsManager) FormatLogsAsText(logs []LogLine) string {
 
 	result := fmt.Sprintf("Logs for service %s:\n\n", logs[0].Service)
 	for _, line := range logs {
-		result += fmt.Sprintf("[%s] %s\n",
-			line.Timestamp.Format("2006-01-02 15:04:05"),
-			line.Content)
+		if line.Timestamp.IsZero() {
+			result += line.Content + "\n"
+			continue
+		}
+		result += fmt.Sprintf("[%s] %s\n", line.Timestamp.UTC().Format("2006-01-02 15:04:05"), line.Content)
 	}
 
 	return result
