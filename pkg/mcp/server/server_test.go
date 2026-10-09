@@ -143,6 +143,64 @@ func TestMCPServer_HandleListTools(t *testing.T) {
 	}
 }
 
+// Clients gate tool calls on these hints: without readOnlyHint, Codex's
+// "writes" approval mode and Cursor's non-interactive mode treat even
+// get_orgs as a write and block it. Directory submissions (Anthropic,
+// OpenAI) also require every tool to set them explicitly.
+func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
+	server := NewMCPServer(MCPServerConfig{}, newMockClient())
+	server.registerTools()
+
+	response := server.handleListTools(&JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/list"})
+
+	var result struct {
+		Result struct {
+			Tools []struct {
+				Name        string                 `json:"name"`
+				Title       string                 `json:"title"`
+				Annotations map[string]interface{} `json:"annotations"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(response, &result); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	readOnly := map[string]bool{
+		"get_environments": true, "get_environment": true, "get_orgs": true, "get_org": true,
+		"get_logs": true, "get_services": true, "get_volumes": true, "get_snapshots": true,
+		"get_build_history": true, "get_env_vars": true, "port_forward": true,
+	}
+	destructive := map[string]bool{
+		"stop_environment": true, "cancel_environment": true, "rebuild_environment": true,
+		"restart_service": true, "put_env_vars": true, "delete_env_var": true,
+		"update_branches": true, "reset_volume": true, "load_snapshot": true, "exec_service": true,
+	}
+
+	if len(result.Result.Tools) != len(server.tools) {
+		t.Fatalf("Expected %d tools, got %d", len(server.tools), len(result.Result.Tools))
+	}
+	for _, tool := range result.Result.Tools {
+		if tool.Title == "" {
+			t.Errorf("%s: missing title", tool.Name)
+		}
+		if tool.Annotations["title"] != tool.Title {
+			t.Errorf("%s: annotations.title %v does not match title %q", tool.Name, tool.Annotations["title"], tool.Title)
+		}
+		for _, hint := range []string{"readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"} {
+			if _, ok := tool.Annotations[hint].(bool); !ok {
+				t.Errorf("%s: %s must be set explicitly, got %v", tool.Name, hint, tool.Annotations[hint])
+			}
+		}
+		if got := tool.Annotations["readOnlyHint"]; got != readOnly[tool.Name] {
+			t.Errorf("%s: readOnlyHint = %v, want %v", tool.Name, got, readOnly[tool.Name])
+		}
+		if got := tool.Annotations["destructiveHint"]; got != destructive[tool.Name] {
+			t.Errorf("%s: destructiveHint = %v, want %v", tool.Name, got, destructive[tool.Name])
+		}
+	}
+}
+
 func TestMCPServer_HandleCallTool(t *testing.T) {
 	server := NewMCPServer(MCPServerConfig{}, newMockClient())
 	server.registerTools()
