@@ -3,6 +3,8 @@ package server
 import (
 	_ "embed"
 	"strings"
+
+	"github.com/shipyard/shipyard-cli/version"
 )
 
 // serverInstructions is returned in the initialize result, where clients surface
@@ -18,4 +20,14 @@ var serverInstructions string
 // Instructions returns the server instructions sent during initialize.
 func Instructions() string {
 	return strings.TrimSpace(serverInstructions)
+}
+
+// instructions is Instructions preceded, when this CLI is out of date, by a
+// line asking the agent to suggest an upgrade. It goes first because clients
+// truncate long instructions: Claude Code cuts this text off partway through.
+func (s *MCPServer) instructions() string {
+	if notice := staleNotice(version.Version, s.config.LatestVersion); notice != "" {
+		return notice + "\n\n" + Instructions()
+	}
+	return Instructions()
 }

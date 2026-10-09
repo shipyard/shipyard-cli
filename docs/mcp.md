@@ -464,10 +464,20 @@ restores the files it changed.
 - **The client can't start the server, or says `shipyard` isn't found.** The
   client doesn't see your shell's `PATH`. Use the absolute path from
   `which shipyard` as the command.
+- **The server won't start: "Connection closed" or `unknown command "mcp"`.**
+  The `shipyard` the client runs predates the MCP server (before 1.8.0).
+  Claude Code shows only "Connection closed"; Cursor shows the
+  `unknown command "mcp" for "shipyard"` it printed. Run `which -a shipyard` to
+  list every copy on the `PATH`; the first one wins. Upgrade it (`brew upgrade
+  shipyard` for Homebrew), remove the stale copy, or point the client at the
+  newer binary's absolute path.
 - **The `verify` prompt or newer tools are missing.** An older CLI earlier on the
   `PATH`, often a Homebrew install, is answering instead. Check
   `shipyard --version` in the client's environment and upgrade with
-  `brew upgrade shipyard`.
+  `shipyard upgrade`. When the CLI's last update check (from any terminal
+  command) found a newer release, the server tells the assistant so on
+  startup, and the assistant can suggest the upgrade. `SHIPYARD_NO_UPDATE_CHECK`
+  or `update_check: false` turns that off.
 - **`exec_service` says it's disabled.** Set `SHIPYARD_MCP_ALLOW_EXEC=true` in the
   client's `env` block, or `mcp.allow_exec: true` in the config file, then
   restart the client.
