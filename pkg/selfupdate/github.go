@@ -59,6 +59,10 @@ type Client struct {
 	BaseURL string
 }
 
+// ClientTimeout is how long a request from the update check or `shipyard
+// upgrade` waits for GitHub before giving up.
+const ClientTimeout = 15 * time.Second
+
 // NewClient returns a client whose requests give up after timeout.
 func NewClient(timeout time.Duration) *Client {
 	return &Client{HTTP: &http.Client{Timeout: timeout}, BaseURL: DefaultAPIBaseURL}

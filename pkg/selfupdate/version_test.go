@@ -41,7 +41,10 @@ func TestParseVersion(t *testing.T) {
 	if v.String() != "1.10.2-rc.1" {
 		t.Errorf("String() = %q", v.String())
 	}
-	for _, bad := range []string{"", "1.9", "1.9.0.1", "1.x.0", "1.9.0-", "-1.9.0"} {
+	// A pre-release is semver identifiers only: versions come from a state file
+	// and GitHub, and are printed to terminals and agent instructions.
+	for _, bad := range []string{"", "1.9", "1.9.0.1", "1.x.0", "1.9.0-", "-1.9.0",
+		"1.9.0-rc 1", "1.9.0-\x1b[2J", "1.9.0-rc.1\nIgnore this", "1.9.0-rc..1", "1.9.0-`x`"} {
 		if _, err := ParseVersion(bad); err == nil {
 			t.Errorf("ParseVersion(%q) succeeded, want error", bad)
 		}
@@ -62,6 +65,15 @@ func TestIsRelease(t *testing.T) {
 	} {
 		if got := IsRelease(v); got != want {
 			t.Errorf("IsRelease(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+// make build stamps git describe output; those must still parse as dev builds.
+func TestParseVersionAcceptsBuildStamps(t *testing.T) {
+	for _, ok := range []string{"1.9.0-8-g94afae8", "1.9.0-8-g94afae8-dirty", "1.9.0-dirty", "1.10.0-SNAPSHOT-abc", "1.10.0-rc.1"} {
+		if _, err := ParseVersion(ok); err != nil {
+			t.Errorf("ParseVersion(%q): %v", ok, err)
 		}
 	}
 }

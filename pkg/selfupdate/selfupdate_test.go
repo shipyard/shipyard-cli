@@ -786,3 +786,55 @@ func TestNotifySkipsWhenStateCantBeSaved(t *testing.T) {
 		t.Errorf("checked without being able to remember it: %q, requests %v", text, fx.gh.hits)
 	}
 }
+
+// A caller that never shows the notice (the MCP server) must not fetch upgrade
+// notes nobody sees, or use up the terminal's hourly retry for them.
+func TestCheckLatestOnlyLeavesNotesAlone(t *testing.T) {
+	f, srv := newFakeGitHub(t, Release{TagName: "v1.10.0"}, Release{TagName: "v1.9.0"})
+	path := filepath.Join(t.TempDir(), "update-state.json")
+	now := time.Now()
+	// Upgraded 1.8.0 -> 1.9.0 elsewhere; the daily check is due.
+	if err := (State{LastSeenVersion: "1.8.0"}).Save(path); err != nil {
+		t.Fatal(err)
+	}
+	n := &Notifier{Current: "1.9.0", StatePath: path, Client: testClient(srv), Now: func() time.Time { return now }, LatestOnly: true}
+	n.Check(context.Background())
+
+	if got := f.hits["/repos/shipyard/shipyard-cli/releases"]; got != 0 {
+		t.Errorf("fetched release notes %d times; LatestOnly must not", got)
+	}
+	st := LoadState(path)
+	if st.LatestVersion != "1.10.0" {
+		t.Errorf("LatestVersion = %q, want 1.10.0", st.LatestVersion)
+	}
+	if !st.NotesTried.IsZero() || st.LastSeenVersion != "1.8.0" {
+		t.Errorf("notes state changed: NotesTried=%v LastSeenVersion=%q", st.NotesTried, st.LastSeenVersion)
+	}
+}
+
+// The server's check may be the first one ever run. It must not record a
+// last-seen version: that belongs to the terminal, which would otherwise show
+// the wrong "upgraded" notes, or skip real ones.
+func TestCheckLatestOnlyLeavesFreshInstallAlone(t *testing.T) {
+	_, srv := newFakeGitHub(t, Release{TagName: "v1.10.0"})
+	path := filepath.Join(t.TempDir(), "update-state.json")
+	n := &Notifier{Current: "1.8.0", StatePath: path, Client: testClient(srv), Now: time.Now, LatestOnly: true}
+	n.Check(context.Background())
+	if got := LoadState(path).LastSeenVersion; got != "" {
+		t.Errorf("LatestOnly check recorded LastSeenVersion %q; the terminal owns it", got)
+	}
+}
+
+// The terminal notice prints the cached version. A tampered state file must
+// not get control characters onto the user's terminal.
+func TestCheckNoticeIgnoresMalformedCachedVersion(t *testing.T) {
+	_, srv := newFakeGitHub(t)
+	path := filepath.Join(t.TempDir(), "update-state.json")
+	if err := (State{LastSeenVersion: "1.9.0", LastChecked: time.Now(), LatestVersion: "1.99.0-\x1b[2J"}).Save(path); err != nil {
+		t.Fatal(err)
+	}
+	n := &Notifier{Current: "1.9.0", StatePath: path, Client: testClient(srv), Now: time.Now}
+	if got := n.Check(context.Background()).Text; strings.Contains(got, "\x1b") {
+		t.Errorf("notice carries the raw cached version: %q", got)
+	}
+}
