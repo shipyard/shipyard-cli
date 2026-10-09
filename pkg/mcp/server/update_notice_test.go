@@ -1,11 +1,16 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -99,6 +104,13 @@ func TestLoadMCPServerConfig_LatestVersion(t *testing.T) {
 	}
 	t.Setenv("SHIPYARD_NO_UPDATE_CHECK", "")
 
+	// The terminal check is off in CI, so the server's notice is too.
+	t.Setenv("CI", "true")
+	if got := LoadMCPServerConfig().LatestVersion; got != "" {
+		t.Errorf("CI set: LatestVersion = %q, want empty", got)
+	}
+	t.Setenv("CI", "")
+
 	viper.Set("update_check", false)
 	if got := LoadMCPServerConfig().LatestVersion; got != "" {
 		t.Errorf("update_check off: LatestVersion = %q, want empty", got)
@@ -113,5 +125,69 @@ func TestStaleNotice_FitsWithInstructions(t *testing.T) {
 	if size := len(notice) + len("\n\n") + len(Instructions()); size > clientLimit {
 		t.Errorf("notice (%d) plus instructions (%d) is %d bytes, over Claude Code's %d-character limit",
 			len(notice), len(Instructions()), size, clientLimit)
+	}
+}
+
+// Someone who only uses the CLI through an assistant never runs the terminal
+// check, so the server refreshes the cache for the next session. It honors the
+// same opt-outs and skips dev builds, and never touches the network then.
+func TestRefreshLatestVersion(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_ = json.NewEncoder(w).Encode(selfupdate.Release{TagName: "v1.10.0"})
+	}))
+	t.Cleanup(srv.Close)
+	client := &selfupdate.Client{HTTP: srv.Client(), BaseURL: srv.URL}
+
+	old := version.Version
+	t.Cleanup(func() { version.Version = old })
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.SetDefault("update_check", true)
+
+	refresh := func(t *testing.T) string {
+		t.Helper()
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		if err := os.MkdirAll(filepath.Join(home, ".shipyard"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-refreshLatestVersion(context.Background(), client):
+		case <-time.After(5 * time.Second):
+			t.Fatal("refresh never finished")
+		}
+		return selfupdate.LoadState(selfupdate.StatePath(home)).LatestVersion
+	}
+
+	version.Version = "1.9.0"
+	if got := refresh(t); got != "1.10.0" {
+		t.Errorf("release build: cached latest = %q, want 1.10.0", got)
+	}
+
+	skipped := map[string]func(t *testing.T){
+		"opt-out env": func(t *testing.T) { t.Setenv("SHIPYARD_NO_UPDATE_CHECK", "1") },
+		"CI":          func(t *testing.T) { t.Setenv("CI", "true") },
+		"config off": func(t *testing.T) {
+			viper.Set("update_check", false)
+			t.Cleanup(func() { viper.Set("update_check", true) })
+		},
+		"dev build": func(t *testing.T) {
+			version.Version = "1.9.0-8-g94afae8"
+			t.Cleanup(func() { version.Version = "1.9.0" })
+		},
+	}
+	for name, setup := range skipped {
+		t.Run(name, func(t *testing.T) {
+			setup(t)
+			before := hits.Load()
+			if got := refresh(t); got != "" {
+				t.Errorf("cached latest = %q, want nothing cached", got)
+			}
+			if hits.Load() != before {
+				t.Error("asked GitHub although the check is off")
+			}
+		})
 	}
 }

@@ -15,7 +15,7 @@ import (
 
 const (
 	// noUpdateCheckEnv turns the update check off.
-	noUpdateCheckEnv = "SHIPYARD_NO_UPDATE_CHECK"
+	noUpdateCheckEnv = selfupdate.NoCheckEnv
 	// noticeWait is how long a finished command waits for the background
 	// check. A slower check prints nothing this time and is retried next run.
 	noticeWait = time.Second
@@ -79,7 +79,7 @@ func shouldCheckForUpdate(cmd *cobra.Command) bool {
 	if !selfupdate.IsRelease(version.Version) {
 		return false
 	}
-	if os.Getenv(noUpdateCheckEnv) != "" || os.Getenv("CI") != "" || !viper.GetBool("update_check") {
+	if selfupdate.ChecksOff(viper.GetBool("update_check")) {
 		return false
 	}
 	if underAgent() {

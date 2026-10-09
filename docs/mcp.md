@@ -474,10 +474,11 @@ restores the files it changed.
 - **The `verify` prompt or newer tools are missing.** An older CLI earlier on the
   `PATH`, often a Homebrew install, is answering instead. Check
   `shipyard --version` in the client's environment and upgrade with
-  `shipyard upgrade`. When the CLI's last update check (from any terminal
-  command) found a newer release, the server tells the assistant so on
-  startup, and the assistant can suggest the upgrade. `SHIPYARD_NO_UPDATE_CHECK`
-  or `update_check: false` turns that off.
+  `shipyard upgrade`. When the CLI's last update check found a newer release,
+  the server tells the assistant so on startup, and the assistant can suggest
+  the upgrade. Terminal commands run that check, and so does the server, in the
+  background at most once a day, for the next session. `SHIPYARD_NO_UPDATE_CHECK`,
+  `CI`, or `update_check: false` turns both off.
 - **`exec_service` says it's disabled.** Set `SHIPYARD_MCP_ALLOW_EXEC=true` in the
   client's `env` block, or `mcp.allow_exec: true` in the config file, then
   restart the client.
