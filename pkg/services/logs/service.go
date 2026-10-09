@@ -131,8 +131,12 @@ func previousRun(pod crashedPod, tail int64) (k8s.ContainerState, string, error)
 	}
 	text, err := pod.GetPreviousLogsAsString(tail)
 	if err != nil {
-		return state, "", fmt.Errorf("failed to get previous logs of pod %s container %s (restarts=%d, last stopped: %s): %w",
-			state.Pod, state.Container, state.RestartCount, state.Reason, err)
+		stopped := ""
+		if state.Reason != "" {
+			stopped = ", last stopped: " + state.Reason
+		}
+		return state, "", fmt.Errorf("failed to get previous logs of pod %s container %s (restarts=%d%s): %w",
+			state.Pod, state.Container, state.RestartCount, stopped, err)
 	}
 	return state, text, nil
 }

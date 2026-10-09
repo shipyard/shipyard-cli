@@ -270,3 +270,12 @@ func TestPreviousRun_ErrorKeepsState(t *testing.T) {
 		t.Fatalf("unexpected error %v", err)
 	}
 }
+
+// No recorded stop reason: the error leaves the clause out rather than printing "last stopped: )".
+func TestPreviousRun_ErrorWithoutReason(t *testing.T) {
+	pod := &fakeCrashedPod{state: k8s.ContainerState{Pod: "web-1", Container: "app", RestartCount: 1}, err: fmt.Errorf("stream closed")}
+	_, _, err := previousRun(pod, 100)
+	if err == nil || strings.Contains(err.Error(), "last stopped") || !strings.Contains(err.Error(), "(restarts=1)") {
+		t.Fatalf("unexpected error %v", err)
+	}
+}

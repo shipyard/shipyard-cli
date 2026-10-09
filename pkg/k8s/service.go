@@ -393,8 +393,9 @@ type ContainerState struct {
 	ExitCode *int32
 }
 
-// UseCrashedPod switches logs to the pod most likely to explain a crash and returns
-// its container state. Exec and port-forward keep using whichever pod they had.
+// UseCrashedPod switches this Service (logs, exec and port-forward alike) to the pod
+// most likely to explain a crash and returns its container state. Use a fresh Service
+// for anything else.
 func (c *Service) UseCrashedPod() ContainerState {
 	pod, ok := pickCrashedPod(c.pods)
 	if !ok {
