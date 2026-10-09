@@ -48,6 +48,10 @@ type MCPServerConfig struct {
 	// Off by default: it is the one tool here that executes arbitrary code in a
 	// running environment, so it is the operator's call, not the assistant's.
 	AllowExec bool `yaml:"allow_exec" mapstructure:"allow_exec"`
+
+	// LatestVersion is the newest release the CLI's update check has cached,
+	// if any. Never read from or written to the config file.
+	LatestVersion string `yaml:"-" mapstructure:"-"`
 }
 
 // MCP Server
@@ -278,7 +282,7 @@ func (s *MCPServer) handleInitialize(req *JSONRPCRequest) []byte {
 			"name":    "shipyard-mcp-server",
 			"version": version.Version,
 		},
-		"instructions": Instructions(),
+		"instructions": s.instructions(),
 	}
 
 	return s.successResponse(req.ID, result)
@@ -570,6 +574,7 @@ func LoadMCPServerConfig() MCPServerConfig {
 	}
 
 	config.AllowExec = allowExecFromEnv(config.AllowExec)
+	config.LatestVersion = cachedLatestVersion()
 
 	return config
 }

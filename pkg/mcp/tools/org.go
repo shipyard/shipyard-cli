@@ -18,7 +18,7 @@ import (
 var orgToolDefinitions = map[string]ToolDefinition{
 	"get_orgs": {
 		Name:        "get_orgs",
-		Description: "List all organizations that the user has access to",
+		Description: "List all organizations that the user has access to. Takes no arguments and needs no environment to exist, so it is the probe that tells a broken setup (auth, token, org) from an environment that does not exist yet.",
 		InputSchema: schemas.EmptySchema(),
 	},
 	"get_org": {

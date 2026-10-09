@@ -19,12 +19,12 @@ import (
 var toolDefinitions = map[string]ToolDefinition{
 	"get_environments": {
 		Name:        "get_environments",
-		Description: "List Shipyard environments with optional filtering",
+		Description: "List Shipyard environments with optional filtering. Each result carries a bypass_token: never print it or paste it into chat, a commit, or a pull request comment.",
 		InputSchema: schemas.ListEnvironmentsSchema(),
 	},
 	"get_environment": {
 		Name:        "get_environment",
-		Description: "Get details for a specific environment by ID. The bypass_token in the response gets past the environment's login gate: send it as the 'shipyard_token' cookie. In shell commands, fetch it with `shipyard get environment <id> --bypass-token` instead of typing it. Avoid the ?shipyard_token= URL parameter: it lands in server logs and shell history.",
+		Description: "Get details for a specific environment by ID. The bypass_token in the response gets past the environment's login gate: send it as the 'shipyard_token' cookie. In shell commands, fetch it with `shipyard get environment <id> --bypass-token` instead of typing it. Avoid the ?shipyard_token= URL parameter: it lands in server logs and shell history. Never print the bypass_token or paste it into chat, a commit, or a pull request comment.",
 		InputSchema: schemas.EnvironmentIDSchema(),
 	},
 	"restart_environment": {

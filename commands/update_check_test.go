@@ -44,7 +44,7 @@ func TestShouldCheckForUpdate(t *testing.T) {
 	mcp.AddCommand(serve)
 
 	setup := func(t *testing.T) {
-		for _, v := range append([]string{noUpdateCheckEnv, "CI"}, agentEnvVars...) {
+		for _, v := range append([]string{selfupdate.NoCheckEnv, "CI"}, agentEnvVars...) {
 			t.Setenv(v, "")
 		}
 		oldVersion, oldTerminal := version.Version, stderrIsTerminal
@@ -65,7 +65,7 @@ func TestShouldCheckForUpdate(t *testing.T) {
 	for name, change := range map[string]func(t *testing.T){
 		"dev build":             func(*testing.T) { version.Version = "undefined" },
 		"snapshot":              func(*testing.T) { version.Version = "1.9.1-SNAPSHOT-abc" },
-		"opt-out env":           func(t *testing.T) { t.Setenv(noUpdateCheckEnv, "1") },
+		"opt-out env":           func(t *testing.T) { t.Setenv(selfupdate.NoCheckEnv, "1") },
 		"CI":                    func(t *testing.T) { t.Setenv("CI", "true") },
 		"config off":            func(*testing.T) { viper.Set("update_check", false) },
 		"Claude Code":           func(t *testing.T) { t.Setenv("CLAUDECODE", "1") },
