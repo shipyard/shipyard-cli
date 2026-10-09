@@ -1,38 +1,31 @@
-Shipyard runs ephemeral preview environments, typically one per branch or pull request.
+Shipyard runs ephemeral preview environments, usually one per branch or pull request.
 
-## Verifying a change against its environment
+## Verifying a change
 
-After pushing a branch that has a Shipyard environment, verify the change against that
-environment before reporting it as working. Record the pushed SHA (`git rev-parse HEAD`), call
-`get_environments` with `branch` and `repo_name`, and in the response match `projects[]` on
-`repo_name` before reading anything from it:
+Before reporting a pushed change as working, verify it against its environment. Record the
+pushed SHA (`git rev-parse HEAD`), call `get_environments` with `branch` and `repo_name`, and
+match `projects[]` on `repo_name` before reading anything:
 
-- `commit_hash` equals your pushed SHA AND `ready` is true — the environment is serving your
-  commit. Use `url` and `bypass_token` from that same response; send the token as the
-  `shipyard_token` cookie, never on the URL.
-- `commit_hash` matches but `ready` is false — keep polling. The commit lands roughly 40 seconds
-  before the environment serves it, so matching on the commit alone tests the previous build.
-- `stopped` or `retired` is true, or `commit_hash` is null while `processing` is false — the
-  environment is not running and will not become ready on its own. The `verify` prompt says when
-  you may start it; never start another branch's.
-- `processing` is true — a build is in flight. Poll no faster than every 5 seconds, back off, and
-  never call `rebuild_environment` while waiting: a build is already running and rebuilding
-  restarts it.
+- `commit_hash` equals your pushed SHA AND `ready` is true — it serves your commit. Use
+  `url` and `bypass_token` from that response; send the token as the `shipyard_token` cookie,
+  never on the URL, and never print or paste it anywhere.
+- `commit_hash` matches but `ready` is false — keep polling: the commit lands about 40 seconds
+  before it is served, so matching the commit alone tests the previous build.
+- `stopped` or `retired` is true, or `commit_hash` is null while `processing` is false — it will
+  not become ready on its own. The `verify` prompt says when you may start it; never start
+  another branch's.
+- `processing` is true — a build is in flight. Poll at most every 5 seconds, back off, and never
+  call `rebuild_environment` while waiting: it restarts the build.
 
-After the check runs, call `get_environments` once more. If `commit_hash` changed, a rebuild
-landed mid-run and the result describes neither commit: discard it and re-run.
+After the check, call `get_environments` again: if `commit_hash` changed, a rebuild landed
+mid-run; discard the result and re-run.
 
-Before checking, propose a test plan and wait for the user's approval (unless auto-approved).
+Before checking, propose a test plan and wait for approval (unless auto-approved).
 Report a change as verified only when, on the commit you pushed, every approved item passed and
 every changed behavior is covered by a test or check with a quoted assertion. Checks
-you add can use any tool (e2e, API tests, `curl`, `exec_service`) but must be reproducible, and
-for a fix or changed behavior must fail on the base branch's environment. Nothing from a container
+you add can use any tool (e2e, API tests, `curl`, `exec_service`) but must be reproducible and,
+for a fix or changed behavior, fail on the base branch's environment. Nothing from a container
 you edited in place counts. Otherwise report what is true: passed but not covered, observed,
 serving only, or failed.
 
-## Notes
-
-- The `verify` prompt carries the full loop, including preflight and failure handling.
-- `get_orgs` takes no arguments and does not depend on any environment existing, which makes it
-  the right probe when you need to tell a broken setup from an environment that does not exist yet.
-- Never print a `bypass_token`, or paste it into chat, a commit, or a pull request comment.
+The `verify` prompt has the full loop, with preflight and failure handling.
