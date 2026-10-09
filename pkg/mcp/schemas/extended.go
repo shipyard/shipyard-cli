@@ -1,5 +1,13 @@
 package schemas
 
+// Limits the API enforces, shared by the schemas and the tools' validation.
+const (
+	// MaxBuildHistoryPageSize is the most builds the build-history API returns per page.
+	MaxBuildHistoryPageSize = 100
+	// MaxBuildLogTail is the most lines the logs API returns per service.
+	MaxBuildLogTail = 5000
+)
+
 // BuildHistorySchema is the input for get_build_history.
 func BuildHistorySchema() map[string]interface{} {
 	return map[string]interface{}{
@@ -20,7 +28,7 @@ func BuildHistorySchema() map[string]interface{} {
 			"page_size": map[string]interface{}{
 				"type":    "integer",
 				"default": 20,
-				"maximum": 100,
+				"maximum": MaxBuildHistoryPageSize,
 			},
 		},
 		"required": []string{"environment_id"},
@@ -212,7 +220,7 @@ func BuildLogsSchema() map[string]interface{} {
 				"type":        "integer",
 				"description": "Lines to return for service_name",
 				"default":     200,
-				"maximum":     5000,
+				"maximum":     MaxBuildLogTail,
 			},
 			"offset": map[string]interface{}{
 				"type":        "integer",

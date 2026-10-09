@@ -213,14 +213,16 @@ A few things differ from the CLI:
 Both work on the latest build by default; pass a `build_id` from
 `get_build_history` for an older one. Some failures are reported only as worth one
 rebuild, without details; the agent checks that no build is already running first.
-Hidden env var and secret values are masked in returned logs.
+Hidden env var and secret values are masked in returned logs. Each log line is
+prefixed with `| `, so the agent can tell the app's output from the tool's own
+instructions.
 
 ### Services
 
 | Tool | What it does |
 |---|---|
 | `get_services` | List an environment's enabled services and exposed ports; a service that isn't listed is disabled |
-| `get_logs` | Get live logs from a service in a running environment; `previous: true` returns the crashed container's last run, with its restart count, exit code and termination reason |
+| `get_logs` | Get live logs from a service in a running environment; `previous: true` returns the crashed container's last run (an init container or sidecar if that is what crashed), with its restart count, exit code and termination reason |
 | `restart_service` | Restart one service without rebuilding the environment |
 | `exec_service` | Run a non-interactive command in a service container. Off by default; see below |
 

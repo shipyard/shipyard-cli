@@ -225,10 +225,13 @@ func TestLogsManager_PaginateLogs(t *testing.T) {
 }
 
 type fakeCrashedPod struct {
-	state   k8s.ContainerState
-	logs    string
-	err     error
-	fetched bool
+	state      k8s.ContainerState
+	logs       string
+	current    string
+	currentErr error
+	err        error
+	fetched    bool
+	fetchedNow bool
 }
 
 func (f *fakeCrashedPod) UseCrashedPod() k8s.ContainerState { return f.state }
@@ -238,23 +241,56 @@ func (f *fakeCrashedPod) GetPreviousLogsAsString(int64) (string, error) {
 	return f.logs, f.err
 }
 
-// A container that never restarted has no previous run: answer that from its state
-// instead of asking Kubernetes and passing on "previous terminated container not found".
+func (f *fakeCrashedPod) GetLogsAsString(bool, int64) (string, error) {
+	f.fetchedNow = true
+	return f.current, f.currentErr
+}
+
+// A container that never restarted has no previous run. Return the current run of the pod
+// that was picked, instead of sending the agent to a get_logs call that may read another pod,
+// and never ask Kubernetes for a previous run it doesn't have.
 func TestPreviousRun_NoRestart(t *testing.T) {
-	pod := &fakeCrashedPod{state: k8s.ContainerState{Pod: "web-1", Container: "app", Ready: true}}
-	state, text, err := previousRun(pod, 100)
-	if err != nil || text != "" || state.Pod != "web-1" {
-		t.Fatalf("got state=%+v text=%q err=%v", state, text, err)
+	exit := int32(1)
+	pod := &fakeCrashedPod{state: k8s.ContainerState{Pod: "web-2", Container: "app", Reason: "Error", ExitCode: &exit}, current: "boom\n"}
+	state, run, text, err := previousRun(pod, 100)
+	if err != nil || run != RunCurrent || text != "boom\n" || state.Pod != "web-2" {
+		t.Fatalf("got state=%+v run=%q text=%q err=%v", state, run, text, err)
 	}
-	if pod.fetched {
-		t.Fatal("previous logs should not be fetched for a container that never restarted")
+	if pod.fetched || !pod.fetchedNow {
+		t.Fatalf("expected the current run only, fetched previous=%t current=%t", pod.fetched, pod.fetchedNow)
+	}
+}
+
+// Kubernetes drops a dead container's logs once the kubelet removes it. That is an answer, not
+// an error: an error would lose the restart count and stop reason (and read as "not found").
+func TestPreviousRun_PreviousRunGone(t *testing.T) {
+	pod := &fakeCrashedPod{
+		state: k8s.ContainerState{Pod: "web-1", Container: "app", RestartCount: 7, Reason: "OOMKilled"},
+		err:   fmt.Errorf(`previous terminated container "app" in pod "web-1" not found`),
+	}
+	state, run, text, err := previousRun(pod, 100)
+	if err != nil || run != RunGone || text != "" || state.RestartCount != 7 {
+		t.Fatalf("got state=%+v run=%q text=%q err=%v", state, run, text, err)
+	}
+}
+
+// A container that hasn't started (ContainerCreating, ImagePullBackOff) has no output at all.
+// Its state already says why: that is the answer, not Kubernetes' "waiting to start" error.
+func TestPreviousRun_NotStarted(t *testing.T) {
+	pod := &fakeCrashedPod{
+		state:      k8s.ContainerState{Pod: "web-1", Container: "app", Reason: "ImagePullBackOff"},
+		currentErr: fmt.Errorf(`container "app" in pod "web-1" is waiting to start: trying and failing to pull image`),
+	}
+	state, run, text, err := previousRun(pod, 100)
+	if err != nil || run != RunCurrent || text != "" || state.Reason != "ImagePullBackOff" {
+		t.Fatalf("got state=%+v run=%q text=%q err=%v", state, run, text, err)
 	}
 }
 
 func TestPreviousRun_Restarted(t *testing.T) {
 	pod := &fakeCrashedPod{state: k8s.ContainerState{Pod: "web-1", RestartCount: 2}, logs: "boom\n"}
-	if _, text, err := previousRun(pod, 100); err != nil || text != "boom\n" {
-		t.Fatalf("got text=%q err=%v", text, err)
+	if _, run, text, err := previousRun(pod, 100); err != nil || run != RunPrevious || text != "boom\n" {
+		t.Fatalf("got run=%q text=%q err=%v", run, text, err)
 	}
 }
 
@@ -264,7 +300,7 @@ func TestPreviousRun_ErrorKeepsState(t *testing.T) {
 		state: k8s.ContainerState{Pod: "web-1", Container: "app", RestartCount: 3, Reason: "OOMKilled"},
 		err:   fmt.Errorf("stream closed"),
 	}
-	_, _, err := previousRun(pod, 100)
+	_, _, _, err := previousRun(pod, 100)
 	if err == nil || !strings.Contains(err.Error(), "web-1") || !strings.Contains(err.Error(), "restarts=3") ||
 		!strings.Contains(err.Error(), "OOMKilled") || !strings.Contains(err.Error(), "stream closed") {
 		t.Fatalf("unexpected error %v", err)
@@ -274,7 +310,7 @@ func TestPreviousRun_ErrorKeepsState(t *testing.T) {
 // No recorded stop reason: the error leaves the clause out rather than printing "last stopped: )".
 func TestPreviousRun_ErrorWithoutReason(t *testing.T) {
 	pod := &fakeCrashedPod{state: k8s.ContainerState{Pod: "web-1", Container: "app", RestartCount: 1}, err: fmt.Errorf("stream closed")}
-	_, _, err := previousRun(pod, 100)
+	_, _, _, err := previousRun(pod, 100)
 	if err == nil || strings.Contains(err.Error(), "last stopped") || !strings.Contains(err.Error(), "(restarts=1)") {
 		t.Fatalf("unexpected error %v", err)
 	}

@@ -1,87 +1,20 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/errors"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/schemas"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/validation"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 )
 
-// Limits the API enforces too, checked here so a bad call fails with a clear message.
-const (
-	maxBuildLogTail = 5000
-	logKindsHint    = "build, run or crash"
-)
-
-var failureToolDefinitions = map[string]ToolDefinition{
-	"get_failure_details": {
-		Name: "get_failure_details",
-		Description: "Explain why an environment's build failed, in one call: the failure phase and reason, " +
-			"which services failed, excerpts from their build or crash logs, and which services are enabled " +
-			"(any service not listed is disabled, which often explains connection errors to it). " +
-			"Works after the environment stopped. Defaults to the latest build; pass build_id for an older one.",
-		InputSchema: schemas.FailureDetailsSchema(),
-	},
-	"get_build_logs": {
-		Name: "get_build_logs",
-		Description: "Get a build's stored logs: kind=build (image builds), run (service output) or crash " +
-			"(crashed containers). Works after the environment stopped or the pods were cleaned up. " +
-			"With service_name, returns that service's last `tail` lines, `offset` lines before the end; " +
-			"follow the returned offset for older lines. Without service_name, returns the end of every " +
-			"service's log, failing services first (kind=build: failed images only unless failed_only=false). " +
-			"Hidden env var and secret values are masked.",
-		InputSchema: schemas.BuildLogsSchema(),
-	},
-}
-
-// FailureTool explains failed builds and returns their stored logs.
-type FailureTool struct {
-	client client.Client
-	name   string
-}
-
-// NewFailureTool creates a failure-details or build-logs tool.
-func NewFailureTool(client client.Client, name string) *FailureTool {
-	return &FailureTool{client: client, name: name}
-}
-
-// Definition returns the MCP tool definition.
-func (t *FailureTool) Definition() ToolDefinition {
-	return failureToolDefinitions[t.name]
-}
-
-// Execute runs the named tool.
-func (t *FailureTool) Execute(ctx context.Context, params json.RawMessage) (string, error) {
-	log.Printf("MCP tool execution started: %s with params: %s", t.name, string(params))
-	switch t.name {
-	case "get_failure_details":
-		return t.executeGetFailureDetails(params)
-	case "get_build_logs":
-		return t.executeGetBuildLogs(params)
-	default:
-		return "", fmt.Errorf("unknown operation: %s", t.name)
-	}
-}
-
-func (t *FailureTool) orgParams() map[string]string {
-	params := make(map[string]string)
-	if t.client.OrgLookupFn != nil {
-		if org := t.client.OrgLookupFn(); org != "" {
-			params["org"] = org
-		}
-	}
-	return params
-}
+const logKindsHint = "build, run or crash"
 
 type failureSummary struct {
 	Phase      *string  `json:"phase"`
@@ -107,6 +40,8 @@ type failureService struct {
 	} `json:"image_build"`
 	HealthCheck *string     `json:"health_check"`
 	Excerpt     *logExcerpt `json:"excerpt"`
+	// Unavailable means the log store that should hold the service's logs couldn't be read
+	Unavailable bool `json:"unavailable"`
 }
 
 type failureResponse struct {
@@ -122,7 +57,7 @@ type failureResponse struct {
 	} `json:"data"`
 }
 
-func (t *FailureTool) executeGetFailureDetails(params json.RawMessage) (string, error) {
+func (t *ExtendedTool) executeGetFailureDetails(params json.RawMessage) (string, error) {
 	var toolParams struct {
 		EnvironmentID string `json:"environment_id"`
 		BuildID       string `json:"build_id,omitempty"`
@@ -145,7 +80,7 @@ func (t *FailureTool) executeGetFailureDetails(params json.RawMessage) (string, 
 		nil,
 	)
 	if err != nil {
-		return "", errors.ParseHTTPError("get_failure_details", err, toolParams.EnvironmentID)
+		return "", logsAPIError("get_failure_details", err, toolParams.EnvironmentID, toolParams.BuildID, "")
 	}
 
 	var resp failureResponse
@@ -155,6 +90,31 @@ func (t *FailureTool) executeGetFailureDetails(params json.RawMessage) (string, 
 	return formatFailureDetails(toolParams.EnvironmentID, &resp), nil
 }
 
+// logsAPIError names what the API couldn't find: the build or the service, not only the environment.
+func logsAPIError(operation string, err error, environmentID, buildID, serviceName string) error {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "build not found"):
+		mcpErr := errors.NotFoundError(operation, "build", buildID)
+		if buildID == "" {
+			mcpErr.Message = fmt.Sprintf("environment '%s' has no builds", environmentID)
+		}
+		mcpErr.Suggestion = "Use 'get_build_history' to list the environment's builds and their IDs"
+		mcpErr.Cause = err
+		return mcpErr
+	case strings.Contains(msg, "service not found") && serviceName != "":
+		mcpErr := errors.NotFoundError(operation, "service", serviceName)
+		mcpErr.Suggestion = "The service is not enabled in this build. Use 'get_services' to list the enabled services"
+		mcpErr.Cause = err
+		return mcpErr
+	case strings.Contains(msg, "application not found"):
+		mcpErr := errors.NotFoundError(operation, "environment", environmentID)
+		mcpErr.Cause = err
+		return mcpErr
+	}
+	return errors.ParseHTTPError(operation, err, environmentID)
+}
+
 func deref(s *string) string {
 	if s == nil {
 		return ""
@@ -162,7 +122,27 @@ func deref(s *string) string {
 	return *s
 }
 
-// formatFailureDetails renders the failure response as text for an LLM: headline, services, excerpts, next steps.
+// inProgress are the build statuses of a build that is still running: it has not failed yet.
+var inProgress = map[string]bool{
+	"QUEUED": true, "PREPROCESSING": true, "REPOSITORY_DOWNLOADED": true, "PREPARING": true, "BUILDING": true,
+	"DISTRIBUTING": true, "DEPLOYING": true, "STARTING": true, "CONNECTING": true,
+}
+
+// writeLogLines writes log lines from the customer's build or app, each prefixed so none can
+// pass for the tool's own headers or instructions.
+func writeLogLines(b *strings.Builder, lines []string) {
+	for _, line := range lines {
+		b.WriteString("| ")
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+}
+
+// unreadableLogs is said of a service whose log store couldn't be read.
+const unreadableLogs = "Logs could not be read right now; try again shortly"
+
+// formatFailureDetails renders the failure response as text for an LLM: headline, services
+// and their log excerpts, then next steps, so the tool's guidance always follows the logs.
 func formatFailureDetails(environmentID string, resp *failureResponse) string {
 	var b strings.Builder
 	data := resp.Data
@@ -170,6 +150,9 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 
 	fmt.Fprintf(&b, "Build %s: %s\n", resp.ID, data.Status)
 	switch {
+	case failure == nil && inProgress[data.Status]:
+		fmt.Fprintf(&b, "This build is still in progress, so it has not failed yet. Wait for it to finish, or, for an earlier "+
+			"failed build, pass its build_id from get_build_history(environment_id=%q).\n", environmentID)
 	case failure == nil:
 		b.WriteString("This build did not fail.\n")
 	case failure.Retryable:
@@ -177,9 +160,6 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 		if text := deref(failure.ReasonText); text != "" {
 			fmt.Fprintf(&b, "%s\n", text)
 		}
-		fmt.Fprintf(&b, "Next step: call get_environment(environment_id=%q) first; a new build may already be running, and if `processing` is true, wait for it. "+
-			"Otherwise rebuild once with rebuild_environment(environment_id=%q). If that build fails the same way, stop and report the failure to the user instead of changing the app.\n",
-			environmentID, environmentID)
 	default:
 		if phase := deref(failure.Phase); phase != "" {
 			fmt.Fprintf(&b, "Failed during: %s\n", phase)
@@ -199,11 +179,16 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 	if data.Diagnosis != nil && data.Diagnosis.Summary != "" {
 		fmt.Fprintf(&b, "Diagnosis: %s\n", data.Diagnosis.Summary)
 	}
-	fmt.Fprintf(&b, "Enabled services: %s (any service not listed is disabled for this environment)\n",
-		strings.Join(data.EnabledServices, ", "))
+	if len(data.EnabledServices) == 0 {
+		// The build failed before its services were loaded
+		b.WriteString("Enabled services: unknown for this build\n")
+	} else {
+		fmt.Fprintf(&b, "Enabled services: %s (any service not listed is disabled for this environment)\n",
+			strings.Join(data.EnabledServices, ", "))
+	}
 
 	for _, svc := range data.Services {
-		if svc.ImageBuild == nil && svc.HealthCheck == nil && svc.Excerpt == nil {
+		if svc.ImageBuild == nil && svc.HealthCheck == nil && svc.Excerpt == nil && !svc.Unavailable {
 			continue
 		}
 		state := ""
@@ -227,30 +212,44 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 				truncated = ", earlier lines omitted"
 			}
 			fmt.Fprintf(&b, "--- %s log, last %d lines%s ---\n", ex.Kind, len(ex.Lines), truncated)
-			for _, line := range ex.Lines {
-				b.WriteString(line)
-				b.WriteByte('\n')
-			}
+			writeLogLines(&b, ex.Lines)
+		} else if svc.Unavailable {
+			b.WriteString(unreadableLogs + "\n")
 		}
 	}
 
-	if failure != nil && !failure.Retryable {
+	switch {
+	case failure == nil:
+	case failure.Retryable:
+		fmt.Fprintf(&b, "\nNext step: call get_environment(environment_id=%q) first; a new build may already be running, and if `processing` is true, wait for it. "+
+			"Otherwise rebuild once with rebuild_environment(environment_id=%q). If that build fails the same way, stop and report the failure to the user instead of changing the app.\n",
+			environmentID, environmentID)
+	default:
 		b.WriteString("\nMore output:\n")
 		for _, svc := range data.Services {
 			if !svc.Failing {
 				continue
 			}
-			kind := "run"
-			if svc.Excerpt != nil {
-				kind = svc.Excerpt.Kind
-			}
 			fmt.Fprintf(&b, "- get_build_logs(environment_id=%q, build_id=%q, kind=%q, service_name=%q)\n",
-				environmentID, resp.ID, kind, svc.Name)
+				environmentID, resp.ID, hintKind(svc), svc.Name)
 		}
 		fmt.Fprintf(&b, "- get_build_logs(environment_id=%q, build_id=%q, kind=\"run\") for every service's run log\n",
 			environmentID, resp.ID)
 	}
 	return b.String()
+}
+
+// hintKind is the log most likely to explain a failing service: its excerpt's, else the build
+// log of an image that failed to build (the service never ran), else its run log.
+func hintKind(svc failureService) string {
+	switch {
+	case svc.Excerpt != nil:
+		return svc.Excerpt.Kind
+	case svc.ImageBuild != nil && svc.ImageBuild.Status == "FAILED":
+		return "build"
+	default:
+		return "run"
+	}
 }
 
 type buildLogsResponse struct {
@@ -264,6 +263,8 @@ type buildLogsResponse struct {
 			Truncated  bool     `json:"truncated"`
 			Offset     int      `json:"offset"`
 			TotalLines int      `json:"total_lines"`
+			// Unavailable means the log store that should hold these logs couldn't be read
+			Unavailable bool `json:"unavailable"`
 		} `json:"services"`
 	} `json:"data"`
 	Links struct {
@@ -271,7 +272,7 @@ type buildLogsResponse struct {
 	} `json:"links"`
 }
 
-func (t *FailureTool) executeGetBuildLogs(params json.RawMessage) (string, error) {
+func (t *ExtendedTool) executeGetBuildLogs(params json.RawMessage) (string, error) {
 	var toolParams struct {
 		EnvironmentID string `json:"environment_id"`
 		BuildID       string `json:"build_id,omitempty"`
@@ -298,8 +299,8 @@ func (t *FailureTool) executeGetBuildLogs(params json.RawMessage) (string, error
 	if toolParams.Kind != "build" && toolParams.Kind != "run" && toolParams.Kind != "crash" {
 		return "", errors.ValidationError("get_build_logs", "kind", "kind must be "+logKindsHint)
 	}
-	if toolParams.Tail < 0 || toolParams.Tail > maxBuildLogTail {
-		return "", errors.ValidationError("get_build_logs", "tail", fmt.Sprintf("tail must be between 1 and %d; omit it for the default", maxBuildLogTail))
+	if toolParams.Tail < 0 || toolParams.Tail > schemas.MaxBuildLogTail {
+		return "", errors.ValidationError("get_build_logs", "tail", fmt.Sprintf("tail must be between 1 and %d; omit it for the default", schemas.MaxBuildLogTail))
 	}
 	if toolParams.Offset < 0 {
 		return "", errors.ValidationError("get_build_logs", "offset", "offset must be non-negative")
@@ -330,7 +331,7 @@ func (t *FailureTool) executeGetBuildLogs(params json.RawMessage) (string, error
 		nil,
 	)
 	if err != nil {
-		return "", errors.ParseHTTPError("get_build_logs", err, toolParams.EnvironmentID)
+		return "", logsAPIError("get_build_logs", err, toolParams.EnvironmentID, toolParams.BuildID, toolParams.ServiceName)
 	}
 
 	var resp buildLogsResponse
@@ -351,25 +352,38 @@ func formatBuildLogs(environmentID string, resp *buildLogsResponse) string {
 		if svc.Failing {
 			state = ", failing"
 		}
+		if svc.Unavailable {
+			fmt.Fprintf(&b, "== %s (%s log%s): %s ==\n", svc.Name, resp.Data.Kind, state, unreadableLogs)
+			continue
+		}
 		fmt.Fprintf(&b, "== %s (%s log%s): %d of %d lines", svc.Name, resp.Data.Kind, state, len(svc.Lines), svc.TotalLines)
 		if svc.Offset > 0 {
 			fmt.Fprintf(&b, ", ending %d lines before the end", svc.Offset)
 		}
 		b.WriteString(" ==\n")
-		for _, line := range svc.Lines {
-			b.WriteString(line)
-			b.WriteByte('\n')
-		}
+		writeLogLines(&b, svc.Lines)
 		if svc.Truncated {
 			b.WriteString("(earlier lines omitted)\n")
 		}
 	}
-	// The next link pins the build, kind, service and tail; the hint keeps them all, so a newer
-	// build or a different tail can't shift the page.
-	if next := resp.Links.Next; next != "" {
-		if query := linkQuery(next); query.Get("offset") != "" {
-			fmt.Fprintf(&b, "\nOlder lines: get_build_logs(environment_id=%q, build_id=%q, kind=%q, service_name=%q, tail=%s, offset=%s)\n",
-				environmentID, query.Get("build_id"), query.Get("kind"), query.Get("service"), query.Get("tail"), query.Get("offset"))
+	// The next link pins the build, kind, service, tail and failed_only; the hint keeps them all,
+	// so a newer build or a different tail can't shift the page.
+	if next := resp.Links.Next; next != "" && len(resp.Data.Services) == 1 {
+		svc := resp.Data.Services[0]
+		query := linkQuery(next)
+		offset, err := strconv.Atoi(query.Get("offset"))
+		switch {
+		case err != nil:
+		case len(svc.Lines) == 0 || offset <= svc.Offset:
+			// The stored copy doesn't reach back this far; following the link would return the same page
+			b.WriteString("\nOlder lines are no longer stored.\n")
+		default:
+			failedOnly := ""
+			if v := query.Get("failed_only"); v != "" {
+				failedOnly = ", failed_only=" + v
+			}
+			fmt.Fprintf(&b, "\nOlder lines: get_build_logs(environment_id=%q, build_id=%q, kind=%q, service_name=%q%s, tail=%s, offset=%d)\n",
+				environmentID, query.Get("build_id"), query.Get("kind"), query.Get("service"), failedOnly, query.Get("tail"), offset)
 		}
 	}
 	return b.String()

@@ -213,6 +213,8 @@ func TestContainerStateFollowsTheDefaultContainer(t *testing.T) {
 		t.Fatalf("expected the app container's state, got %+v", state)
 	}
 
+	// Nothing crashed: the annotated default container
+	p.Status.ContainerStatuses[1].RestartCount = 0
 	p.Annotations = map[string]string{defaultContainerAnnotation: "sidecar"}
 	if state := containerState(p); state.Container != "sidecar" || state.RestartCount != 0 || !state.Ready {
 		t.Fatalf("expected the annotated container's state, got %+v", state)
@@ -243,5 +245,81 @@ func TestDefaultContainer(t *testing.T) {
 	}
 	if got := defaultContainer(v1.Pod{}); got != "" {
 		t.Fatalf("a pod with no containers has no default, got %q", got)
+	}
+}
+
+// A crash in an init container (migrations, say) leaves the app container waiting with no
+// restarts. The state must name the init container that crashed, so its logs are the ones read.
+func TestContainerStateFindsACrashedInitContainer(t *testing.T) {
+	p := pod("web-1", false, 0)
+	p.Status.ContainerStatuses[0].State.Waiting = &v1.ContainerStateWaiting{Reason: "PodInitializing"}
+	p.Spec.InitContainers = []v1.Container{{Name: "migrate"}}
+	p.Status.InitContainerStatuses = []v1.ContainerStatus{{
+		Name: "migrate", RestartCount: 4,
+		LastTerminationState: v1.ContainerState{Terminated: &v1.ContainerStateTerminated{Reason: "Error", ExitCode: 1}},
+	}}
+
+	state := containerState(p)
+	if state.Container != "migrate" || !state.Init || state.RestartCount != 4 || state.Reason != "Error" ||
+		state.ExitCode == nil || *state.ExitCode != 1 {
+		t.Fatalf("expected the crashed init container, got %+v", state)
+	}
+}
+
+// A crashing sidecar is reported when the default container is healthy; a crashing
+// default container wins over a crashing sidecar.
+func TestContainerStateFindsACrashedSidecar(t *testing.T) {
+	p := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-1"},
+		Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "app"}, {Name: "proxy"}}},
+		Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{
+			{Name: "app", Ready: true},
+			{Name: "proxy", RestartCount: 2},
+		}},
+	}
+	if state := containerState(p); state.Container != "proxy" || state.Init || state.RestartCount != 2 {
+		t.Fatalf("expected the crashed sidecar, got %+v", state)
+	}
+
+	p.Status.ContainerStatuses[0].RestartCount = 1
+	if state := containerState(p); state.Container != "app" {
+		t.Fatalf("a crashed default container should win, got %+v", state)
+	}
+}
+
+// A container that exited and hasn't restarted yet has its stop reason in State, not LastTerminationState.
+func TestContainerStateReadsATerminatedContainer(t *testing.T) {
+	p := pod("job-1", false, 0)
+	p.Status.ContainerStatuses[0].State.Terminated = &v1.ContainerStateTerminated{Reason: "Error", ExitCode: 1}
+	if state := containerState(p); state.Reason != "Error" || state.ExitCode == nil || *state.ExitCode != 1 {
+		t.Fatalf("unexpected state %+v", state)
+	}
+}
+
+// UseCrashedPod must move the Service itself onto the crashed pod and container, or the
+// previous-run logs would come from a different pod than the header describes.
+func TestUseCrashedPodSwitchesPodAndContainer(t *testing.T) {
+	healthy := pod("a", true, 0)
+	crashed := pod("b", false, 4)
+	crashed.Spec.Containers = []v1.Container{{Name: "worker"}}
+	crashed.Status.ContainerStatuses[0].Name = "worker"
+	s := &Service{pod: "a", container: "app", pods: []v1.Pod{healthy, crashed}}
+
+	state := s.UseCrashedPod()
+	if s.pod != "b" || s.container != "worker" || state.Pod != "b" || state.Container != "worker" || state.RestartCount != 4 {
+		t.Fatalf("pod=%q container=%q state=%+v", s.pod, s.container, state)
+	}
+
+	// The crashed container is read, even when it isn't the pod's default
+	initCrash := pod("c", false, 0)
+	initCrash.Status.InitContainerStatuses = []v1.ContainerStatus{{Name: "migrate", RestartCount: 2}}
+	s = &Service{pod: "c", container: "app", pods: []v1.Pod{initCrash}}
+	if state := s.UseCrashedPod(); s.container != "migrate" || state.Container != "migrate" {
+		t.Fatalf("container=%q state=%+v", s.container, state)
+	}
+
+	empty := &Service{pod: "x", container: "c"}
+	if state := empty.UseCrashedPod(); state.Pod != "x" || state.Container != "c" || empty.pod != "x" || empty.container != "c" {
+		t.Fatalf("with no pods listed the Service should stay put: %+v", state)
 	}
 }

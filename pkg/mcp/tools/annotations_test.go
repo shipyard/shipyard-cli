@@ -8,7 +8,7 @@ func TestAnnotationsNameDefinedTools(t *testing.T) {
 	defined := map[string]bool{"get_logs": true} // LogsTool has no definitions map
 	for _, defs := range []map[string]ToolDefinition{
 		toolDefinitions, extendedToolDefinitions, orgToolDefinitions,
-		telepresenceToolDefinitions, serviceToolDefinitions, volumeToolDefinitions, failureToolDefinitions,
+		telepresenceToolDefinitions, serviceToolDefinitions, volumeToolDefinitions,
 	} {
 		for name := range defs {
 			defined[name] = true

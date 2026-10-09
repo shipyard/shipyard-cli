@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/shipyard/shipyard-cli/pkg/k8s"
+	"github.com/shipyard/shipyard-cli/pkg/services/logs"
 )
 
 // Note: newMockClient is already defined in environment_test.go
@@ -417,5 +418,57 @@ func TestFormatContainerState(t *testing.T) {
 	}
 	if got := formatContainerState(&k8s.ContainerState{Pod: "web-1", Container: "app", Ready: true}); got != "Pod web-1 container app: ready=true, restarts=0\n" {
 		t.Fatalf("unexpected header %q", got)
+	}
+	if got := formatContainerState(&k8s.ContainerState{Pod: "web-1", Container: "migrate", Init: true, RestartCount: 3}); got != "Pod web-1 init container migrate: ready=false, restarts=3\n" {
+		t.Fatalf("unexpected header %q", got)
+	}
+}
+
+func TestFormatLogsResponse(t *testing.T) {
+	tool := NewLogsTool(newMockClient(), "get_logs")
+	lines := []logs.LogLine{{Content: "boom", Service: "web"}}
+	restarted := &k8s.ContainerState{Pod: "web-1", RestartCount: 2}
+	fresh := &k8s.ContainerState{Pod: "web-1"}
+
+	tests := []struct {
+		name    string
+		resp    logs.LogsResponse
+		page    int
+		want    []string
+		notWant []string
+	}{
+		{"previous run", logs.LogsResponse{State: restarted, Run: logs.RunPrevious, Lines: lines}, 1,
+			[]string{"Pod web-1: ready=false, restarts=2\n", "boom\n", "Showing 1 log lines for service web (page 1)"}, nil},
+		{"previous run with no output", logs.LogsResponse{State: restarted, Run: logs.RunPrevious}, 1,
+			[]string{"Pod web-1: ready=false, restarts=2\n", "No logs from the previous container run."}, nil},
+		// Paging past the end must not contradict the lines page 1 returned
+		{"past the last page", logs.LogsResponse{State: restarted, Run: logs.RunPrevious}, 3,
+			[]string{"No more lines on page 3"}, []string{"No logs from the previous container run"}},
+		{"previous run no longer kept", logs.LogsResponse{State: restarted, Run: logs.RunGone}, 1,
+			[]string{"restarts=2", "no longer keeps", `get_build_logs(environment_id="env-1", kind="crash", service_name="web")`}, nil},
+		// The current run of the pod that was picked, not a redirect to a call that may read another pod
+		{"never restarted", logs.LogsResponse{State: fresh, Run: logs.RunCurrent, Lines: lines}, 1,
+			[]string{"has not restarted", "current run", "boom\n"}, []string{"Call get_logs"}},
+		{"never restarted, no output", logs.LogsResponse{State: fresh, Run: logs.RunCurrent}, 1,
+			[]string{"has not restarted", "no output yet"}, []string{"Call get_logs"}},
+		{"live logs", logs.LogsResponse{Lines: lines, HasNext: true, NextPage: 2}, 1,
+			[]string{"boom\n", "More logs available on page 2"}, []string{"Pod "}},
+		{"live logs, none", logs.LogsResponse{}, 1,
+			[]string{"No logs found for service web in environment env-1"}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := tool.formatLogsResponse(&tt.resp, "env-1", "web", tt.page)
+			for _, want := range tt.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("missing %q:\n%s", want, out)
+				}
+			}
+			for _, notWant := range tt.notWant {
+				if strings.Contains(out, notWant) {
+					t.Errorf("unexpected %q:\n%s", notWant, out)
+				}
+			}
+		})
 	}
 }
