@@ -42,7 +42,7 @@ func TestStaleNotice(t *testing.T) {
 				t.Fatalf("staleNotice(%q, %q) = %q, want notice: %v", tt.current, tt.latest, got, tt.want)
 			}
 			if tt.want {
-				for _, s := range []string{tt.current, tt.latest, "shipyard upgrade"} {
+				for _, s := range []string{tt.current, tt.latest, "have the user run `shipyard upgrade`"} {
 					if !strings.Contains(got, s) {
 						t.Errorf("notice %q is missing %q", got, s)
 					}
@@ -306,5 +306,29 @@ func TestRefreshLatestVersion_NeverWritesStdout(t *testing.T) {
 	_ = w.Close()
 	if out, _ := io.ReadAll(r); len(out) > 0 {
 		t.Errorf("the refresh wrote to stdout: %q", out)
+	}
+}
+
+// The refresh runs in its own goroutine, which main's recover doesn't cover:
+// a panic in the check must not take down the server.
+func TestRefreshLatestVersion_RecoversFromPanic(t *testing.T) {
+	t.Setenv("CI", "")
+	t.Setenv(selfupdate.NoCheckEnv, "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".shipyard"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.SetDefault("update_check", true)
+	old := version.Version
+	version.Version = "1.9.0"
+	t.Cleanup(func() { version.Version = old })
+
+	select {
+	case <-refreshLatestVersion(context.Background(), nil): // a nil client panics in the check
+	case <-time.After(5 * time.Second):
+		t.Fatal("refresh never finished")
 	}
 }

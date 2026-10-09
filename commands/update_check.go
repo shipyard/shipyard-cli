@@ -36,7 +36,7 @@ func startUpdateCheck(cmd *cobra.Command) {
 	n := &selfupdate.Notifier{
 		Current:   version.Version,
 		StatePath: selfupdate.StatePath(home),
-		Client:    selfupdate.NewClient(15 * time.Second),
+		Client:    selfupdate.NewClient(selfupdate.ClientTimeout),
 		Now:       time.Now,
 	}
 	ctx := cmd.Context()

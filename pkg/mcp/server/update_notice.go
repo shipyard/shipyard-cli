@@ -44,7 +44,7 @@ func cachedLatestVersion() string {
 // which carries the JSON-RPC stream. The check is due at most daily; if the
 // process exits first, the check recorded the attempt and retries an hour later.
 func RefreshLatestVersion(ctx context.Context) {
-	refreshLatestVersion(ctx, selfupdate.NewClient(15*time.Second))
+	refreshLatestVersion(ctx, selfupdate.NewClient(selfupdate.ClientTimeout))
 }
 
 // refreshLatestVersion is RefreshLatestVersion with the GitHub client given.
@@ -94,6 +94,9 @@ func staleNotice(current, latest string) string {
 	if err != nil || l.Pre != "" || !selfupdate.IsRelease(current) || !selfupdate.IsNewer(current, l.String()) {
 		return ""
 	}
-	return fmt.Sprintf("Shipyard CLI %s is out of date (latest %s): if a tool is missing or fails, "+
-		"suggest `shipyard upgrade`.", current, l.String())
+	// "have the user run" because an agent in auto mode would otherwise
+	// replace the binary itself; "missing", not "fails", because most tool
+	// failures (auth, 404s, the network) aren't the version's fault.
+	return fmt.Sprintf("Shipyard CLI %s is outdated (latest %s); if a tool is missing, "+
+		"have the user run `shipyard upgrade`.", current, l.String())
 }

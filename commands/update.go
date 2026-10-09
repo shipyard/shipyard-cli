@@ -59,7 +59,7 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	client := selfupdate.NewClient(15 * time.Second)
+	client := selfupdate.NewClient(selfupdate.ClientTimeout)
 
 	_, _ = blue.Fprintln(out, "Checking for updates...")
 	latest, err := client.Latest(ctx, includePrerelease)

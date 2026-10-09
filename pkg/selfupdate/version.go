@@ -26,8 +26,8 @@ func ParseVersion(s string) (Version, error) {
 	core := s
 	if i := strings.IndexByte(s, '-'); i >= 0 {
 		core, v.Pre = s[:i], s[i+1:]
-		if v.Pre == "" {
-			return Version{}, fmt.Errorf("invalid version %q: empty pre-release", s)
+		if !validPre(v.Pre) {
+			return Version{}, fmt.Errorf("invalid version %q: pre-release must be dot-separated [0-9A-Za-z-] identifiers", s)
 		}
 	}
 	parts := strings.Split(core, ".")
@@ -44,6 +44,23 @@ func ParseVersion(s string) (Version, error) {
 	}
 	v.Major, v.Minor, v.Patch = nums[0], nums[1], nums[2]
 	return v, nil
+}
+
+// validPre reports whether pre is semver pre-release identifiers. Versions
+// come from a state file and from GitHub and are printed to terminals and to
+// agent instructions, so anything else (spaces, control characters) is refused.
+func validPre(pre string) bool {
+	for _, id := range strings.Split(pre, ".") {
+		if id == "" {
+			return false
+		}
+		if strings.IndexFunc(id, func(r rune) bool {
+			return r != '-' && (r < '0' || r > '9') && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z')
+		}) >= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (v Version) String() string {

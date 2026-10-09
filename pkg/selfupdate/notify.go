@@ -105,12 +105,15 @@ func (n *Notifier) Check(ctx context.Context) *Notice {
 		}
 	}
 
-	if IsNewer(n.Current, st.LatestVersion) && elapsed(now, st.NotifiedAt, CheckInterval) {
+	if latest, err := ParseVersion(st.LatestVersion); err == nil && IsNewer(n.Current, st.LatestVersion) &&
+		elapsed(now, st.NotifiedAt, CheckInterval) {
+		// The parsed form, not the cached string: it may carry "+metadata"
+		// that ParseVersion ignores but a terminal would print.
 		if buf.Len() > 0 {
 			_, _ = fmt.Fprintln(&buf)
 		}
-		_, _ = color.New(color.FgHiYellow).Fprintf(&buf, "A new version of shipyard is available: %s → %s\n", n.Current, st.LatestVersion)
-		_, _ = fmt.Fprintf(&buf, "Run `shipyard upgrade` to install it. Release notes: %s\n", releaseURL(st.LatestVersion))
+		_, _ = color.New(color.FgHiYellow).Fprintf(&buf, "A new version of shipyard is available: %s → %s\n", n.Current, latest)
+		_, _ = fmt.Fprintf(&buf, "Run `shipyard upgrade` to install it. Release notes: %s\n", releaseURL(latest.String()))
 		notice.notified = now
 	}
 
