@@ -86,12 +86,11 @@ func (s *LogsManager) GetLogs(ctx context.Context, req GetLogsRequest) (*LogsRes
 	var state *k8s.ContainerState
 	var allLogs []LogLine
 	if req.Previous {
-		crashed := k8sService.UseCrashedPod()
-		state = &crashed
-		logText, err := k8sService.GetPreviousLogsAsString(req.TailLines)
+		crashed, logText, err := previousRun(k8sService, req.TailLines)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get previous container logs: %w", err)
+			return nil, err
 		}
+		state = &crashed
 		allLogs = s.parseLogTextWithService(logText, req.ServiceName)
 	} else {
 		allLogs, err = s.getLogsFromK8s(ctx, k8sService, req.Follow, req.TailLines, req.ServiceName)
@@ -113,6 +112,29 @@ func (s *LogsManager) GetLogs(ctx context.Context, req GetLogsRequest) (*LogsRes
 		PageSize: req.PageSize,
 		State:    state,
 	}, nil
+}
+
+// crashedPod is the part of k8s.Service that reads a crashed container's previous run.
+type crashedPod interface {
+	UseCrashedPod() k8s.ContainerState
+	GetPreviousLogsAsString(tail int64) (string, error)
+}
+
+// previousRun returns the crashed container's state and the logs of its previous run.
+// A container that never restarted has no previous run, so its logs are empty rather than
+// Kubernetes' "previous terminated container not found". A failed fetch keeps the state in
+// the error, so the caller still learns which pod it was and why it last stopped.
+func previousRun(pod crashedPod, tail int64) (k8s.ContainerState, string, error) {
+	state := pod.UseCrashedPod()
+	if state.RestartCount == 0 {
+		return state, "", nil
+	}
+	text, err := pod.GetPreviousLogsAsString(tail)
+	if err != nil {
+		return state, "", fmt.Errorf("failed to get previous logs of pod %s container %s (restarts=%d, last stopped: %s): %w",
+			state.Pod, state.Container, state.RestartCount, state.Reason, err)
+	}
+	return state, text, nil
 }
 
 // getLogsFromK8s retrieves logs from kubernetes and returns them as LogLine slice

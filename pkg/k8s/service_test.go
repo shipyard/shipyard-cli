@@ -129,9 +129,19 @@ func TestCappedBufferIsSafeForConcurrentUse(t *testing.T) {
 func pod(name string, ready bool, restarts int32) v1.Pod {
 	return v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "app"}}},
 		Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{
-			{Ready: ready, RestartCount: restarts},
+			{Name: "app", Ready: ready, RestartCount: restarts},
 		}},
+	}
+}
+
+// pending is a pod the scheduler hasn't started yet: no container statuses at all.
+func pending(name string) v1.Pod {
+	return v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "app"}}},
+		Status:     v1.PodStatus{Phase: v1.PodPending},
 	}
 }
 
@@ -146,6 +156,10 @@ func TestPickCrashedPod(t *testing.T) {
 		{"most restarts among not ready", []v1.Pod{pod("a", false, 1), pod("b", false, 4), pod("c", false, 2)}, "b"},
 		{"most restarts among ready", []v1.Pod{pod("a", true, 0), pod("b", true, 3)}, "b"},
 		{"first on a tie", []v1.Pod{pod("a", false, 2), pod("b", false, 2)}, "a"},
+		// During a rollout the new pod isn't ready yet, but it has no previous run to read
+		{"a starting pod does not beat one that crashed", []v1.Pod{pod("old", true, 12), pending("new")}, "old"},
+		{"a not-ready pod with no restarts does not beat one that crashed", []v1.Pod{pod("old", true, 3), pod("new", false, 0)}, "old"},
+		{"not ready still wins when nothing restarted", []v1.Pod{pod("a", true, 0), pod("b", false, 0)}, "b"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -181,5 +195,53 @@ func TestContainerState(t *testing.T) {
 
 	if state := containerState(v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pending"}}); state.Ready {
 		t.Fatalf("a pod with no container status is not ready: %+v", state)
+	}
+}
+
+// Status order is not spec order. With a sidecar, the state must describe the
+// container whose logs are read: the pod's default container, found by name.
+func TestContainerStateFollowsTheDefaultContainer(t *testing.T) {
+	p := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-1"},
+		Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "app"}, {Name: "sidecar"}}},
+		Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{
+			{Name: "sidecar", Ready: true},
+			{Name: "app", Ready: false, RestartCount: 3},
+		}},
+	}
+	if state := containerState(p); state.Container != "app" || state.RestartCount != 3 || state.Ready {
+		t.Fatalf("expected the app container's state, got %+v", state)
+	}
+
+	p.Annotations = map[string]string{defaultContainerAnnotation: "sidecar"}
+	if state := containerState(p); state.Container != "sidecar" || state.RestartCount != 0 || !state.Ready {
+		t.Fatalf("expected the annotated container's state, got %+v", state)
+	}
+}
+
+func TestDefaultContainer(t *testing.T) {
+	spec := v1.PodSpec{Containers: []v1.Container{{Name: "app"}, {Name: "sidecar"}}}
+	tests := []struct {
+		name       string
+		annotation string
+		want       string
+	}{
+		{"first spec container", "", "app"},
+		{"annotation names another container", "sidecar", "sidecar"},
+		{"annotation naming no container is ignored", "missing", "app"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := v1.Pod{Spec: spec}
+			if tt.annotation != "" {
+				p.Annotations = map[string]string{defaultContainerAnnotation: tt.annotation}
+			}
+			if got := defaultContainer(p); got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+	if got := defaultContainer(v1.Pod{}); got != "" {
+		t.Fatalf("a pod with no containers has no default, got %q", got)
 	}
 }

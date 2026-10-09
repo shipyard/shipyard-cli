@@ -211,9 +211,9 @@ A few things differ from the CLI:
 | `get_build_logs` | A build's stored build, run or crash logs, paged back from the end. Works after the environment stopped |
 
 Both work on the latest build by default; pass a `build_id` from
-`get_build_history` for an older one. Failures caused by Shipyard rather than the
-app are reported only as worth one rebuild, without details. Hidden env var and
-secret values are masked in returned logs.
+`get_build_history` for an older one. Some failures are reported only as worth one
+rebuild, without details; the agent checks that no build is already running first.
+Hidden env var and secret values are masked in returned logs.
 
 ### Services
 

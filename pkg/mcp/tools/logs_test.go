@@ -415,4 +415,7 @@ func TestFormatContainerState(t *testing.T) {
 	if got := formatContainerState(&k8s.ContainerState{Pod: "web-1", Ready: true}); got != "Pod web-1: ready=true, restarts=0\n" {
 		t.Fatalf("unexpected header %q", got)
 	}
+	if got := formatContainerState(&k8s.ContainerState{Pod: "web-1", Container: "app", Ready: true}); got != "Pod web-1 container app: ready=true, restarts=0\n" {
+		t.Fatalf("unexpected header %q", got)
+	}
 }

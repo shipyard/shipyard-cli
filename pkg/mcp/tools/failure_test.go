@@ -98,9 +98,15 @@ func TestFailureTool_GetFailureDetails_Retryable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(out, "Shipyard-side failure, not caused by the app") ||
-		!strings.Contains(out, `rebuild_environment(environment_id="env-123")`) {
+	if !strings.Contains(out, "The build did not complete. Rebuilding usually resolves this.\n") ||
+		!strings.Contains(out, `get_environment(environment_id="env-123") first`) ||
+		!strings.Contains(out, `rebuild once with rebuild_environment(environment_id="env-123")`) ||
+		!strings.Contains(out, "stop and report the failure to the user") {
 		t.Errorf("expected rebuild guidance:\n%s", out)
+	}
+	// Never attribute the failure to Shipyard: the API deliberately withholds that
+	if strings.Contains(strings.ToLower(out), "shipyard-side") || strings.Contains(out, "not caused by the app") {
+		t.Errorf("retryable output must not blame Shipyard:\n%s", out)
 	}
 	if strings.Contains(out, "build_id=") || strings.Contains(out, "get_build_logs") {
 		t.Errorf("no build_id or log hints expected:\n%s", out)
@@ -167,7 +173,7 @@ func TestFailureTool_GetBuildLogs_Formatting(t *testing.T) {
 	}
 
 	want := "== web (run log, failing): 2 of 10 lines, ending 3 lines before the end ==\nb\nc\n(earlier lines omitted)\n" +
-		"\nOlder lines: call get_build_logs again with offset=5.\n"
+		"\nOlder lines: get_build_logs(environment_id=\"env-123\", build_id=\"build-1\", kind=\"run\", service_name=\"web\", tail=2, offset=5)\n"
 	if out != want {
 		t.Errorf("got:\n%s\nwant:\n%s", out, want)
 	}

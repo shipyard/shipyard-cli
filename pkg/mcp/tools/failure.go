@@ -173,11 +173,22 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 	case failure == nil:
 		b.WriteString("This build did not fail.\n")
 	case failure.Retryable:
-		fmt.Fprintf(&b, "Shipyard-side failure, not caused by the app: %s\n", deref(failure.ReasonText))
-		fmt.Fprintf(&b, "Next step: rebuild once with rebuild_environment(environment_id=%q). If it fails the same way again, contact Shipyard support instead of changing the app.\n", environmentID)
+		// The API withholds the details of these failures; pass on its wording as is.
+		if text := deref(failure.ReasonText); text != "" {
+			fmt.Fprintf(&b, "%s\n", text)
+		}
+		fmt.Fprintf(&b, "Next step: call get_environment(environment_id=%q) first; a new build may already be running, and if `processing` is true, wait for it. "+
+			"Otherwise rebuild once with rebuild_environment(environment_id=%q). If that build fails the same way, stop and report the failure to the user instead of changing the app.\n",
+			environmentID, environmentID)
 	default:
-		fmt.Fprintf(&b, "Failed during: %s\n", deref(failure.Phase))
-		fmt.Fprintf(&b, "Reason: %s (%s)\n", deref(failure.ReasonText), deref(failure.Reason))
+		if phase := deref(failure.Phase); phase != "" {
+			fmt.Fprintf(&b, "Failed during: %s\n", phase)
+		}
+		if text, code := deref(failure.ReasonText), deref(failure.Reason); text != "" && code != "" {
+			fmt.Fprintf(&b, "Reason: %s (%s)\n", text, code)
+		} else if text+code != "" {
+			fmt.Fprintf(&b, "Reason: %s\n", text+code)
+		}
 		if len(failure.Services) > 0 {
 			fmt.Fprintf(&b, "Failing services: %s\n", strings.Join(failure.Services, ", "))
 		}
@@ -288,7 +299,7 @@ func (t *FailureTool) executeGetBuildLogs(params json.RawMessage) (string, error
 		return "", errors.ValidationError("get_build_logs", "kind", "kind must be "+logKindsHint)
 	}
 	if toolParams.Tail < 0 || toolParams.Tail > maxBuildLogTail {
-		return "", errors.ValidationError("get_build_logs", "tail", fmt.Sprintf("tail must be between 1 and %d", maxBuildLogTail))
+		return "", errors.ValidationError("get_build_logs", "tail", fmt.Sprintf("tail must be between 1 and %d; omit it for the default", maxBuildLogTail))
 	}
 	if toolParams.Offset < 0 {
 		return "", errors.ValidationError("get_build_logs", "offset", "offset must be non-negative")
@@ -326,11 +337,11 @@ func (t *FailureTool) executeGetBuildLogs(params json.RawMessage) (string, error
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return "", fmt.Errorf("unexpected response from the logs API: %w", err)
 	}
-	return formatBuildLogs(&resp), nil
+	return formatBuildLogs(toolParams.EnvironmentID, &resp), nil
 }
 
 // formatBuildLogs renders a logs response as text, one section per service, with how to page further.
-func formatBuildLogs(resp *buildLogsResponse) string {
+func formatBuildLogs(environmentID string, resp *buildLogsResponse) string {
 	var b strings.Builder
 	if len(resp.Data.Services) == 0 {
 		return fmt.Sprintf("No %s logs stored for build %s.\n", resp.Data.Kind, resp.ID)
@@ -353,19 +364,22 @@ func formatBuildLogs(resp *buildLogsResponse) string {
 			b.WriteString("(earlier lines omitted)\n")
 		}
 	}
+	// The next link pins the build, kind, service and tail; the hint keeps them all, so a newer
+	// build or a different tail can't shift the page.
 	if next := resp.Links.Next; next != "" {
-		if offset := queryValue(next, "offset"); offset != "" {
-			fmt.Fprintf(&b, "\nOlder lines: call get_build_logs again with offset=%s.\n", offset)
+		if query := linkQuery(next); query.Get("offset") != "" {
+			fmt.Fprintf(&b, "\nOlder lines: get_build_logs(environment_id=%q, build_id=%q, kind=%q, service_name=%q, tail=%s, offset=%s)\n",
+				environmentID, query.Get("build_id"), query.Get("kind"), query.Get("service"), query.Get("tail"), query.Get("offset"))
 		}
 	}
 	return b.String()
 }
 
-// queryValue returns one query parameter from a link the API returned.
-func queryValue(link, key string) string {
+// linkQuery returns the query parameters of a link the API returned.
+func linkQuery(link string) url.Values {
 	parsed, err := url.Parse(link)
 	if err != nil {
-		return ""
+		return url.Values{}
 	}
-	return parsed.Query().Get(key)
+	return parsed.Query()
 }

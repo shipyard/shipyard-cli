@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
+	"github.com/shipyard/shipyard-cli/pkg/k8s"
 )
 
 // Mock client for testing - simplified approach
@@ -220,5 +221,52 @@ func TestLogsManager_PaginateLogs(t *testing.T) {
 				t.Errorf("Expected nextPage=%d, got %d", tt.nextPage, nextPage)
 			}
 		})
+	}
+}
+
+type fakeCrashedPod struct {
+	state   k8s.ContainerState
+	logs    string
+	err     error
+	fetched bool
+}
+
+func (f *fakeCrashedPod) UseCrashedPod() k8s.ContainerState { return f.state }
+
+func (f *fakeCrashedPod) GetPreviousLogsAsString(int64) (string, error) {
+	f.fetched = true
+	return f.logs, f.err
+}
+
+// A container that never restarted has no previous run: answer that from its state
+// instead of asking Kubernetes and passing on "previous terminated container not found".
+func TestPreviousRun_NoRestart(t *testing.T) {
+	pod := &fakeCrashedPod{state: k8s.ContainerState{Pod: "web-1", Container: "app", Ready: true}}
+	state, text, err := previousRun(pod, 100)
+	if err != nil || text != "" || state.Pod != "web-1" {
+		t.Fatalf("got state=%+v text=%q err=%v", state, text, err)
+	}
+	if pod.fetched {
+		t.Fatal("previous logs should not be fetched for a container that never restarted")
+	}
+}
+
+func TestPreviousRun_Restarted(t *testing.T) {
+	pod := &fakeCrashedPod{state: k8s.ContainerState{Pod: "web-1", RestartCount: 2}, logs: "boom\n"}
+	if _, text, err := previousRun(pod, 100); err != nil || text != "boom\n" {
+		t.Fatalf("got text=%q err=%v", text, err)
+	}
+}
+
+// When the fetch fails, the error still says which pod and why it stopped.
+func TestPreviousRun_ErrorKeepsState(t *testing.T) {
+	pod := &fakeCrashedPod{
+		state: k8s.ContainerState{Pod: "web-1", Container: "app", RestartCount: 3, Reason: "OOMKilled"},
+		err:   fmt.Errorf("stream closed"),
+	}
+	_, _, err := previousRun(pod, 100)
+	if err == nil || !strings.Contains(err.Error(), "web-1") || !strings.Contains(err.Error(), "restarts=3") ||
+		!strings.Contains(err.Error(), "OOMKilled") || !strings.Contains(err.Error(), "stream closed") {
+		t.Fatalf("unexpected error %v", err)
 	}
 }

@@ -110,6 +110,9 @@ func (t *LogsTool) Execute(ctx context.Context, params json.RawMessage) (string,
 		header = formatContainerState(resp.State)
 	}
 	if len(resp.Lines) == 0 {
+		if resp.State != nil && resp.State.RestartCount == 0 {
+			return header + "The container has not restarted, so it has no previous run. Call get_logs without previous for its current output.", nil
+		}
 		if header != "" {
 			return header + "No logs from the previous container run.", nil
 		}
@@ -128,7 +131,11 @@ func (t *LogsTool) Execute(ctx context.Context, params json.RawMessage) (string,
 
 // formatContainerState is the header for previous-run logs: which pod, how often it restarted and why it stopped.
 func formatContainerState(state *k8s.ContainerState) string {
-	line := fmt.Sprintf("Pod %s: ready=%t, restarts=%d", state.Pod, state.Ready, state.RestartCount)
+	line := "Pod " + state.Pod
+	if state.Container != "" {
+		line += " container " + state.Container
+	}
+	line += fmt.Sprintf(": ready=%t, restarts=%d", state.Ready, state.RestartCount)
 	if state.Reason != "" {
 		line += ", last stopped: " + state.Reason
 	}
