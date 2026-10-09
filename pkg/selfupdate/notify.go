@@ -27,6 +27,10 @@ type Notifier struct {
 	StatePath string
 	Client    *Client
 	Now       func() time.Time
+	// LatestOnly checks for a newer release and leaves the upgrade notes
+	// alone, for a caller that never shows the notice (the MCP server): it
+	// would otherwise fetch notes nobody sees and use up the terminal's retry.
+	LatestOnly bool
 }
 
 // Notice is the text to print after the command. Call Shown once it has been
@@ -45,7 +49,7 @@ func (n *Notifier) Check(ctx context.Context) *Notice {
 	st := LoadState(n.StatePath)
 	now := n.Now()
 	checkDue := elapsed(now, st.LastChecked, CheckInterval)
-	notesDue := st.LastSeenVersion != "" && IsNewer(st.LastSeenVersion, n.Current) &&
+	notesDue := !n.LatestOnly && st.LastSeenVersion != "" && IsNewer(st.LastSeenVersion, n.Current) &&
 		elapsed(now, st.NotesTried, checkRetry)
 	if checkDue || notesDue {
 		// Record the attempts as failed before asking GitHub. The command
@@ -69,7 +73,7 @@ func (n *Notifier) Check(ctx context.Context) *Notice {
 	notice := &Notice{statePath: n.StatePath}
 	var buf bytes.Buffer
 
-	if st.LastSeenVersion == "" {
+	if st.LastSeenVersion == "" && !n.LatestOnly {
 		// A fresh install: nothing was missed, and its own notes would only
 		// repeat what the user just chose to install.
 		st.LastSeenVersion = n.Current

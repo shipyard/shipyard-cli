@@ -14,8 +14,6 @@ import (
 )
 
 const (
-	// noUpdateCheckEnv turns the update check off.
-	noUpdateCheckEnv = selfupdate.NoCheckEnv
 	// noticeWait is how long a finished command waits for the background
 	// check. A slower check prints nothing this time and is retried next run.
 	noticeWait = time.Second

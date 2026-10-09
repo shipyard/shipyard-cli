@@ -17,6 +17,10 @@ import (
 //go:embed instructions.md
 var serverInstructions string
 
+// clientInstructionLimit is where Claude Code (2.1.284, measured 2026-10-09)
+// cuts server instructions off; nothing past it reaches the model.
+const clientInstructionLimit = 2048
+
 // Instructions returns the server instructions sent during initialize.
 func Instructions() string {
 	return strings.TrimSpace(serverInstructions)
@@ -24,10 +28,12 @@ func Instructions() string {
 
 // instructions is Instructions preceded, when this CLI is out of date, by a
 // line asking the agent to suggest an upgrade. It goes first because clients
-// truncate long instructions: Claude Code cuts this text off partway through.
+// truncate long instructions, and it is left out when it would push them past
+// clientInstructionLimit: the rules matter more than the notice.
 func (s *MCPServer) instructions() string {
-	if notice := staleNotice(version.Version, s.config.LatestVersion); notice != "" {
-		return notice + "\n\n" + Instructions()
+	notice := staleNotice(version.Version, s.config.LatestVersion)
+	if notice == "" || len(notice)+len("\n\n")+len(Instructions()) > clientInstructionLimit {
+		return Instructions()
 	}
-	return Instructions()
+	return notice + "\n\n" + Instructions()
 }

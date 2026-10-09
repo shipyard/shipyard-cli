@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/spf13/viper"
@@ -57,16 +58,21 @@ func refreshLatestVersion(ctx context.Context, client *selfupdate.Client) <-chan
 		return done
 	}
 	n := &selfupdate.Notifier{
-		Current:   version.Version,
-		StatePath: path,
-		Client:    client,
-		Now:       time.Now,
+		Current:    version.Version,
+		StatePath:  path,
+		Client:     client,
+		Now:        time.Now,
+		LatestOnly: true,
 	}
 	go func() {
 		defer close(done)
 		// main's recover doesn't cover this goroutine; a bug in the check
-		// must not take down the server.
-		defer func() { _ = recover() }()
+		// must not take down the server. stderr is safe: stdout is JSON-RPC.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("update check failed: %v", r)
+			}
+		}()
 		// The notice it returns is for a terminal; this session's agent got
 		// its own in initialize. Not calling Shown leaves it for the terminal.
 		n.Check(ctx)
@@ -78,10 +84,16 @@ func refreshLatestVersion(ctx context.Context, client *selfupdate.Client) <-chan
 // known. The CLI's update notice goes to stderr after a command finishes, which
 // `mcp serve` never does and clients don't show, so the agent is the only one
 // who can pass it on.
+//
+// latest comes from a file and from GitHub and lands in the instructions the
+// agent trusts most, so the notice carries only its parsed numbers. A cached
+// pre-release (from `shipyard upgrade --prerelease`) is skipped: a plain
+// `shipyard upgrade` wouldn't install it.
 func staleNotice(current, latest string) string {
-	if !selfupdate.IsRelease(current) || !selfupdate.IsNewer(current, latest) {
+	l, err := selfupdate.ParseVersion(latest)
+	if err != nil || l.Pre != "" || !selfupdate.IsRelease(current) || !selfupdate.IsNewer(current, l.String()) {
 		return ""
 	}
 	return fmt.Sprintf("Shipyard CLI %s is out of date (latest %s): if a tool is missing or fails, "+
-		"suggest `shipyard upgrade`.", current, latest)
+		"suggest `shipyard upgrade`.", current, l.String())
 }

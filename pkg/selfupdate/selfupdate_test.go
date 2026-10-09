@@ -786,3 +786,28 @@ func TestNotifySkipsWhenStateCantBeSaved(t *testing.T) {
 		t.Errorf("checked without being able to remember it: %q, requests %v", text, fx.gh.hits)
 	}
 }
+
+// A caller that never shows the notice (the MCP server) must not fetch upgrade
+// notes nobody sees, or use up the terminal's hourly retry for them.
+func TestCheckLatestOnlyLeavesNotesAlone(t *testing.T) {
+	f, srv := newFakeGitHub(t, Release{TagName: "v1.10.0"}, Release{TagName: "v1.9.0"})
+	path := filepath.Join(t.TempDir(), "update-state.json")
+	now := time.Now()
+	// Upgraded 1.8.0 -> 1.9.0 elsewhere; the daily check is due.
+	if err := (State{LastSeenVersion: "1.8.0"}).Save(path); err != nil {
+		t.Fatal(err)
+	}
+	n := &Notifier{Current: "1.9.0", StatePath: path, Client: testClient(srv), Now: func() time.Time { return now }, LatestOnly: true}
+	n.Check(context.Background())
+
+	if got := f.hits["/repos/shipyard/shipyard-cli/releases"]; got != 0 {
+		t.Errorf("fetched release notes %d times; LatestOnly must not", got)
+	}
+	st := LoadState(path)
+	if st.LatestVersion != "1.10.0" {
+		t.Errorf("LatestVersion = %q, want 1.10.0", st.LatestVersion)
+	}
+	if !st.NotesTried.IsZero() || st.LastSeenVersion != "1.8.0" {
+		t.Errorf("notes state changed: NotesTried=%v LastSeenVersion=%q", st.NotesTried, st.LastSeenVersion)
+	}
+}
