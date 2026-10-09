@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
+	"github.com/shipyard/shipyard-cli/pkg/mcp/tools"
 	"github.com/spf13/viper"
 )
 
@@ -171,10 +172,32 @@ func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 		"get_logs": true, "get_services": true, "get_volumes": true, "get_snapshots": true,
 		"get_build_history": true, "get_env_vars": true, "port_forward": true,
 	}
+	// set_org overwrites the org every later call targets; telepresence_connect
+	// overwrites the shared kubeconfig and the host's routes. Neither only adds.
 	destructive := map[string]bool{
 		"stop_environment": true, "cancel_environment": true, "rebuild_environment": true,
 		"restart_service": true, "put_env_vars": true, "delete_env_var": true,
 		"update_branches": true, "reset_volume": true, "load_snapshot": true, "exec_service": true,
+		"set_org": true, "telepresence_connect": true,
+	}
+	// Clients retry idempotent calls on their own. reset_volume and load_snapshot
+	// queue a new restore each call, and cancel_environment cancels whatever build
+	// is latest at the time, so a retry can wipe data or cancel a newer build.
+	idempotent := map[string]bool{
+		"get_environments": true, "get_environment": true, "get_orgs": true, "get_org": true,
+		"get_logs": true, "get_services": true, "get_volumes": true, "get_snapshots": true,
+		"get_build_history": true, "get_env_vars": true, "port_forward": true,
+		"restart_environment": true, "stop_environment": true, "revive_environment": true,
+		"update_branches": true, "set_org": true, "put_env_vars": true, "delete_env_var": true,
+		"telepresence_connect": true,
+	}
+	openWorld := map[string]bool{"exec_service": true, "telepresence_connect": true}
+
+	// The other direction: an entry for a tool that no longer exists is stale.
+	for _, name := range tools.AnnotatedNames() {
+		if _, ok := server.tools[name]; !ok {
+			t.Errorf("annotations has an entry for %s, which is not a registered tool", name)
+		}
 	}
 
 	if len(result.Result.Tools) != len(server.tools) {
@@ -197,6 +220,12 @@ func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 		}
 		if got := tool.Annotations["destructiveHint"]; got != destructive[tool.Name] {
 			t.Errorf("%s: destructiveHint = %v, want %v", tool.Name, got, destructive[tool.Name])
+		}
+		if got := tool.Annotations["idempotentHint"]; got != idempotent[tool.Name] {
+			t.Errorf("%s: idempotentHint = %v, want %v", tool.Name, got, idempotent[tool.Name])
+		}
+		if got := tool.Annotations["openWorldHint"]; got != openWorld[tool.Name] {
+			t.Errorf("%s: openWorldHint = %v, want %v", tool.Name, got, openWorld[tool.Name])
 		}
 	}
 }

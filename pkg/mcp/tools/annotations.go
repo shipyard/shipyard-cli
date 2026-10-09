@@ -1,5 +1,7 @@
 package tools
 
+import "sort"
+
 // annotations holds the behavior hints for every MCP tool, keyed by tool name.
 //
 // destructiveHint follows the MCP spec: true unless the tool only adds state.
@@ -7,24 +9,28 @@ package tools
 // even when it can be undone. openWorldHint is false for calls that only touch
 // the user's own Shipyard resources, and true where the tool reaches past them:
 // exec_service runs arbitrary commands, telepresence_connect joins the local
-// machine to the cluster network.
+// machine to the cluster network (and overwrites ~/.shipyard/kubeconfig).
+// idempotentHint lets clients retry on their own, so it is false wherever a
+// retry does more: reset_volume and load_snapshot queue a new restore each
+// call, and cancel_environment cancels whichever build is latest at the time.
 var annotations = map[string]ToolAnnotations{
 	// Environments
 	"get_environments":    {Title: "List environments", ReadOnlyHint: true, IdempotentHint: true},
 	"get_environment":     {Title: "Get environment", ReadOnlyHint: true, IdempotentHint: true},
 	"restart_environment": {Title: "Restart environment", IdempotentHint: true},
 	"stop_environment":    {Title: "Stop environment", DestructiveHint: true, IdempotentHint: true},
-	"cancel_environment":  {Title: "Cancel environment build", DestructiveHint: true, IdempotentHint: true},
+	"cancel_environment":  {Title: "Cancel environment build", DestructiveHint: true},
 	"rebuild_environment": {Title: "Rebuild environment", DestructiveHint: true},
 	"revive_environment":  {Title: "Revive environment", IdempotentHint: true},
 	"deploy_detached":     {Title: "Deploy detached environment"},
 	"update_branches":     {Title: "Update environment branches", DestructiveHint: true, IdempotentHint: true},
 	"get_build_history":   {Title: "Get build history", ReadOnlyHint: true, IdempotentHint: true},
 
-	// Organizations. set_org only rewrites the local CLI config.
+	// Organizations. set_org rewrites the local CLI config, which changes the
+	// org every later call targets: an overwrite, not an addition.
 	"get_orgs": {Title: "List organizations", ReadOnlyHint: true, IdempotentHint: true},
 	"get_org":  {Title: "Get current organization", ReadOnlyHint: true, IdempotentHint: true},
-	"set_org":  {Title: "Set current organization", IdempotentHint: true},
+	"set_org":  {Title: "Set current organization", DestructiveHint: true, IdempotentHint: true},
 
 	// Services and logs. port_forward only returns the CLI command to run.
 	"get_services":    {Title: "List services", ReadOnlyHint: true, IdempotentHint: true},
@@ -41,12 +47,12 @@ var annotations = map[string]ToolAnnotations{
 	// Volumes and snapshots
 	"get_volumes":     {Title: "List volumes", ReadOnlyHint: true, IdempotentHint: true},
 	"get_snapshots":   {Title: "List snapshots", ReadOnlyHint: true, IdempotentHint: true},
-	"reset_volume":    {Title: "Reset volume", DestructiveHint: true, IdempotentHint: true},
+	"reset_volume":    {Title: "Reset volume", DestructiveHint: true},
 	"create_snapshot": {Title: "Create snapshot"},
-	"load_snapshot":   {Title: "Load snapshot", DestructiveHint: true, IdempotentHint: true},
+	"load_snapshot":   {Title: "Load snapshot", DestructiveHint: true},
 
 	// Telepresence
-	"telepresence_connect": {Title: "Connect with Telepresence", IdempotentHint: true, OpenWorldHint: true},
+	"telepresence_connect": {Title: "Connect with Telepresence", DestructiveHint: true, IdempotentHint: true, OpenWorldHint: true},
 }
 
 // Annotate returns def with its title and behavior hints attached. A tool with
@@ -60,4 +66,15 @@ func Annotate(def ToolDefinition) ToolDefinition {
 	def.Title = a.Title
 	def.Annotations = &a
 	return def
+}
+
+// AnnotatedNames returns the tools that have annotations, sorted, so a test
+// can catch an entry left behind for a tool that was renamed or removed.
+func AnnotatedNames() []string {
+	names := make([]string, 0, len(annotations))
+	for name := range annotations {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

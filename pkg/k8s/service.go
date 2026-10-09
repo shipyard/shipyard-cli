@@ -40,18 +40,17 @@ type Service struct {
 
 func New(c client.Client, id string, svc *types.Service) (*Service, error) {
 	s := Service{client: c}
-	if err := setupKubeconfig(c, id); err != nil {
-		return nil, err
-	}
-
-	path, err := kubeconfigPath()
+	// Kept in memory: logs, exec and port-forward don't need a file, and
+	// ~/.shipyard/kubeconfig belongs to telepresence, whose session for another
+	// environment may be using it. The MCP get_logs tool is labeled read-only.
+	body, err := fetchKubeconfig(c, id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to retrieve kubeconfig: %w", err)
 	}
-
-	cfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: path},
-		nil)
+	cfg, err := clientcmd.NewClientConfigFromBytes(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse kubeconfig: %w", err)
+	}
 
 	rawConfig, err := cfg.RawConfig()
 	if err != nil {
