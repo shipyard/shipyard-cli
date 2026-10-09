@@ -4,17 +4,18 @@ import (
 	"fmt"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// Client points at the environment's kubeconfig saved in ~/.shipyard, for
+// tools such as telepresence that need a file rather than a parsed config.
 type Client struct {
-	restConfig *rest.Config
-	clientSet  *kubernetes.Clientset
-	Path       string
+	Path string
 }
 
+// NewConfig saves the environment's kubeconfig to the shared
+// ~/.shipyard/kubeconfig and returns its path. Only telepresence uses it;
+// logs, exec and port-forward keep the config in memory (see New).
 func NewConfig(c client.Client, envid string) (*Client, error) {
 	if err := setupKubeconfig(c, envid); err != nil {
 		return nil, err
@@ -24,37 +25,14 @@ func NewConfig(c client.Client, envid string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{
-			ExplicitPath: path,
-		},
-		nil,
-	)
 
-	rawConfig, err := cfg.RawConfig()
+	rawConfig, err := clientcmd.LoadFromFile(path)
 	if err != nil {
 		return nil, err
 	}
-
-	contexts := rawConfig.Contexts
-	if len(contexts) == 0 {
+	if len(rawConfig.Contexts) == 0 {
 		return nil, fmt.Errorf("kubeconfig does not have a context set")
 	}
-	restConfig, err := cfg.ClientConfig()
-	if err != nil {
-		return nil, err
-	}
 
-	clientSet, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	sc := Client{
-		restConfig: restConfig,
-		clientSet:  clientSet,
-		Path:       path,
-	}
-
-	return &sc, nil
+	return &Client{Path: path}, nil
 }

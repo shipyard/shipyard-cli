@@ -292,7 +292,7 @@ func (s *MCPServer) handleInitialize(req *JSONRPCRequest) []byte {
 func (s *MCPServer) handleListTools(req *JSONRPCRequest) []byte {
 	toolsList := make([]interface{}, 0, len(s.tools))
 	for _, tool := range s.tools {
-		toolsList = append(toolsList, tool.Definition())
+		toolsList = append(toolsList, tools.Annotate(tool.Definition()))
 	}
 
 	result := map[string]interface{}{

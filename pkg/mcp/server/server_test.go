@@ -143,6 +143,85 @@ func TestMCPServer_HandleListTools(t *testing.T) {
 	}
 }
 
+// Clients gate tool calls on these hints: without readOnlyHint, Codex's
+// "writes" approval mode treats even get_orgs as a write and blocks it.
+// Directory submissions (Anthropic, OpenAI) also require every tool to set
+// them explicitly.
+func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
+	server := NewMCPServer(MCPServerConfig{}, newMockClient())
+	server.registerTools()
+
+	response := server.handleListTools(&JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/list"})
+
+	var result struct {
+		Result struct {
+			Tools []struct {
+				Name        string                 `json:"name"`
+				Title       string                 `json:"title"`
+				Annotations map[string]interface{} `json:"annotations"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(response, &result); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	readOnly := map[string]bool{
+		"get_environments": true, "get_environment": true, "get_orgs": true, "get_org": true,
+		"get_logs": true, "get_services": true, "get_volumes": true, "get_snapshots": true,
+		"get_build_history": true, "get_env_vars": true, "port_forward": true,
+	}
+	// set_org overwrites the org every later call targets; telepresence_connect
+	// overwrites the shared kubeconfig and the host's routes. Neither only adds.
+	destructive := map[string]bool{
+		"stop_environment": true, "cancel_environment": true, "rebuild_environment": true,
+		"restart_service": true, "put_env_vars": true, "delete_env_var": true,
+		"update_branches": true, "reset_volume": true, "load_snapshot": true, "exec_service": true,
+		"set_org": true, "telepresence_connect": true,
+	}
+	// Clients retry idempotent calls on their own. reset_volume and load_snapshot
+	// queue a new restore each call, and cancel_environment cancels whatever build
+	// is latest at the time, so a retry can wipe data or cancel a newer build.
+	idempotent := map[string]bool{
+		"get_environments": true, "get_environment": true, "get_orgs": true, "get_org": true,
+		"get_logs": true, "get_services": true, "get_volumes": true, "get_snapshots": true,
+		"get_build_history": true, "get_env_vars": true, "port_forward": true,
+		"restart_environment": true, "stop_environment": true, "revive_environment": true,
+		"update_branches": true, "set_org": true, "put_env_vars": true, "delete_env_var": true,
+		"telepresence_connect": true,
+	}
+	openWorld := map[string]bool{"exec_service": true, "telepresence_connect": true}
+
+	if len(result.Result.Tools) != len(server.tools) {
+		t.Fatalf("Expected %d tools, got %d", len(server.tools), len(result.Result.Tools))
+	}
+	for _, tool := range result.Result.Tools {
+		if tool.Title == "" {
+			t.Errorf("%s: missing title", tool.Name)
+		}
+		if tool.Annotations["title"] != tool.Title {
+			t.Errorf("%s: annotations.title %v does not match title %q", tool.Name, tool.Annotations["title"], tool.Title)
+		}
+		for _, hint := range []string{"readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"} {
+			if _, ok := tool.Annotations[hint].(bool); !ok {
+				t.Errorf("%s: %s must be set explicitly, got %v", tool.Name, hint, tool.Annotations[hint])
+			}
+		}
+		if got := tool.Annotations["readOnlyHint"]; got != readOnly[tool.Name] {
+			t.Errorf("%s: readOnlyHint = %v, want %v", tool.Name, got, readOnly[tool.Name])
+		}
+		if got := tool.Annotations["destructiveHint"]; got != destructive[tool.Name] {
+			t.Errorf("%s: destructiveHint = %v, want %v", tool.Name, got, destructive[tool.Name])
+		}
+		if got := tool.Annotations["idempotentHint"]; got != idempotent[tool.Name] {
+			t.Errorf("%s: idempotentHint = %v, want %v", tool.Name, got, idempotent[tool.Name])
+		}
+		if got := tool.Annotations["openWorldHint"]; got != openWorld[tool.Name] {
+			t.Errorf("%s: openWorldHint = %v, want %v", tool.Name, got, openWorld[tool.Name])
+		}
+	}
+}
+
 func TestMCPServer_HandleCallTool(t *testing.T) {
 	server := NewMCPServer(MCPServerConfig{}, newMockClient())
 	server.registerTools()

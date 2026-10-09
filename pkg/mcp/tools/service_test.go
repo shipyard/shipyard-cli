@@ -164,6 +164,24 @@ func TestServiceTool_Execute_PortForward(t *testing.T) {
 	}
 }
 
+// The returned command is pasted into a shell: --ports takes a comma list
+// (it is a StringSlice flag), and every value is quoted like exec_service's.
+func TestServiceTool_Execute_PortForward_Command(t *testing.T) {
+	mockClient := client.New(&servicesMockRequester{}, func() string { return "test-org" })
+	tool := NewServiceTool(mockClient, "port_forward")
+
+	result, err := tool.Execute(context.Background(),
+		[]byte(`{"environment_id":"env-123","service_name":"web; rm x","ports":["8080:80","3000:3000"]}`))
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	want := "shipyard port-forward --env env-123 --service 'web; rm x' --ports 8080:80,3000:3000"
+	if !strings.Contains(result, want) {
+		t.Errorf("Expected result to contain %q, got: %s", want, result)
+	}
+}
+
 func TestServiceTool_Execute_InvalidParams(t *testing.T) {
 	mockClient := client.New(&servicesMockRequester{}, func() string { return "test-org" })
 	tool := NewServiceTool(mockClient, "get_services")
