@@ -309,8 +309,10 @@ func (t *ServiceTool) executePortForward(params json.RawMessage) (string, error)
 
 	// Note: port_forward requires long-running session handling which is not suitable for MCP
 	// Return information about the limitation and CLI command to use
-	return fmt.Sprintf("Cannot start port forwarding via MCP as it requires a persistent connection. To port-forward '%v' for service '%s' in environment '%s', use the CLI command:\n\nshipyard port-forward --env %s --service %s --ports %v",
-		toolParams.Ports, toolParams.ServiceName, toolParams.EnvironmentID, toolParams.EnvironmentID, toolParams.ServiceName, toolParams.Ports), nil
+	ports := strings.Join(toolParams.Ports, ",")
+	return fmt.Sprintf("Cannot start port forwarding via MCP as it requires a persistent connection. To port-forward %s for service %q in environment %q, use the CLI command:\n\nshipyard port-forward --env %s --service %s --ports %s",
+		ports, toolParams.ServiceName, toolParams.EnvironmentID,
+		shellQuote(toolParams.EnvironmentID), shellQuote(toolParams.ServiceName), shellQuote(ports)), nil
 }
 
 // shellJoin renders args as one POSIX shell command line.

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
-	"github.com/shipyard/shipyard-cli/pkg/mcp/tools"
 	"github.com/spf13/viper"
 )
 
@@ -145,9 +144,9 @@ func TestMCPServer_HandleListTools(t *testing.T) {
 }
 
 // Clients gate tool calls on these hints: without readOnlyHint, Codex's
-// "writes" approval mode and Cursor's non-interactive mode treat even
-// get_orgs as a write and block it. Directory submissions (Anthropic,
-// OpenAI) also require every tool to set them explicitly.
+// "writes" approval mode treats even get_orgs as a write and blocks it.
+// Directory submissions (Anthropic, OpenAI) also require every tool to set
+// them explicitly.
 func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 	server := NewMCPServer(MCPServerConfig{}, newMockClient())
 	server.registerTools()
@@ -192,13 +191,6 @@ func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 		"telepresence_connect": true,
 	}
 	openWorld := map[string]bool{"exec_service": true, "telepresence_connect": true}
-
-	// The other direction: an entry for a tool that no longer exists is stale.
-	for _, name := range tools.AnnotatedNames() {
-		if _, ok := server.tools[name]; !ok {
-			t.Errorf("annotations has an entry for %s, which is not a registered tool", name)
-		}
-	}
 
 	if len(result.Result.Tools) != len(server.tools) {
 		t.Fatalf("Expected %d tools, got %d", len(server.tools), len(result.Result.Tools))

@@ -2,11 +2,13 @@ package k8s
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
@@ -68,5 +70,67 @@ func TestNewDoesNotWriteTheSharedKubeconfig(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(shared); string(got) != "another environment" {
 		t.Errorf("New overwrote the shared kubeconfig with:\n%s", got)
+	}
+}
+
+// A read-only call must not leave a file behind either.
+func TestNewDoesNotCreateAKubeconfig(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(v1.PodList{Items: []v1.Pod{{ObjectMeta: metav1.ObjectMeta{Name: "web-0"}}}})
+	}))
+	t.Cleanup(api.Close)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	c := client.New(kubeconfigRequester{server: api.URL}, func() string { return "" })
+	if _, err := New(c, "env-id", &types.Service{Name: "web", SanitizedName: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".shipyard", "kubeconfig")); !os.IsNotExist(err) {
+		t.Errorf("New created ~/.shipyard/kubeconfig (stat: %v)", err)
+	}
+}
+
+// rawRequester answers the kubeconfig request with a fixed body or error.
+type rawRequester struct {
+	body []byte
+	err  error
+}
+
+func (r rawRequester) Do(_, _, _ string, _ any) ([]byte, error) { return r.body, r.err }
+
+// get_logs and exec_service reach New from the MCP server, which has no
+// panic recovery: a bad kubeconfig must come back as an error.
+func TestNewKubeconfigErrors(t *testing.T) {
+	tests := map[string]struct {
+		req  rawRequester
+		want string
+	}{
+		"fetch fails": {rawRequester{err: errors.New("boom")}, "failed to retrieve kubeconfig"},
+		"not yaml":    {rawRequester{body: []byte("\t- [")}, "failed to parse kubeconfig"},
+		"no such context": {rawRequester{body: []byte(`apiVersion: v1
+kind: Config
+clusters:
+- name: env
+  cluster:
+    server: https://127.0.0.1:1
+contexts:
+- name: env
+  context:
+    cluster: env
+current-context: missing
+`)}, "context"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			c := client.New(tc.req, func() string { return "" })
+			s, err := New(c, "env-id", &types.Service{Name: "web", SanitizedName: "web"})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("New = (%v, %v), want an error containing %q", s, err, tc.want)
+			}
+		})
 	}
 }

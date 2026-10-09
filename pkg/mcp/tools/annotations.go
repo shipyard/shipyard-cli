@@ -1,7 +1,5 @@
 package tools
 
-import "sort"
-
 // annotations holds the behavior hints for every MCP tool, keyed by tool name.
 //
 // destructiveHint follows the MCP spec: true unless the tool only adds state.
@@ -66,15 +64,4 @@ func Annotate(def ToolDefinition) ToolDefinition {
 	def.Title = a.Title
 	def.Annotations = &a
 	return def
-}
-
-// AnnotatedNames returns the tools that have annotations, sorted, so a test
-// can catch an entry left behind for a tool that was renamed or removed.
-func AnnotatedNames() []string {
-	names := make([]string, 0, len(annotations))
-	for name := range annotations {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }

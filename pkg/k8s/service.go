@@ -57,11 +57,11 @@ func New(c client.Client, id string, svc *types.Service) (*Service, error) {
 		return nil, err
 	}
 
-	contexts := rawConfig.Contexts
-	if len(contexts) == 0 {
+	current, ok := rawConfig.Contexts[rawConfig.CurrentContext]
+	if !ok || current == nil {
 		return nil, fmt.Errorf("kubeconfig does not have a context set")
 	}
-	s.namespace = contexts[rawConfig.CurrentContext].Namespace
+	s.namespace = current.Namespace
 
 	restConfig, err := cfg.ClientConfig()
 	if err != nil {
