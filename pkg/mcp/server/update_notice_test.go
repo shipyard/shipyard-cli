@@ -81,6 +81,9 @@ func TestHandleInitialize_StaleNotice(t *testing.T) {
 // The cached result of the CLI's last update check is read from disk, never
 // fetched: startup must not wait on GitHub. The CLI's opt-outs apply.
 func TestLoadMCPServerConfig_LatestVersion(t *testing.T) {
+	// CI runners set CI, which turns the check off; start from it on.
+	t.Setenv("CI", "")
+	t.Setenv("SHIPYARD_NO_UPDATE_CHECK", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	if err := os.MkdirAll(filepath.Join(home, ".shipyard"), 0o700); err != nil {
@@ -132,6 +135,9 @@ func TestStaleNotice_FitsWithInstructions(t *testing.T) {
 // check, so the server refreshes the cache for the next session. It honors the
 // same opt-outs and skips dev builds, and never touches the network then.
 func TestRefreshLatestVersion(t *testing.T) {
+	// CI runners set CI, which turns the check off; start from it on.
+	t.Setenv("CI", "")
+	t.Setenv("SHIPYARD_NO_UPDATE_CHECK", "")
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
