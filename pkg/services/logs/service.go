@@ -29,6 +29,8 @@ type GetLogsRequest struct {
 	TailLines     int64
 	Page          int
 	PageSize      int
+	// Previous reads the crashed container's previous run, from the pod with the most restarts
+	Previous bool
 }
 
 // LogLine represents a single log line with metadata
@@ -47,6 +49,8 @@ type LogsResponse struct {
 	NextPage int       `json:"next_page"`
 	Page     int       `json:"page"`
 	PageSize int       `json:"page_size"`
+	// State is set for Previous requests: the container's restarts and how it last stopped
+	State *k8s.ContainerState `json:"state,omitempty"`
 }
 
 // GetLogs retrieves logs for a service in an environment
@@ -79,10 +83,21 @@ func (s *LogsManager) GetLogs(ctx context.Context, req GetLogsRequest) (*LogsRes
 		return nil, fmt.Errorf("failed to create k8s connection: %w", err)
 	}
 
-	// Get logs from k8s
-	allLogs, err := s.getLogsFromK8s(ctx, k8sService, req.Follow, req.TailLines, req.ServiceName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get logs: %w", err)
+	var state *k8s.ContainerState
+	var allLogs []LogLine
+	if req.Previous {
+		crashed := k8sService.UseCrashedPod()
+		state = &crashed
+		logText, err := k8sService.GetPreviousLogsAsString(req.TailLines)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get previous container logs: %w", err)
+		}
+		allLogs = s.parseLogTextWithService(logText, req.ServiceName)
+	} else {
+		allLogs, err = s.getLogsFromK8s(ctx, k8sService, req.Follow, req.TailLines, req.ServiceName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get logs: %w", err)
+		}
 	}
 
 	// Apply pagination to the logs
@@ -96,6 +111,7 @@ func (s *LogsManager) GetLogs(ctx context.Context, req GetLogsRequest) (*LogsRes
 		NextPage: nextPage,
 		Page:     req.Page,
 		PageSize: req.PageSize,
+		State:    state,
 	}, nil
 }
 

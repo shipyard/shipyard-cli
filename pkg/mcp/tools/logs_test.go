@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/shipyard/shipyard-cli/pkg/k8s"
 )
 
 // Note: newMockClient is already defined in environment_test.go
@@ -399,5 +401,18 @@ func TestLogsTool_JSONUnmarshaling(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestFormatContainerState(t *testing.T) {
+	exitCode := int32(137)
+	got := formatContainerState(&k8s.ContainerState{
+		Pod: "web-1", Ready: false, RestartCount: 5, Reason: "OOMKilled", ExitCode: &exitCode,
+	})
+	if got != "Pod web-1: ready=false, restarts=5, last stopped: OOMKilled (exit code 137)\n" {
+		t.Fatalf("unexpected header %q", got)
+	}
+	if got := formatContainerState(&k8s.ContainerState{Pod: "web-1", Ready: true}); got != "Pod web-1: ready=true, restarts=0\n" {
+		t.Fatalf("unexpected header %q", got)
 	}
 }

@@ -16,10 +16,13 @@ import (
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 )
 
+// The build-history API returns at most this many builds per page.
+const maxBuildHistoryPageSize = 100
+
 var extendedToolDefinitions = map[string]ToolDefinition{
 	"get_build_history": {
 		Name:        "get_build_history",
-		Description: "Get build history for an environment (queued commits and success flags)",
+		Description: "Get build history for an environment: each build's ID, status, queued commits and, for failed builds, a failure summary (phase, reason, failing services, whether a rebuild should help). Pass a build ID to get_failure_details or get_build_logs for more",
 		InputSchema: schemas.BuildHistorySchema(),
 	},
 	"get_env_vars": {
@@ -138,6 +141,10 @@ func (t *ExtendedTool) executeGetBuildHistory(params json.RawMessage) (string, e
 	}
 	if toolParams.PageSize == 0 {
 		toolParams.PageSize = 20
+	}
+	if toolParams.PageSize > maxBuildHistoryPageSize {
+		// The API caps page_size and silently returns fewer builds above it
+		return "", errors.ValidationError("get_build_history", "page_size", fmt.Sprintf("page_size must be at most %d", maxBuildHistoryPageSize))
 	}
 
 	apiParams := t.orgParams()

@@ -36,6 +36,8 @@ type Service struct {
 	client     client.Client
 	namespace  string
 	pod        string
+	// pods are the service's pods, listed when the Service was created
+	pods []v1.Pod
 }
 
 func New(c client.Client, id string, svc *types.Service) (*Service, error) {
@@ -369,7 +371,87 @@ func (c *Service) podForService(svc *types.Service) (string, error) {
 	if len(pods.Items) == 0 {
 		return "", fmt.Errorf("no pod found for service %s", svc.Name)
 	}
+	c.pods = pods.Items
 	return pods.Items[0].Name, nil
+}
+
+// ContainerState describes a service container's restarts and how it last stopped.
+type ContainerState struct {
+	Pod          string
+	Ready        bool
+	RestartCount int32
+	// Reason and ExitCode describe the last time the container stopped, if it has
+	Reason   string
+	ExitCode *int32
+}
+
+// UseCrashedPod switches to the pod most likely to explain a crash (not ready, then the most
+// restarts) and returns its container state. Exec and port-forward keep the default pod.
+func (c *Service) UseCrashedPod() ContainerState {
+	pod, ok := pickCrashedPod(c.pods)
+	if !ok {
+		return ContainerState{Pod: c.pod}
+	}
+	c.pod = pod.Name
+	return containerState(pod)
+}
+
+func pickCrashedPod(pods []v1.Pod) (v1.Pod, bool) {
+	if len(pods) == 0 {
+		return v1.Pod{}, false
+	}
+	best := pods[0]
+	for _, pod := range pods[1:] {
+		a, b := containerState(pod), containerState(best)
+		if (!a.Ready && b.Ready) || (a.Ready == b.Ready && a.RestartCount > b.RestartCount) {
+			best = pod
+		}
+	}
+	return best, true
+}
+
+// containerState reads the pod's first app container, the one `kubectl logs` reads by default.
+func containerState(pod v1.Pod) ContainerState {
+	state := ContainerState{Pod: pod.Name, Ready: true}
+	if len(pod.Status.ContainerStatuses) == 0 {
+		state.Ready = false
+		return state
+	}
+	status := pod.Status.ContainerStatuses[0]
+	state.Ready = status.Ready
+	state.RestartCount = status.RestartCount
+	terminated := status.LastTerminationState.Terminated
+	if terminated == nil {
+		terminated = status.State.Terminated
+	}
+	if terminated != nil {
+		state.Reason = terminated.Reason
+		exitCode := terminated.ExitCode
+		state.ExitCode = &exitCode
+	}
+	if waiting := status.State.Waiting; waiting != nil && state.Reason == "" {
+		state.Reason = waiting.Reason
+	}
+	return state
+}
+
+// GetPreviousLogsAsString returns the logs of the container's previous run, the one that crashed.
+func (c *Service) GetPreviousLogsAsString(tail int64) (string, error) {
+	opts := v1.PodLogOptions{
+		Previous:  true,
+		TailLines: &tail,
+	}
+	podLogs, err := c.clientSet.CoreV1().Pods(c.namespace).GetLogs(c.pod, &opts).Stream(context.TODO())
+	if err != nil {
+		return "", err
+	}
+	defer podLogs.Close()
+
+	var buf bytes.Buffer
+	if _, err = io.Copy(&buf, podLogs); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // fixedTerminalSizeQueue and its Next method ensure the terminal size remains the same

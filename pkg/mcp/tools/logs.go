@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
+	"github.com/shipyard/shipyard-cli/pkg/k8s"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/errors"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/schemas"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/validation"
@@ -33,7 +34,7 @@ func NewLogsTool(client client.Client, name string) *LogsTool {
 func (t *LogsTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name:        t.name,
-		Description: "Get logs from a service in an environment",
+		Description: "Get live logs from a service in a running environment. previous=true returns the logs of the container's last run before it crashed, with its restart count, exit code and termination reason. For a stopped environment or a failed build, use get_build_logs",
 		InputSchema: schemas.LogsSchema(),
 	}
 }
@@ -48,6 +49,7 @@ func (t *LogsTool) Execute(ctx context.Context, params json.RawMessage) (string,
 		Tail          int64  `json:"tail,omitempty"`
 		Page          int    `json:"page,omitempty"`
 		PageSize      int    `json:"page_size,omitempty"`
+		Previous      bool   `json:"previous,omitempty"`
 	}
 
 	if err := json.Unmarshal(params, &toolParams); err != nil {
@@ -92,6 +94,7 @@ func (t *LogsTool) Execute(ctx context.Context, params json.RawMessage) (string,
 		TailLines:     toolParams.Tail,
 		Page:          toolParams.Page,
 		PageSize:      toolParams.PageSize,
+		Previous:      toolParams.Previous,
 	}
 
 	// Get logs
@@ -102,11 +105,18 @@ func (t *LogsTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	}
 
 	// Format response for AI consumption
+	header := ""
+	if resp.State != nil {
+		header = formatContainerState(resp.State)
+	}
 	if len(resp.Lines) == 0 {
+		if header != "" {
+			return header + "No logs from the previous container run.", nil
+		}
 		return fmt.Sprintf("No logs found for service %s in environment %s", toolParams.ServiceName, toolParams.EnvironmentID), nil
 	}
 
-	result := t.logsService.FormatLogsAsText(resp.Lines)
+	result := header + t.logsService.FormatLogsAsText(resp.Lines)
 	result += fmt.Sprintf("\nShowing %d log lines for service %s (page %d)", len(resp.Lines), toolParams.ServiceName, toolParams.Page)
 
 	if resp.HasNext {
@@ -114,4 +124,16 @@ func (t *LogsTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	}
 
 	return result, nil
+}
+
+// formatContainerState is the header for previous-run logs: which pod, how often it restarted and why it stopped.
+func formatContainerState(state *k8s.ContainerState) string {
+	line := fmt.Sprintf("Pod %s: ready=%t, restarts=%d", state.Pod, state.Ready, state.RestartCount)
+	if state.Reason != "" {
+		line += ", last stopped: " + state.Reason
+	}
+	if state.ExitCode != nil {
+		line += fmt.Sprintf(" (exit code %d)", *state.ExitCode)
+	}
+	return line + "\n"
 }

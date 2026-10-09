@@ -196,19 +196,31 @@ A few things differ from the CLI:
 
 | Tool | What it does |
 |---|---|
-| `get_build_history` | List an environment's builds, optionally only successful ones |
+| `get_build_history` | List an environment's builds, with a failure summary for failed ones (up to 100 per page) |
 | `get_env_vars` | List environment variables; hidden values are masked |
 | `put_env_vars` | Create or update environment variables |
 | `delete_env_var` | Delete an environment variable by name |
 | `update_branches` | Change the branch of every repo in an environment |
 | `deploy_detached` | Deploy a detached environment cloned from an application build |
 
+### Failed builds
+
+| Tool | What it does |
+|---|---|
+| `get_failure_details` | Why a build failed, in one call: phase and reason, failing services, excerpts from their build or crash logs, and which services are enabled |
+| `get_build_logs` | A build's stored build, run or crash logs, paged back from the end. Works after the environment stopped |
+
+Both work on the latest build by default; pass a `build_id` from
+`get_build_history` for an older one. Failures caused by Shipyard rather than the
+app are reported only as worth one rebuild, without details. Hidden env var and
+secret values are masked in returned logs.
+
 ### Services
 
 | Tool | What it does |
 |---|---|
-| `get_services` | List an environment's services and exposed ports |
-| `get_logs` | Get logs from a service |
+| `get_services` | List an environment's enabled services and exposed ports; a service that isn't listed is disabled |
+| `get_logs` | Get live logs from a service in a running environment; `previous: true` returns the crashed container's last run, with its restart count, exit code and termination reason |
 | `restart_service` | Restart one service without rebuilding the environment |
 | `exec_service` | Run a non-interactive command in a service container. Off by default; see below |
 

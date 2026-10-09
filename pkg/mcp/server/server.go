@@ -514,6 +514,9 @@ func (s *MCPServer) registerTools() {
 	} {
 		s.tools[name] = tools.NewExtendedTool(s.client, name)
 	}
+	for _, name := range []string{"get_failure_details", "get_build_logs"} {
+		s.tools[name] = tools.NewFailureTool(s.client, name)
+	}
 }
 
 // Register available resources
