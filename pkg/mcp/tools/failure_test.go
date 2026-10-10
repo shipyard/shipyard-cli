@@ -21,7 +21,9 @@ const failedBuildResponse = `{
       "reason_text": "Failure building images",
       "retryable": false,
       "services": ["web"],
-      "message": null
+      "message": null,
+      "logs_available": false,
+      "next_step": "fix_image_build"
     },
     "diagnosis": {"summary": "The Dockerfile copies a file that does not exist"},
     "enabled_services": ["db", "web"],
@@ -31,6 +33,7 @@ const failedBuildResponse = `{
         "failing": true,
         "image_build": {"status": "FAILED", "failure_reason": "BUILD_FAILED"},
         "health_check": null,
+        "log_kind": "build",
         "excerpt": {"kind": "build", "lines": ["step failed: [2/2] RUN make", "error: exit code: 2"], "truncated": false}
       },
       {"name": "db", "failing": false, "image_build": null, "health_check": null, "excerpt": null}
@@ -334,7 +337,7 @@ func TestFailureTool_NotFoundErrors(t *testing.T) {
 // Asked right after a failure, the latest build may already be a rebuild in progress. "Did not
 // fail" would read as success; point to the earlier build instead.
 func TestFailureTool_GetFailureDetails_InProgress(t *testing.T) {
-	rec := &recordingRequester{resp: []byte(`{"id":"build-2","data":{"status":"BUILDING","failure":null,"enabled_services":["web"],"services":[]}}`)}
+	rec := &recordingRequester{resp: []byte(`{"id":"build-2","data":{"status":"BUILDING","finished":false,"failure":null,"enabled_services":["web"],"services":[]}}`)}
 	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -361,9 +364,10 @@ func TestFailureTool_GetFailureDetails_NoEnabledServices(t *testing.T) {
 // A service whose image failed to build never ran: point at its build log even without an excerpt.
 func TestFailureTool_GetFailureDetails_ImageFailureWithoutExcerpt(t *testing.T) {
 	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
-	  "failure":{"phase":"build","reason":"BUILDING_IMAGES","reason_text":"Failure building images","retryable":false,"services":["web"],"message":null},
+	  "failure":{"phase":"build","reason":"BUILDING_IMAGES","reason_text":"Failure building images","retryable":false,"services":["web"],"message":null,
+	             "logs_available":false,"next_step":"fix_image_build"},
 	  "enabled_services":["web"],
-	  "services":[{"name":"web","failing":true,"image_build":{"status":"FAILED","failure_reason":null},"health_check":null,"excerpt":null}]}}`)}
+	  "services":[{"name":"web","failing":true,"image_build":{"status":"FAILED","failure_reason":null},"health_check":null,"excerpt":null,"log_kind":"build"}]}}`)}
 	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -376,10 +380,10 @@ func TestFailureTool_GetFailureDetails_ImageFailureWithoutExcerpt(t *testing.T) 
 func TestFailureTool_GetFailureDetails_HealthCheck(t *testing.T) {
 	rec := &recordingRequester{resp: []byte(`{"id":"build-2","data":{"status":"FAILED",
 	  "failure":{"phase":"run","reason":null,"reason_text":"Health checks failed","retryable":false,"services":["web"],
-	             "message":"web: did not become healthy"},
+	             "message":"web: did not become healthy","logs_available":true,"next_step":"read_logs"},
 	  "enabled_services":["web","worker"],
 	  "services":[
-	    {"name":"web","failing":true,"image_build":null,"health_check":"timed out on /health","excerpt":null},
+	    {"name":"web","failing":true,"image_build":null,"health_check":"timed out on /health","excerpt":null,"log_kind":"run"},
 	    {"name":"worker","failing":false,"image_build":null,"health_check":null,
 	     "excerpt":{"kind":"crash","lines":["panic: nil map"],"truncated":true}}
 	  ]}}`)}
@@ -430,7 +434,8 @@ func TestFailureTool_LogLinesAreMarkedAsData(t *testing.T) {
 // and there are no service logs to point at.
 func TestFailureTool_GetFailureDetails_StoppedBeforeServicesRan(t *testing.T) {
 	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
-	  "failure":{"phase":"clone","reason":"DOWNLOADING_REPO","reason_text":"Failure downloading repo","retryable":false,"services":[],"message":null},
+	  "failure":{"phase":"clone","reason":"DOWNLOADING_REPO","reason_text":"Failure downloading repo","retryable":false,"services":[],"message":null,
+	             "logs_available":false,"next_step":"check_repository"},
 	  "enabled_services":["db","web","worker"],
 	  "services":[
 	    {"name":"db","failing":false,"image_build":{"status":"CANCELED","failure_reason":null},"health_check":null,"excerpt":null},
@@ -460,10 +465,11 @@ func TestFailureTool_GetFailureDetails_StoppedBeforeServicesRan(t *testing.T) {
 // counted, and no run logs are suggested because no service ran.
 func TestFailureTool_GetFailureDetails_ImageFailureSummarizesOtherImages(t *testing.T) {
 	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
-	  "failure":{"phase":"build","reason":"BUILDING_IMAGES","reason_text":"Failure building images","retryable":false,"services":["web"],"message":null},
+	  "failure":{"phase":"build","reason":"BUILDING_IMAGES","reason_text":"Failure building images","retryable":false,"services":["web"],"message":null,
+	             "logs_available":false,"next_step":"fix_image_build"},
 	  "enabled_services":["db","web","worker"],
 	  "services":[
-	    {"name":"web","failing":true,"image_build":{"status":"FAILED","failure_reason":"BUILD_FAILED"},"health_check":null,
+	    {"name":"web","failing":true,"image_build":{"status":"FAILED","failure_reason":"BUILD_FAILED"},"health_check":null,"log_kind":"build",
 	     "excerpt":{"kind":"build","lines":["error: secret token: not found"],"truncated":false}},
 	    {"name":"db","failing":false,"image_build":{"status":"BUILT","failure_reason":null},"health_check":null,"excerpt":null},
 	    {"name":"worker","failing":false,"image_build":{"status":"CANCELED","failure_reason":null},"health_check":null,"excerpt":null}]}}`)}
@@ -561,14 +567,21 @@ func TestWriteLogLines_CollapsesFromMidBlock(t *testing.T) {
 func TestFailureTool_GetFailureDetails_Detail(t *testing.T) {
 	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
 	  "failure":{"phase":"config","reason":"INVALID_COMPOSE_FILE","reason_text":"Invalid Compose file","retryable":false,"services":[],
-	             "message":null,"detail":"Invalid ports format in service 'web': Must be a list."},
+	             "message":null,"detail":"Invalid ports format in service 'web': Must be a list.",
+	             "logs_available":false,"next_step":"fix_config"},
 	  "enabled_services":["web"],"services":[]}}`)}
 	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "Detail: Invalid ports format in service 'web': Must be a list.\n") {
-		t.Errorf("missing detail:\n%s", out)
+	for _, want := range []string{
+		"Detail: Invalid ports format in service 'web': Must be a list.\n",
+		"Next step: fix the Compose file or Shipyard labels in the project's repository as the Detail line describes",
+		"No service logs",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -577,9 +590,9 @@ func TestFailureTool_GetFailureDetails_Detail(t *testing.T) {
 func TestFailureTool_GetFailureDetails_PullingImage(t *testing.T) {
 	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
 	  "failure":{"phase":"deploy","reason":"PULLING_IMAGE","reason_text":"Unable to pull images","retryable":false,"services":["db"],
-	             "message":"db: ImagePullBackOff","detail":null},
+	             "message":"db: ImagePullBackOff","detail":null,"logs_available":true,"next_step":"check_images"},
 	  "enabled_services":["db","web"],
-	  "services":[{"name":"db","failing":true,"image_build":null,"health_check":null,"excerpt":null}]}}`)}
+	  "services":[{"name":"db","failing":true,"image_build":null,"health_check":null,"excerpt":null,"log_kind":null}]}}`)}
 	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -600,14 +613,15 @@ func TestFailureTool_GetFailureDetails_PullingImage(t *testing.T) {
 func TestFailureTool_GetFailureDetails_DuplicateRoutes(t *testing.T) {
 	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
 	  "failure":{"phase":"config","reason":"DUPLICATE_ROUTES","reason_text":"Two services share the same route","retryable":false,"services":[],
-	             "message":null,"detail":"Route / on app.example is claimed by more than one service: api, web"},
+	             "message":null,"detail":"Route / on app.example is claimed by more than one service: api, web",
+	             "logs_available":false,"next_step":"fix_config"},
 	  "enabled_services":["api","web"],"services":[]}}`)}
 	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "Detail: Route / on app.example is claimed by more than one service: api, web\n") ||
-		strings.Contains(out, "rebuild_environment") {
+		!strings.Contains(out, "Next step: fix the Compose file") || strings.Contains(out, "rebuild_environment") {
 		t.Errorf("unexpected output:\n%s", out)
 	}
 }

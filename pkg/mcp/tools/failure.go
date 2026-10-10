@@ -26,6 +26,10 @@ type failureSummary struct {
 	Message    *string  `json:"message"`
 	// Detail is Shipyard's own message about the customer's config, such as an invalid Compose file
 	Detail *string `json:"detail"`
+	// LogsAvailable says whether the build deployed services, so they have run and crash logs
+	LogsAvailable *bool `json:"logs_available"`
+	// NextStep is the API's action for the failure: rebuild_once, check_repository, fix_config, ...
+	NextStep string `json:"next_step"`
 }
 
 type logExcerpt struct {
@@ -43,6 +47,8 @@ type failureService struct {
 	} `json:"image_build"`
 	HealthCheck *string     `json:"health_check"`
 	Excerpt     *logExcerpt `json:"excerpt"`
+	// LogKind is the log most likely to explain a failing service, if it has one
+	LogKind *string `json:"log_kind"`
 	// Unavailable means the log store that should hold the service's logs couldn't be read
 	Unavailable bool `json:"unavailable"`
 }
@@ -50,7 +56,9 @@ type failureService struct {
 type failureResponse struct {
 	ID   string `json:"id"`
 	Data struct {
-		Status    string          `json:"status"`
+		Status string `json:"status"`
+		// Finished says whether the build has stopped; an unfinished one without a failure is in progress
+		Finished  *bool           `json:"finished"`
 		Failure   *failureSummary `json:"failure"`
 		Diagnosis *struct {
 			Summary string `json:"summary"`
@@ -131,12 +139,6 @@ func deref(s *string) string {
 	return *s
 }
 
-// inProgress are the build statuses of a build that is still running: it has not failed yet.
-var inProgress = map[string]bool{
-	"QUEUED": true, "PREPROCESSING": true, "REPOSITORY_DOWNLOADED": true, "PREPARING": true, "BUILDING": true,
-	"DISTRIBUTING": true, "DEPLOYING": true, "STARTING": true, "CONNECTING": true,
-}
-
 // maxRepeatBlock is the longest block of lines checked for back-to-back repeats: a stack trace
 // written on every restart of a crash loop is usually well under this.
 const maxRepeatBlock = 50
@@ -195,7 +197,7 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 
 	fmt.Fprintf(&b, "Build %s: %s\n", resp.ID, data.Status)
 	switch {
-	case failure == nil && inProgress[data.Status]:
+	case failure == nil && data.Finished != nil && !*data.Finished:
 		fmt.Fprintf(&b, "This build is still in progress, so it has not failed yet. Wait for it to finish, or, for an earlier "+
 			"failed build, pass its build_id from get_build_history(environment_id=%q).\n", environmentID)
 	case failure == nil:
@@ -282,57 +284,48 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 			"Otherwise rebuild once with rebuild_environment(environment_id=%q). If that build fails the same way, stop and report the failure to the user instead of changing the app.\n",
 			environmentID, environmentID)
 	default:
-		phase, reason := deref(failure.Phase), deref(failure.Reason)
 		var hints []string
 		for _, svc := range data.Services {
-			// A service whose image could not be pulled never started, so it has no log
-			if svc.Failing && reason != "PULLING_IMAGE" {
+			if svc.Failing && svc.LogKind != nil {
 				hints = append(hints, fmt.Sprintf("- get_build_logs(environment_id=%q, build_id=%q, kind=%q, service_name=%q)\n",
-					environmentID, resp.ID, hintKind(svc, phase), svc.Name))
+					environmentID, resp.ID, *svc.LogKind, svc.Name))
 			}
 		}
-		if servicesRan(phase) {
+		logsAvailable := failure.LogsAvailable == nil || *failure.LogsAvailable
+		if logsAvailable {
 			hints = append(hints, fmt.Sprintf("- get_build_logs(environment_id=%q, build_id=%q, kind=\"run\") for every service's run log\n",
 				environmentID, resp.ID))
 		}
 		if len(hints) > 0 {
 			b.WriteString("\nMore output:\n" + strings.Join(hints, ""))
 		} else {
-			fmt.Fprintf(&b, "\nNo service logs: the build stopped during %s, before any service ran.\n", phase)
+			fmt.Fprintf(&b, "\nNo service logs: the build stopped during %s, before any service ran.\n", deref(failure.Phase))
 		}
-		switch {
-		case reason == "PULLING_IMAGE":
-			b.WriteString("Next step: the failing services' images could not be pulled, so they never started. Check each one's " +
-				"image name and tag in the Compose file, and the registry credentials if the image is private.\n")
-		case phase == "clone":
-			fmt.Fprintf(&b, "Next step: check that each project's branch still exists and its repository is reachable; "+
-				"get_environment(environment_id=%q) lists the projects and branches.\n", environmentID)
-		}
+		b.WriteString(nextStep(environmentID, failure))
 	}
 	return b.String()
 }
 
-// hintKind is the log most likely to explain a failing service: its excerpt's, else the build
-// log of an image that failed to build or of a build that stopped before services ran, else its run log.
-func hintKind(svc failureService, phase string) string {
-	switch {
-	case svc.Excerpt != nil:
-		return svc.Excerpt.Kind
-	case svc.ImageBuild != nil && svc.ImageBuild.Status == "FAILED", !servicesRan(phase):
-		return "build"
-	default:
-		return "run"
+// nextStep turns the API's next_step action into an instruction; an action it doesn't know gets none.
+// read_logs needs none: the hints above are the step.
+func nextStep(environmentID string, failure *failureSummary) string {
+	switch failure.NextStep {
+	case "check_repository":
+		return fmt.Sprintf("Next step: check that each project's branch still exists and its repository is reachable; "+
+			"get_environment(environment_id=%q) lists the projects and branches.\n", environmentID)
+	case "check_images":
+		return "Next step: the failing services' images could not be pulled, so they never started. Check each one's " +
+			"image name and tag in the Compose file, and the registry credentials if the image is private.\n"
+	case "fix_config":
+		described := ""
+		if failure.Detail != nil {
+			described = " as the Detail line describes"
+		}
+		return "Next step: fix the Compose file or Shipyard labels in the project's repository" + described + ", then push the fix.\n"
+	case "fix_image_build":
+		return "Next step: fix the failing image build; its build log shows the step that failed.\n"
 	}
-}
-
-// servicesRan reports whether a build that failed during phase got as far as starting services,
-// so they have run logs. An unknown phase is assumed to have.
-func servicesRan(phase string) bool {
-	switch phase {
-	case "clone", "config", "build":
-		return false
-	}
-	return true
+	return ""
 }
 
 // hasDetails reports whether a service has more to say than an image status, which
