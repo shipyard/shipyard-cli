@@ -661,3 +661,28 @@ func TestFailureTool_RetriesOnceAfterTimeout(t *testing.T) {
 		t.Fatalf("expected one retry and a slow-API error, calls=%d err=%v", rec.calls, err)
 	}
 }
+
+// A retryable failure doesn't say why. A failed image left in the output would point the agent at
+// the app anyway, so image statuses are left out; logs of services that ran stay.
+func TestFailureTool_GetFailureDetails_RetryableHidesImageStatus(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED","finished":true,
+	  "failure":{"phase":null,"reason":null,"reason_text":"The build did not complete. Rebuilding usually resolves this.",
+	             "retryable":true,"services":[],"message":null,"detail":null,"logs_available":true,"next_step":"rebuild_once"},
+	  "enabled_services":["web","worker"],
+	  "services":[
+	    {"name":"web","failing":false,"image_build":{"status":"FAILED","failure_reason":null},"health_check":null,"excerpt":null,"log_kind":null},
+	    {"name":"worker","failing":false,"image_build":{"status":"BUILT","failure_reason":null},"health_check":null,
+	     "excerpt":{"kind":"run","lines":["started"],"truncated":false},"log_kind":null}]}}`)}
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, notWant := range []string{"Image build", "FAILED,", "== web"} {
+		if strings.Contains(out, notWant) {
+			t.Errorf("unexpected %q:\n%s", notWant, out)
+		}
+	}
+	if !strings.Contains(out, "== worker ==\n--- run log") || !strings.Contains(out, "rebuild_environment") {
+		t.Errorf("unexpected output:\n%s", out)
+	}
+}

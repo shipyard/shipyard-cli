@@ -241,12 +241,14 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 			strings.Join(data.EnabledServices, ", "))
 	}
 
-	if summary := imageBuildSummary(data.Services); summary != "" {
+	// A retryable failure isn't described: a failed image would point the agent at the app anyway
+	retryable := failure != nil && failure.Retryable
+	if summary := imageBuildSummary(data.Services); summary != "" && !retryable {
 		fmt.Fprintf(&b, "Image builds: %s\n", summary)
 	}
 
 	for _, svc := range data.Services {
-		if !hasDetails(svc) {
+		if !hasDetails(svc, retryable) {
 			continue
 		}
 		state := ""
@@ -255,7 +257,7 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 		}
 		fmt.Fprintf(&b, "\n== %s%s ==\n", svc.Name, state)
 		// A healthy service is here for its log; its built image is in the summary
-		if svc.ImageBuild != nil && (svc.Failing || svc.ImageBuild.Status == "FAILED") {
+		if svc.ImageBuild != nil && !retryable && (svc.Failing || svc.ImageBuild.Status == "FAILED") {
 			reason := ""
 			if r := deref(svc.ImageBuild.FailureReason); r != "" {
 				reason = " (" + r + ")"
@@ -329,10 +331,10 @@ func nextStep(environmentID string, failure *failureSummary) string {
 }
 
 // hasDetails reports whether a service has more to say than an image status, which
-// imageBuildSummary counts instead.
-func hasDetails(svc failureService) bool {
+// imageBuildSummary counts instead. A retryable failure's failed images are left out.
+func hasDetails(svc failureService, retryable bool) bool {
 	return svc.Failing || svc.HealthCheck != nil || svc.Excerpt != nil || svc.Unavailable ||
-		(svc.ImageBuild != nil && svc.ImageBuild.Status == "FAILED")
+		(!retryable && svc.ImageBuild != nil && svc.ImageBuild.Status == "FAILED")
 }
 
 // imageBuildStatusOrder lists failures first, then the common statuses; others follow by name.
