@@ -686,3 +686,21 @@ func TestFailureTool_GetFailureDetails_RetryableHidesImageStatus(t *testing.T) {
 		t.Errorf("unexpected output:\n%s", out)
 	}
 }
+
+// A failure that is shown but worth a rebuild (Shipyard's catch-all preprocessing error) gets the
+// rebuild instructions too, not silence.
+func TestFailureTool_GetFailureDetails_RebuildOnceWhenShown(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED","finished":true,
+	  "failure":{"phase":"config","reason":"ERROR_PREPROCESSING","reason_text":"Failure preprocessing build","retryable":false,
+	             "services":[],"message":null,"detail":null,"logs_available":false,"next_step":"rebuild_once"},
+	  "enabled_services":["web"],"services":[]}}`)}
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Reason: Failure preprocessing build (ERROR_PREPROCESSING)", `rebuild_environment(environment_id="env-123")`, "stop and report"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+}

@@ -282,9 +282,7 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 	switch {
 	case failure == nil:
 	case failure.Retryable:
-		fmt.Fprintf(&b, "\nNext step: call get_environment(environment_id=%q) first; a new build may already be running, and if `processing` is true, wait for it. "+
-			"Otherwise rebuild once with rebuild_environment(environment_id=%q). If that build fails the same way, stop and report the failure to the user instead of changing the app.\n",
-			environmentID, environmentID)
+		b.WriteString("\n" + rebuildOnce(environmentID))
 	default:
 		var hints []string
 		for _, svc := range data.Services {
@@ -308,10 +306,19 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 	return b.String()
 }
 
+// rebuildOnce is the next step for a failure that a rebuild usually fixes.
+func rebuildOnce(environmentID string) string {
+	return fmt.Sprintf("Next step: call get_environment(environment_id=%q) first; a new build may already be running, and if `processing` is true, wait for it. "+
+		"Otherwise rebuild once with rebuild_environment(environment_id=%q). If that build fails the same way, stop and report the failure to the user instead of changing the app.\n",
+		environmentID, environmentID)
+}
+
 // nextStep turns the API's next_step action into an instruction; an action it doesn't know gets none.
 // read_logs needs none: the hints above are the step.
 func nextStep(environmentID string, failure *failureSummary) string {
 	switch failure.NextStep {
+	case "rebuild_once":
+		return rebuildOnce(environmentID)
 	case "check_repository":
 		return fmt.Sprintf("Next step: check that each project's branch still exists and its repository is reachable; "+
 			"get_environment(environment_id=%q) lists the projects and branches.\n", environmentID)
