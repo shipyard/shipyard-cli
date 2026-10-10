@@ -21,7 +21,7 @@ import (
 var serviceToolDefinitions = map[string]ToolDefinition{
 	"get_services": {
 		Name:        "get_services",
-		Description: "List services in an environment",
+		Description: "List the enabled services in an environment. A Compose service that is not listed is disabled for this environment, so other services can't reach it",
 		InputSchema: schemas.EnvironmentIDSchema(),
 	},
 	"exec_service": {

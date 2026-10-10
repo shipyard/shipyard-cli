@@ -29,6 +29,9 @@ type GetLogsRequest struct {
 	TailLines     int64
 	Page          int
 	PageSize      int
+	// Previous reads the crashed container's previous run, from the pod most likely to explain
+	// the crash (see k8s.Service.UseCrashedPod), or its current run if it never restarted
+	Previous bool
 }
 
 // LogLine represents a single log line with metadata
@@ -47,7 +50,23 @@ type LogsResponse struct {
 	NextPage int       `json:"next_page"`
 	Page     int       `json:"page"`
 	PageSize int       `json:"page_size"`
+	// State is set for Previous requests: the container's restarts and how it last stopped
+	State *k8s.ContainerState `json:"state,omitempty"`
+	// Run is set for Previous requests: which run of the container Lines come from
+	Run Run `json:"run,omitempty"`
 }
+
+// Run is which run of a container a Previous request returned.
+type Run string
+
+const (
+	// RunPrevious is the run before the container's last restart.
+	RunPrevious Run = "previous"
+	// RunCurrent is the container's only run: it never restarted, so it has no previous one.
+	RunCurrent Run = "current"
+	// RunGone means the container restarted, but Kubernetes no longer keeps its previous run's logs.
+	RunGone Run = "gone"
+)
 
 // GetLogs retrieves logs for a service in an environment
 func (s *LogsManager) GetLogs(ctx context.Context, req GetLogsRequest) (*LogsResponse, error) {
@@ -79,10 +98,21 @@ func (s *LogsManager) GetLogs(ctx context.Context, req GetLogsRequest) (*LogsRes
 		return nil, fmt.Errorf("failed to create k8s connection: %w", err)
 	}
 
-	// Get logs from k8s
-	allLogs, err := s.getLogsFromK8s(ctx, k8sService, req.Follow, req.TailLines, req.ServiceName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get logs: %w", err)
+	var state *k8s.ContainerState
+	var previous Run
+	var allLogs []LogLine
+	if req.Previous {
+		crashed, run, logText, err := previousRun(k8sService, req.TailLines)
+		if err != nil {
+			return nil, err
+		}
+		state, previous = &crashed, run
+		allLogs = s.parseLogTextWithService(logText, req.ServiceName)
+	} else {
+		allLogs, err = s.getLogsFromK8s(ctx, k8sService, req.Follow, req.TailLines, req.ServiceName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get logs: %w", err)
+		}
 	}
 
 	// Apply pagination to the logs
@@ -96,7 +126,59 @@ func (s *LogsManager) GetLogs(ctx context.Context, req GetLogsRequest) (*LogsRes
 		NextPage: nextPage,
 		Page:     req.Page,
 		PageSize: req.PageSize,
+		State:    state,
+		Run:      previous,
 	}, nil
+}
+
+// crashedPod is the part of k8s.Service that reads a crashed container's previous run.
+type crashedPod interface {
+	UseCrashedPod() k8s.ContainerState
+	GetPreviousLogsAsString(tail int64) (string, error)
+	GetLogsAsString(follow bool, tail int64) (string, error)
+}
+
+// previousRun returns the crashed container's state, which run of it was read and its logs.
+// A container that never restarted has no previous run: its current run is read instead,
+// from the same pod, rather than asking Kubernetes for a run it doesn't have. A previous run
+// whose logs Kubernetes no longer keeps is RunGone, not an error. A failed fetch keeps the
+// state in the error, so the caller still learns which pod it was and why it last stopped.
+func previousRun(pod crashedPod, tail int64) (k8s.ContainerState, Run, string, error) {
+	state := pod.UseCrashedPod()
+	run, read := RunPrevious, pod.GetPreviousLogsAsString
+	if state.RestartCount == 0 {
+		run, read = RunCurrent, func(tail int64) (string, error) { return pod.GetLogsAsString(false, tail) }
+	}
+	text, err := read(tail)
+	if err != nil {
+		if run == RunPrevious && previousRunGone(err) {
+			return state, RunGone, "", nil
+		}
+		if run == RunCurrent && notStarted(err) {
+			// No output yet; the state says why (ContainerCreating, ImagePullBackOff, ...)
+			return state, RunCurrent, "", nil
+		}
+		stopped := ""
+		if state.Reason != "" {
+			stopped = ", last stopped: " + state.Reason
+		}
+		return state, run, "", fmt.Errorf("failed to get %s logs of pod %s container %s (restarts=%d%s): %w",
+			run, state.Pod, state.Container, state.RestartCount, stopped, err)
+	}
+	return state, run, text, nil
+}
+
+// notStarted reports whether Kubernetes refused logs because the container hasn't started:
+// `container "app" in pod "web-1" is waiting to start: ContainerCreating`.
+func notStarted(err error) bool {
+	return strings.Contains(err.Error(), "is waiting to start")
+}
+
+// previousRunGone reports whether Kubernetes refused previous logs because it no longer keeps
+// the dead container: `previous terminated container "app" in pod "web-1" not found`.
+func previousRunGone(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "previous terminated container") && strings.Contains(msg, "not found")
 }
 
 // getLogsFromK8s retrieves logs from kubernetes and returns them as LogLine slice
@@ -150,14 +232,28 @@ func (s *LogsManager) parseLogTextWithService(logText, serviceName string) []Log
 			continue
 		}
 
+		timestamp, content := splitTimestamp(line)
 		logLines = append(logLines, LogLine{
-			Timestamp: time.Now(), // TODO: Parse actual timestamp from log line if available
-			Content:   line,
+			Timestamp: timestamp,
+			Content:   content,
 			Service:   serviceName,
 		})
 	}
 
 	return logLines
+}
+
+// splitTimestamp splits the timestamp Kubernetes puts before each line (PodLogOptions.Timestamps)
+// from the line. A line without one keeps no time rather than a made-up one.
+func splitTimestamp(line string) (time.Time, string) {
+	stamp, content, found := strings.Cut(line, " ")
+	if !found {
+		stamp, content = line, ""
+	}
+	if t, err := time.Parse(time.RFC3339Nano, stamp); err == nil {
+		return t, content
+	}
+	return time.Time{}, line
 }
 
 // FormatLogsAsText formats logs for text display
@@ -168,9 +264,11 @@ func (s *LogsManager) FormatLogsAsText(logs []LogLine) string {
 
 	result := fmt.Sprintf("Logs for service %s:\n\n", logs[0].Service)
 	for _, line := range logs {
-		result += fmt.Sprintf("[%s] %s\n",
-			line.Timestamp.Format("2006-01-02 15:04:05"),
-			line.Content)
+		if line.Timestamp.IsZero() {
+			result += line.Content + "\n"
+			continue
+		}
+		result += fmt.Sprintf("[%s] %s\n", line.Timestamp.UTC().Format("2006-01-02 15:04:05"), line.Content)
 	}
 
 	return result

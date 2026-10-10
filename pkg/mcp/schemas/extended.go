@@ -1,5 +1,13 @@
 package schemas
 
+// Limits the API enforces, shared by the schemas and the tools' validation.
+const (
+	// MaxBuildHistoryPageSize is the most builds the build-history API returns per page.
+	MaxBuildHistoryPageSize = 100
+	// MaxBuildLogTail is the most lines the logs API returns per service.
+	MaxBuildLogTail = 5000
+)
+
 // BuildHistorySchema is the input for get_build_history.
 func BuildHistorySchema() map[string]interface{} {
 	return map[string]interface{}{
@@ -20,6 +28,7 @@ func BuildHistorySchema() map[string]interface{} {
 			"page_size": map[string]interface{}{
 				"type":    "integer",
 				"default": 20,
+				"maximum": MaxBuildHistoryPageSize,
 			},
 		},
 		"required": []string{"environment_id"},
@@ -163,5 +172,66 @@ func UpdateBranchesSchema() map[string]interface{} {
 			},
 		},
 		"required": []string{"environment_id", "projects"},
+	}
+}
+
+// FailureDetailsSchema is the input for get_failure_details.
+func FailureDetailsSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"environment_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Environment ID",
+			},
+			"build_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Build ID from get_build_history. Defaults to the latest build",
+			},
+		},
+		"required": []string{"environment_id"},
+	}
+}
+
+// BuildLogsSchema is the input for get_build_logs.
+func BuildLogsSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"environment_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Environment ID",
+			},
+			"build_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Build ID from get_build_history. Defaults to the latest build",
+			},
+			"kind": map[string]interface{}{
+				"type":        "string",
+				"enum":        []string{"build", "run", "crash"},
+				"description": "build: image build output. run: service output. crash: output of crashed containers",
+				"default":     "run",
+			},
+			"service_name": map[string]interface{}{
+				"type":        "string",
+				"description": "Service to page through. Omit for the end of every service's log",
+			},
+			"tail": map[string]interface{}{
+				"type":        "integer",
+				"description": "Lines to return for service_name",
+				"default":     200,
+				"maximum":     MaxBuildLogTail,
+			},
+			"offset": map[string]interface{}{
+				"type":        "integer",
+				"description": "Lines to skip back from the end of the log, for older lines",
+				"default":     0,
+			},
+			"failed_only": map[string]interface{}{
+				"type":        "boolean",
+				"description": "kind=build only: just the build steps that failed, with their errors",
+			},
+		},
+		"required": []string{"environment_id"},
 	}
 }
