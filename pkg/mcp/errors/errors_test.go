@@ -223,3 +223,12 @@ func TestParseHTTPError_NoRunningServices(t *testing.T) {
 		t.Errorf("error %q should not blame the parameters", msg)
 	}
 }
+
+// A slow API is not a network problem: the request usually finishes and a retry returns it.
+func TestParseHTTPError_Timeout(t *testing.T) {
+	msg := ParseHTTPError("get_failure_details", fmt.Errorf("timeout - server took too long to respond"), "env-123").Error()
+	if !strings.Contains(msg, "did not answer within 20 seconds") || !strings.Contains(msg, "retry") ||
+		strings.Contains(msg, "internet connection") {
+		t.Errorf("unexpected error %q", msg)
+	}
+}

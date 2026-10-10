@@ -24,6 +24,8 @@ type failureSummary struct {
 	Retryable  bool     `json:"retryable"`
 	Services   []string `json:"services"`
 	Message    *string  `json:"message"`
+	// Detail is Shipyard's own message about the customer's config, such as an invalid Compose file
+	Detail *string `json:"detail"`
 }
 
 type logExcerpt struct {
@@ -74,12 +76,7 @@ func (t *ExtendedTool) executeGetFailureDetails(params json.RawMessage) (string,
 	if toolParams.BuildID != "" {
 		apiParams["build_id"] = toolParams.BuildID
 	}
-	body, err := t.client.Requester.Do(
-		http.MethodGet,
-		uri.CreateResourceURI("", "environment", toolParams.EnvironmentID, "failure", apiParams),
-		"application/json",
-		nil,
-	)
+	body, err := t.getWithRetry(uri.CreateResourceURI("", "environment", toolParams.EnvironmentID, "failure", apiParams))
 	if err != nil {
 		return "", logsAPIError("get_failure_details", err, toolParams.EnvironmentID, toolParams.BuildID, "")
 	}
@@ -89,6 +86,17 @@ func (t *ExtendedTool) executeGetFailureDetails(params json.RawMessage) (string,
 		return "", fmt.Errorf("unexpected response from the failure details API: %w", err)
 	}
 	return formatFailureDetails(toolParams.EnvironmentID, &resp), nil
+}
+
+// getWithRetry reads the failure or logs API. Its first read of a build's logs can take longer
+// than the client waits; the API keeps working and caches the answer for a finished build, so one
+// retry after a timeout usually returns it.
+func (t *ExtendedTool) getWithRetry(target string) ([]byte, error) {
+	body, err := t.client.Requester.Do(http.MethodGet, target, "application/json", nil)
+	if err != nil && strings.Contains(err.Error(), "server took too long to respond") {
+		body, err = t.client.Requester.Do(http.MethodGet, target, "application/json", nil)
+	}
+	return body, err
 }
 
 // logsAPIError names what the API couldn't find: the build or the service, not only the environment.
@@ -210,7 +218,14 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 			fmt.Fprintf(&b, "Failing services: %s\n", strings.Join(failure.Services, ", "))
 		}
 		if failure.Message != nil {
-			fmt.Fprintf(&b, "Health checks: %s\n", *failure.Message)
+			label := "Health checks"
+			if deref(failure.Reason) == "PULLING_IMAGE" {
+				label = "Image pulls"
+			}
+			fmt.Fprintf(&b, "%s: %s\n", label, *failure.Message)
+		}
+		if failure.Detail != nil {
+			fmt.Fprintf(&b, "Detail: %s\n", *failure.Detail)
 		}
 	}
 	if data.Diagnosis != nil && data.Diagnosis.Summary != "" {
@@ -267,10 +282,11 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 			"Otherwise rebuild once with rebuild_environment(environment_id=%q). If that build fails the same way, stop and report the failure to the user instead of changing the app.\n",
 			environmentID, environmentID)
 	default:
-		phase := deref(failure.Phase)
+		phase, reason := deref(failure.Phase), deref(failure.Reason)
 		var hints []string
 		for _, svc := range data.Services {
-			if svc.Failing {
+			// A service whose image could not be pulled never started, so it has no log
+			if svc.Failing && reason != "PULLING_IMAGE" {
 				hints = append(hints, fmt.Sprintf("- get_build_logs(environment_id=%q, build_id=%q, kind=%q, service_name=%q)\n",
 					environmentID, resp.ID, hintKind(svc, phase), svc.Name))
 			}
@@ -284,7 +300,11 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 		} else {
 			fmt.Fprintf(&b, "\nNo service logs: the build stopped during %s, before any service ran.\n", phase)
 		}
-		if phase == "clone" {
+		switch {
+		case reason == "PULLING_IMAGE":
+			b.WriteString("Next step: the failing services' images could not be pulled, so they never started. Check each one's " +
+				"image name and tag in the Compose file, and the registry credentials if the image is private.\n")
+		case phase == "clone":
 			fmt.Fprintf(&b, "Next step: check that each project's branch still exists and its repository is reachable; "+
 				"get_environment(environment_id=%q) lists the projects and branches.\n", environmentID)
 		}
@@ -428,12 +448,7 @@ func (t *ExtendedTool) executeGetBuildLogs(params json.RawMessage) (string, erro
 		apiParams["failed_only"] = strconv.FormatBool(*toolParams.FailedOnly)
 	}
 
-	body, err := t.client.Requester.Do(
-		http.MethodGet,
-		uri.CreateResourceURI("", "environment", toolParams.EnvironmentID, "logs", apiParams),
-		"application/json",
-		nil,
-	)
+	body, err := t.getWithRetry(uri.CreateResourceURI("", "environment", toolParams.EnvironmentID, "logs", apiParams))
 	if err != nil {
 		return "", logsAPIError("get_build_logs", err, toolParams.EnvironmentID, toolParams.BuildID, toolParams.ServiceName)
 	}

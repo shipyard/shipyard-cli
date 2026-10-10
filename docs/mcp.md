@@ -207,7 +207,7 @@ A few things differ from the CLI:
 
 | Tool | What it does |
 |---|---|
-| `get_failure_details` | Why a build failed, in one call: phase and reason, failing services, excerpts from their build or crash logs, and which services are enabled |
+| `get_failure_details` | Why a build failed, in one call: phase and reason, failing services, excerpts from their build or crash logs, which services are enabled, and for a config or branch error Shipyard's description of it |
 | `get_build_logs` | A build's stored build, run or crash logs, paged back from the end. Works after the environment stopped |
 
 Both work on the latest build by default; pass a `build_id` from

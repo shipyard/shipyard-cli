@@ -171,6 +171,16 @@ func ParseHTTPError(operation string, err error, resourceID string) *MCPError {
 		resourceID = "requested"
 	}
 
+	// The API answered too slowly, not the network: it keeps working on the request
+	if strings.Contains(errStr, "server took too long to respond") {
+		return &MCPError{
+			Operation:  operation,
+			Message:    "the Shipyard API did not answer within 20 seconds",
+			Suggestion: "It usually finishes the request and caches the answer, so retry in a few seconds",
+			Cause:      err,
+		}
+	}
+
 	// An environment that is stopped, or still building, has no services to reach
 	if strings.Contains(errStr, "no services found for environment") {
 		return &MCPError{

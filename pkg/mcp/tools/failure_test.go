@@ -555,3 +555,95 @@ func TestWriteLogLines_CollapsesFromMidBlock(t *testing.T) {
 		t.Errorf("got:\n%s", got)
 	}
 }
+
+// Shipyard's own message about the customer's config (an invalid Compose file, a missing branch)
+// says what to change; the reason name alone does not.
+func TestFailureTool_GetFailureDetails_Detail(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
+	  "failure":{"phase":"config","reason":"INVALID_COMPOSE_FILE","reason_text":"Invalid Compose file","retryable":false,"services":[],
+	             "message":null,"detail":"Invalid ports format in service 'web': Must be a list."},
+	  "enabled_services":["web"],"services":[]}}`)}
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Detail: Invalid ports format in service 'web': Must be a list.\n") {
+		t.Errorf("missing detail:\n%s", out)
+	}
+}
+
+// A service whose image could not be pulled never started: no run log to point at, and the
+// summary is about the image, not a health check.
+func TestFailureTool_GetFailureDetails_PullingImage(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
+	  "failure":{"phase":"deploy","reason":"PULLING_IMAGE","reason_text":"Unable to pull images","retryable":false,"services":["db"],
+	             "message":"db: ImagePullBackOff","detail":null},
+	  "enabled_services":["db","web"],
+	  "services":[{"name":"db","failing":true,"image_build":null,"health_check":null,"excerpt":null}]}}`)}
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Image pulls: db: ImagePullBackOff\n", "Next step:", "image name and tag", "registry credentials"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	for _, notWant := range []string{"Health checks:", `service_name="db"`} {
+		if strings.Contains(out, notWant) {
+			t.Errorf("unexpected %q:\n%s", notWant, out)
+		}
+	}
+}
+
+// DUPLICATE_ROUTES is the app's config to fix: Shipyard's detail names the routes that clash.
+func TestFailureTool_GetFailureDetails_DuplicateRoutes(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
+	  "failure":{"phase":"config","reason":"DUPLICATE_ROUTES","reason_text":"Two services share the same route","retryable":false,"services":[],
+	             "message":null,"detail":"Route / on app.example is claimed by more than one service: api, web"},
+	  "enabled_services":["api","web"],"services":[]}}`)}
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Detail: Route / on app.example is claimed by more than one service: api, web\n") ||
+		strings.Contains(out, "rebuild_environment") {
+		t.Errorf("unexpected output:\n%s", out)
+	}
+}
+
+// sequenceRequester answers each call with the next error or body in turn.
+type sequenceRequester struct {
+	errs   []error
+	bodies [][]byte
+	calls  int
+}
+
+func (r *sequenceRequester) Do(method, uri, contentType string, body any) ([]byte, error) {
+	i := r.calls
+	r.calls++
+	if i < len(r.errs) && r.errs[i] != nil {
+		return nil, r.errs[i]
+	}
+	return r.bodies[i], nil
+}
+
+// The first read of a build's logs can take the API longer than the client waits. It keeps
+// working and caches the answer, so one retry usually returns it.
+func TestFailureTool_RetriesOnceAfterTimeout(t *testing.T) {
+	timeout := errors.New("timeout - server took too long to respond")
+	body := []byte(`{"id":"build-1","data":{"status":"FAILED","failure":null,"enabled_services":["web"],"services":[]}}`)
+
+	rec := &sequenceRequester{errs: []error{timeout, nil}, bodies: [][]byte{nil, body}}
+	tool := NewExtendedTool(client.Client{Requester: rec}, "get_failure_details")
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`)); err != nil || rec.calls != 2 {
+		t.Fatalf("expected a retry to succeed, calls=%d err=%v", rec.calls, err)
+	}
+
+	rec = &sequenceRequester{errs: []error{timeout, timeout, timeout}}
+	tool = NewExtendedTool(client.Client{Requester: rec}, "get_build_logs")
+	_, err := tool.Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err == nil || rec.calls != 2 || !strings.Contains(err.Error(), "did not answer within") {
+		t.Fatalf("expected one retry and a slow-API error, calls=%d err=%v", rec.calls, err)
+	}
+}
