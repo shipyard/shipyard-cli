@@ -63,9 +63,13 @@ type failureResponse struct {
 		Failure   *failureSummary `json:"failure"`
 		Diagnosis *struct {
 			Summary string `json:"summary"`
+			// Truncated means the summary was cut to the API's length limit
+			Truncated bool `json:"truncated"`
 		} `json:"diagnosis"`
 		EnabledServices []string         `json:"enabled_services"`
 		Services        []failureService `json:"services"`
+		// ServicesTruncated means services were left out to keep the response within its size limit
+		ServicesTruncated bool `json:"services_truncated"`
 	} `json:"data"`
 }
 
@@ -232,7 +236,11 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 		}
 	}
 	if data.Diagnosis != nil && data.Diagnosis.Summary != "" {
-		fmt.Fprintf(&b, "Diagnosis: %s\n", data.Diagnosis.Summary)
+		cut := ""
+		if data.Diagnosis.Truncated {
+			cut = " (cut short)"
+		}
+		fmt.Fprintf(&b, "Diagnosis: %s%s\n", data.Diagnosis.Summary, cut)
 	}
 	if len(data.EnabledServices) == 0 {
 		// The build failed before its services were loaded
@@ -278,6 +286,10 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 		} else if svc.Unavailable {
 			b.WriteString(unreadableLogs + "\n")
 		}
+	}
+	if data.ServicesTruncated {
+		fmt.Fprintf(&b, "\n(Some services were left out to keep the response small. Read any service's logs with "+
+			"get_build_logs(environment_id=%q, build_id=%q, service_name=...).)\n", environmentID, resp.ID)
 	}
 
 	switch {
@@ -393,6 +405,8 @@ type buildLogsResponse struct {
 			// Unavailable means the log store that should hold these logs couldn't be read
 			Unavailable bool `json:"unavailable"`
 		} `json:"services"`
+		// ServicesTruncated means services were left out to keep the response within its size limit
+		ServicesTruncated bool `json:"services_truncated"`
 	} `json:"data"`
 	Links struct {
 		Next string `json:"next"`
@@ -493,6 +507,10 @@ func formatBuildLogs(environmentID string, resp *buildLogsResponse) string {
 			b.WriteString("(earlier lines omitted)\n")
 		}
 		writeLogLines(&b, svc.Lines)
+	}
+	if resp.Data.ServicesTruncated {
+		fmt.Fprintf(&b, "\n(Some services were left out to keep the response small. Read one service's %s log with "+
+			"get_build_logs(environment_id=%q, build_id=%q, kind=%q, service_name=...).)\n", resp.Data.Kind, environmentID, resp.ID, resp.Data.Kind)
 	}
 	// The next link pins the build, kind, service, tail and failed_only; the hint keeps them all,
 	// so a newer build or a different tail can't shift the page.

@@ -705,3 +705,51 @@ func TestFailureTool_GetFailureDetails_RebuildOnceWhenShown(t *testing.T) {
 		}
 	}
 }
+
+// The API cuts a long diagnosis and leaves services out of an oversized response; both are said,
+// so an agent doesn't take a partial answer as the whole one.
+func TestFailureTool_GetFailureDetails_Truncated(t *testing.T) {
+	resp := strings.Replace(failedBuildResponse, `"diagnosis": {"summary": "The Dockerfile copies a file that does not exist"},`,
+		`"diagnosis": {"summary": "The Dockerfile copies", "truncated": true}, "services_truncated": true,`, 1)
+	rec := &recordingRequester{resp: []byte(resp)}
+
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Diagnosis: The Dockerfile copies (cut short)\n",
+		"Some services were left out to keep the response small",
+		`get_build_logs(environment_id="env-123", build_id="build-1", service_name=...)`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestFailureTool_GetFailureDetails_NotTruncated(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(failedBuildResponse)}
+
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "cut short") || strings.Contains(out, "left out") {
+		t.Errorf("unexpected truncation note:\n%s", out)
+	}
+}
+
+func TestFailureTool_GetBuildLogs_ServicesTruncated(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"kind":"run","services_truncated":true,"services":[
+	  {"name":"web","failing":true,"lines":["a"],"truncated":false,"offset":0,"total_lines":1}]},"links":{}}`)}
+
+	out, err := newFailureTool(rec, "get_build_logs").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `get_build_logs(environment_id="env-123", build_id="build-1", kind="run", service_name=...)`
+	if !strings.Contains(out, "Some services were left out") || !strings.Contains(out, want) {
+		t.Errorf("unexpected output:\n%s", out)
+	}
+}
