@@ -191,7 +191,11 @@ func repeatedBlock(lines []string) (size, repeats int) {
 }
 
 // unreadableLogs is said of a service whose log store couldn't be read.
-const unreadableLogs = "Logs could not be read right now; try again shortly"
+// The API reports both a passing outage and logs that are gone this way, so one retry is all it's worth
+const unreadableLogs = "Logs could not be read; retry once, and if they still can't be read, they aren't available for this build"
+
+// noLogStored is for a service that ran, or was meant to, but whose logs hold no lines
+const noLogStored = "No logs stored for this service"
 
 // formatFailureDetails renders the failure response as text for an LLM: headline, services
 // and their log excerpts, then next steps, so the tool's guidance always follows the logs.
@@ -252,6 +256,7 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 
 	// A retryable failure isn't described: a failed image would point the agent at the app anyway
 	retryable := failure != nil && failure.Retryable
+	logsAvailable := failure != nil && (failure.LogsAvailable == nil || *failure.LogsAvailable)
 	if summary := imageBuildSummary(data.Services); summary != "" && !retryable {
 		fmt.Fprintf(&b, "Image builds: %s\n", summary)
 	}
@@ -285,6 +290,8 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 			writeLogLines(&b, ex.Lines)
 		} else if svc.Unavailable {
 			b.WriteString(unreadableLogs + "\n")
+		} else if emptyLog(svc, failure, logsAvailable) {
+			b.WriteString(noLogStored + "\n")
 		}
 	}
 	if data.ServicesTruncated {
@@ -299,12 +306,11 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 	default:
 		var hints []string
 		for _, svc := range data.Services {
-			if svc.Failing && svc.LogKind != nil {
+			if svc.Failing && svc.LogKind != nil && !emptyLog(svc, failure, logsAvailable) {
 				hints = append(hints, fmt.Sprintf("- get_build_logs(environment_id=%q, build_id=%q, kind=%q, service_name=%q)\n",
 					environmentID, resp.ID, *svc.LogKind, svc.Name))
 			}
 		}
-		logsAvailable := failure.LogsAvailable == nil || *failure.LogsAvailable
 		if logsAvailable {
 			hints = append(hints, fmt.Sprintf("- get_build_logs(environment_id=%q, build_id=%q, kind=\"run\") for every service's run log\n",
 				environmentID, resp.ID))
@@ -312,11 +318,24 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 		if len(hints) > 0 {
 			b.WriteString("\nMore output:\n" + strings.Join(hints, ""))
 		} else {
-			fmt.Fprintf(&b, "\nNo service logs: the build stopped during %s, before any service ran.\n", deref(failure.Phase))
+			during := ""
+			// A platform failure is the cluster's, not a step of the app's build
+			if phase := deref(failure.Phase); phase != "" && phase != "platform" {
+				during = " during " + phase + ","
+			}
+			fmt.Fprintf(&b, "\nNo service logs: the build stopped%s before any service ran.\n", during)
 		}
 		b.WriteString(nextStep(environmentID, failure))
 	}
 	return b.String()
+}
+
+// emptyLog reports whether a failing service's run or crash log was read and held no lines. The API
+// sends an excerpt for any service with a line in any of its logs, and flags one it couldn't read.
+// A build log is left out: its excerpt holds only failed steps, so a missing one doesn't mean it's empty.
+func emptyLog(svc failureService, failure *failureSummary, logsAvailable bool) bool {
+	return svc.Failing && failure != nil && !failure.Retryable && logsAvailable &&
+		svc.Excerpt == nil && !svc.Unavailable && (svc.LogKind == nil || *svc.LogKind != "build")
 }
 
 // rebuildOnce is the next step for a failure that a rebuild usually fixes.
@@ -490,6 +509,10 @@ func formatBuildLogs(environmentID string, resp *buildLogsResponse) string {
 		}
 		if svc.Unavailable {
 			fmt.Fprintf(&b, "== %s (%s log%s): %s ==\n", svc.Name, resp.Data.Kind, state, unreadableLogs)
+			continue
+		}
+		if svc.TotalLines == 0 && svc.Offset == 0 {
+			fmt.Fprintf(&b, "== %s (%s log%s): no lines stored ==\n", svc.Name, resp.Data.Kind, state)
 			continue
 		}
 		if len(svc.Lines) == 0 && svc.Offset > 0 && svc.Offset >= svc.TotalLines {

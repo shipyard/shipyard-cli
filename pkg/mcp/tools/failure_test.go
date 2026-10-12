@@ -276,8 +276,12 @@ func TestFailureTool_Unavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "0 of 0 lines") || !strings.Contains(out, "could not be read") {
+	if strings.Contains(out, "0 of 0 lines") || strings.Contains(out, "no lines stored") || !strings.Contains(out, "could not be read") {
 		t.Errorf("an unreadable log should not look empty:\n%s", out)
+	}
+	// It can be gone for good, so the agent shouldn't be told to keep retrying
+	if strings.Contains(out, "try again shortly") || !strings.Contains(out, "retry once") {
+		t.Errorf("expected a single retry:\n%s", out)
 	}
 
 	rec = &recordingRequester{resp: []byte(`{
@@ -395,9 +399,9 @@ func TestFailureTool_GetFailureDetails_HealthCheck(t *testing.T) {
 	for _, want := range []string{
 		"Reason: Health checks failed\n",
 		"Health checks: web: did not become healthy\n",
-		"== web (failing) ==\nHealth check: timed out on /health\n",
+		// No excerpt and not unavailable: web's logs were read and are empty
+		"== web (failing) ==\nHealth check: timed out on /health\nNo logs stored for this service\n",
 		"--- crash log, last 1 lines, earlier lines omitted ---\n| panic: nil map\n",
-		`get_build_logs(environment_id="env-123", build_id="build-2", kind="run", service_name="web")`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q:\n%s", want, out)
@@ -751,5 +755,80 @@ func TestFailureTool_GetBuildLogs_ServicesTruncated(t *testing.T) {
 	want := `get_build_logs(environment_id="env-123", build_id="build-1", kind="run", service_name=...)`
 	if !strings.Contains(out, "Some services were left out") || !strings.Contains(out, want) {
 		t.Errorf("unexpected output:\n%s", out)
+	}
+}
+
+// A failing service whose logs were read and held nothing says so, instead of an empty section and a
+// hint to read the same empty log.
+func TestFailureTool_GetFailureDetails_EmptyLog(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
+	  "failure":{"phase":"run","reason":"HEALTH_CHECK_FAILED","reason_text":"A service failed its health check","retryable":false,
+	             "services":["api","web"],"message":null,"logs_available":true,"next_step":"read_logs"},
+	  "enabled_services":["api","web"],
+	  "services":[
+	    {"name":"api","failing":true,"image_build":{"status":"BUILT","failure_reason":null},"health_check":"CrashLoopBackOff (Error)","excerpt":null,"log_kind":"run"},
+	    {"name":"web","failing":true,"image_build":{"status":"BUILT","failure_reason":null},"health_check":"CrashLoopBackOff (Error)",
+	     "excerpt":{"kind":"crash","lines":["panic: boom"],"truncated":false},"log_kind":"crash"}]}}`)}
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"== api (failing) ==\nImage build: BUILT\nHealth check: CrashLoopBackOff (Error)\nNo logs stored for this service\n",
+		`kind="crash", service_name="web"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, `service_name="api"`) {
+		t.Errorf("unexpected hint to read api's empty log:\n%s", out)
+	}
+}
+
+func TestFailureTool_GetBuildLogs_EmptyLog(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{
+	  "id": "build-1",
+	  "data": {"kind": "run", "services": [
+	    {"name": "api", "failing": true, "lines": [], "total_lines": 0},
+	    {"name": "web", "failing": false, "lines": ["ready"], "total_lines": 1}]},
+	  "links": {}
+	}`)}
+	out, err := newFailureTool(rec, "get_build_logs").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "== api (run log, failing): no lines stored ==\n") || strings.Contains(out, "0 of 0 lines") {
+		t.Errorf("an empty log should say so:\n%s", out)
+	}
+	if !strings.Contains(out, "== web (run log): 1 of 1 lines ==\n| ready\n") {
+		t.Errorf("missing web's log:\n%s", out)
+	}
+}
+
+// A failure to reach or start the cluster happens before anything deploys: no logs to suggest, and
+// the phase isn't worded as a step of the app's build.
+func TestFailureTool_GetFailureDetails_ClusterFailure(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
+	  "failure":{"phase":"platform","reason":"CLUSTER_PROVISION_ERROR","reason_text":"Error provisioning cluster","retryable":false,
+	             "services":[],"message":null,"logs_available":false,"next_step":"rebuild_once"},
+	  "enabled_services":["db","web"],
+	  "services":[
+	    {"name":"db","failing":false,"image_build":null,"health_check":null,"excerpt":null,"log_kind":null},
+	    {"name":"web","failing":false,"image_build":null,"health_check":null,"excerpt":null,"log_kind":null}]}}`)}
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"No service logs: the build stopped before any service ran.\n",
+		`rebuild_environment(environment_id="env-123")`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "get_build_logs") {
+		t.Errorf("unexpected log hint:\n%s", out)
 	}
 }
