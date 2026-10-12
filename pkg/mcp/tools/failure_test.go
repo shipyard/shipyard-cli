@@ -116,14 +116,15 @@ func TestFailureTool_GetFailureDetails_Retryable(t *testing.T) {
 	}
 }
 
+// A deployed environment that is serving never reports finished: it must not read as a build in progress.
 func TestFailureTool_GetFailureDetails_NotFailed(t *testing.T) {
-	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"RUNNING","failure":null,"enabled_services":["web"],"services":[]}}`)}
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"RUNNING","finished":false,"failure":null,"enabled_services":["web"],"services":[]}}`)}
 
 	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "Build build-1: RUNNING\nThis build did not fail.") {
+	if !strings.Contains(out, "Build build-1: RUNNING\nThis build did not fail.") || strings.Contains(out, "in progress") {
 		t.Errorf("unexpected output:\n%s", out)
 	}
 }
@@ -213,7 +214,7 @@ func TestFailureTool_APIError(t *testing.T) {
 }
 
 func TestExtendedTool_GetBuildHistory_PageSizeLimit(t *testing.T) {
-	// The API caps page_size at 100 and returns fewer builds above it without saying so
+	// The API rejects page_size above 100 with a 400; the tool says so before calling it
 	rec := &recordingRequester{}
 	tool := NewExtendedTool(client.Client{Requester: rec}, "get_build_history")
 

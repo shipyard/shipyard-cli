@@ -2,9 +2,9 @@ package schemas
 
 // Limits the API enforces, shared by the schemas and the tools' validation.
 const (
-	// MaxBuildHistoryPageSize is the most builds the build-history API returns per page.
+	// MaxBuildHistoryPageSize is the most builds the build-history API returns per page; it rejects more with a 400.
 	MaxBuildHistoryPageSize = 100
-	// MaxBuildLogTail is the most lines the logs API returns per service.
+	// MaxBuildLogTail is the most lines the logs API returns per service; it rejects a larger tail with a 400.
 	MaxBuildLogTail = 5000
 )
 

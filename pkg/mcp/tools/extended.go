@@ -164,7 +164,7 @@ func (t *ExtendedTool) executeGetBuildHistory(params json.RawMessage) (string, e
 		toolParams.PageSize = 20
 	}
 	if toolParams.PageSize > schemas.MaxBuildHistoryPageSize {
-		// The API caps page_size and silently returns fewer builds above it
+		// The API rejects page_size above it with a 400
 		return "", errors.ValidationError("get_build_history", "page_size", fmt.Sprintf("page_size must be at most %d", schemas.MaxBuildHistoryPageSize))
 	}
 

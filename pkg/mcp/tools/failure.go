@@ -57,7 +57,8 @@ type failureResponse struct {
 	ID   string `json:"id"`
 	Data struct {
 		Status string `json:"status"`
-		// Finished says whether the build has stopped; an unfinished one without a failure is in progress
+		// Finished says whether the build has stopped. Unfinished without a failure is in progress, unless its
+		// status is RUNNING: deployed and serving, which never finishes while it runs
 		Finished  *bool           `json:"finished"`
 		Failure   *failureSummary `json:"failure"`
 		Diagnosis *struct {
@@ -197,7 +198,7 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 
 	fmt.Fprintf(&b, "Build %s: %s\n", resp.ID, data.Status)
 	switch {
-	case failure == nil && data.Finished != nil && !*data.Finished:
+	case failure == nil && data.Status != "RUNNING" && data.Finished != nil && !*data.Finished:
 		fmt.Fprintf(&b, "This build is still in progress, so it has not failed yet. Wait for it to finish, or, for an earlier "+
 			"failed build, pass its build_id from get_build_history(environment_id=%q).\n", environmentID)
 	case failure == nil:
