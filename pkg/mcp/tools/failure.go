@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shipyard/shipyard-cli/pkg/mcp/errors"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/schemas"
@@ -101,12 +102,19 @@ func (t *ExtendedTool) executeGetFailureDetails(params json.RawMessage) (string,
 	return formatFailureDetails(toolParams.EnvironmentID, &resp), nil
 }
 
+// retryDelay is how long getWithRetry waits after a timeout. A read slower than the client's timeout
+// is often only a little slower, and the API caches its answer for 30 seconds once done: a retry sent
+// at once, or a few seconds later, arrives before then and starts the same work over. Ten seconds
+// covers reads of up to 30 seconds and still reaches the answer before it expires.
+var retryDelay = 10 * time.Second
+
 // getWithRetry reads the failure or logs API. Its first read of a build's logs can take longer
 // than the client waits; the API keeps working and caches the answer for a finished build, so one
-// retry after a timeout usually returns it.
+// retry after a timeout, a little later, usually returns it.
 func (t *ExtendedTool) getWithRetry(target string) ([]byte, error) {
 	body, err := t.client.Requester.Do(http.MethodGet, target, "application/json", nil)
 	if err != nil && strings.Contains(err.Error(), "server took too long to respond") {
+		time.Sleep(retryDelay)
 		body, err = t.client.Requester.Do(http.MethodGet, target, "application/json", nil)
 	}
 	return body, err
@@ -133,6 +141,15 @@ func logsAPIError(operation string, err error, environmentID, buildID, serviceNa
 		mcpErr := errors.NotFoundError(operation, "environment", environmentID)
 		mcpErr.Cause = err
 		return mcpErr
+	case strings.Contains(msg, "the logs could not be read"):
+		// A 500: the API failed reading this build's logs, and will again
+		mcpErr := errors.ServerError(operation, err)
+		mcpErr.Message = "Shipyard could not read this build's logs"
+		mcpErr.Suggestion = "This is not a problem in the app, and retrying won't help. Don't change the app because of it; tell the user this build's logs couldn't be read"
+		return mcpErr
+	case strings.Contains(msg, "logs are unavailable right now"):
+		// A 503: the database or cache the API reads logs through is busy or unreachable for now
+		return errors.NewMCPError(operation, "logs are unavailable right now", err).WithSuggestion("Retry in a few seconds")
 	}
 	return errors.ParseHTTPError(operation, err, environmentID)
 }
@@ -210,7 +227,8 @@ func formatFailureDetails(environmentID string, resp *failureResponse) string {
 		fmt.Fprintf(&b, "This build is still in progress, so it has not failed yet. Wait for it to finish, or, for an earlier "+
 			"failed build, pass its build_id from get_build_history(environment_id=%q).\n", environmentID)
 	case failure == nil:
-		b.WriteString("This build did not fail.\n")
+		fmt.Fprintf(&b, "This build did not fail. For an earlier failed build, pass its build_id from "+
+			"get_build_history(environment_id=%q).\n", environmentID)
 	case failure.Retryable:
 		// The API withholds the details of these failures; pass on its wording as is.
 		if text := deref(failure.ReasonText); text != "" {
@@ -363,6 +381,9 @@ func nextStep(environmentID string, failure *failureSummary) string {
 			described = " as the Detail line describes"
 		}
 		return "Next step: fix the Compose file or Shipyard labels in the project's repository" + described + ", then push the fix.\n"
+	case "check_registry_credentials":
+		return "Next step: the image build could not log in to a private registry. Check the registry credentials " +
+			"configured in Shipyard (the org's private registries, or the project's registry); the app's code likely needs no change.\n"
 	case "fix_image_build":
 		return "Next step: fix the failing image build; its build log shows the step that failed.\n"
 	}
@@ -493,7 +514,12 @@ func (t *ExtendedTool) executeGetBuildLogs(params json.RawMessage) (string, erro
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return "", fmt.Errorf("unexpected response from the logs API: %w", err)
 	}
-	return formatBuildLogs(toolParams.EnvironmentID, &resp), nil
+	out := formatBuildLogs(toolParams.EnvironmentID, &resp)
+	if toolParams.Tail > 0 && toolParams.ServiceName == "" {
+		// The API uses tail only for one service
+		out = "(tail applies only with service_name; each service's log ends with its default number of lines.)\n" + out
+	}
+	return out, nil
 }
 
 // formatBuildLogs renders a logs response as text, one section per service, with how to page further.

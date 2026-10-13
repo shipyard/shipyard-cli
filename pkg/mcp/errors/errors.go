@@ -16,7 +16,8 @@ type MCPError struct {
 }
 
 func (e *MCPError) Error() string {
-	msg := fmt.Sprintf("%s failed: %s", e.Operation, e.Message)
+	// An API message can end in its own period
+	msg := fmt.Sprintf("%s failed: %s", e.Operation, strings.TrimSuffix(e.Message, "."))
 	if e.Suggestion != "" {
 		msg += fmt.Sprintf(". %s", e.Suggestion)
 	}

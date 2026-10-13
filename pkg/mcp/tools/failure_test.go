@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
 )
@@ -126,6 +127,10 @@ func TestFailureTool_GetFailureDetails_NotFailed(t *testing.T) {
 	}
 	if !strings.Contains(out, "Build build-1: RUNNING\nThis build did not fail.") || strings.Contains(out, "in progress") {
 		t.Errorf("unexpected output:\n%s", out)
+	}
+	// An agent asking why the environment failed is pointed at the builds that did
+	if !strings.Contains(out, `get_build_history(environment_id="env-123")`) {
+		t.Errorf("expected a pointer to earlier builds:\n%s", out)
 	}
 }
 
@@ -650,6 +655,12 @@ func (r *sequenceRequester) Do(method, uri, contentType string, body any) ([]byt
 // The first read of a build's logs can take the API longer than the client waits. It keeps
 // working and caches the answer, so one retry usually returns it.
 func TestFailureTool_RetriesOnceAfterTimeout(t *testing.T) {
+	// The retry waits, so the API's first read can finish and cache its answer; not in tests
+	if retryDelay < time.Second {
+		t.Errorf("retryDelay is %v; a retry sent at once repeats the slow read", retryDelay)
+	}
+	defer func(d time.Duration) { retryDelay = d }(retryDelay)
+	retryDelay = 0
 	timeout := errors.New("timeout - server took too long to respond")
 	body := []byte(`{"id":"build-1","data":{"status":"FAILED","failure":null,"enabled_services":["web"],"services":[]}}`)
 
@@ -830,5 +841,57 @@ func TestFailureTool_GetFailureDetails_ClusterFailure(t *testing.T) {
 	}
 	if strings.Contains(out, "get_build_logs") {
 		t.Errorf("unexpected log hint:\n%s", out)
+	}
+}
+
+// The logs API's own errors: a 500 is a bug no retry fixes, a 503 an outage that passes.
+func TestFailureTool_LogsAPIErrors(t *testing.T) {
+	rec := &recordingRequester{err: errors.New("the logs could not be read.")}
+	_, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err == nil || !strings.Contains(err.Error(), "could not read this build's logs") ||
+		!strings.Contains(err.Error(), "retrying won't help") || strings.Contains(err.Error(), "operation parameters") {
+		t.Errorf("unexpected error for a 500: %v", err)
+	}
+
+	rec = &recordingRequester{err: errors.New("logs are unavailable right now. Try again shortly.")}
+	_, err = newFailureTool(rec, "get_build_logs").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err == nil || !strings.Contains(err.Error(), "Retry in a few seconds") || strings.Contains(err.Error(), "..") {
+		t.Errorf("unexpected error for a 503: %v", err)
+	}
+}
+
+// The API uses tail only with a service; asked for without one, the output says so rather than
+// returning more lines than asked for unexplained.
+func TestFailureTool_GetBuildLogs_TailWithoutService(t *testing.T) {
+	resp := []byte(`{"id":"build-1","data":{"kind":"run","services":[{"name":"web","failing":false,"lines":["ready"],"total_lines":1}]},"links":{}}`)
+	out, err := newFailureTool(&recordingRequester{resp: resp}, "get_build_logs").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123","tail":5}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(out, "(tail applies only with service_name") {
+		t.Errorf("expected a note that tail was not used:\n%s", out)
+	}
+
+	out, err = newFailureTool(&recordingRequester{resp: resp}, "get_build_logs").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123","service_name":"web","tail":5}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "tail applies only") {
+		t.Errorf("unexpected note with a service:\n%s", out)
+	}
+}
+
+func TestFailureTool_GetFailureDetails_RegistryCredentials(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"id":"build-1","data":{"status":"FAILED",
+	  "failure":{"phase":"build","reason":"INVALID_PRIVATE_REGISTRY_CREDENTIALS","reason_text":"Invalid private registry credentials","retryable":false,
+	             "services":["web"],"message":null,"logs_available":false,"next_step":"check_registry_credentials"},
+	  "enabled_services":["web"],
+	  "services":[{"name":"web","failing":true,"image_build":{"status":"FAILED","failure_reason":"BUILD_FAILED"},"health_check":null,"excerpt":null,"log_kind":"build"}]}}`)}
+	out, err := newFailureTool(rec, "get_failure_details").Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Check the registry credentials configured in Shipyard") || strings.Contains(out, "fix the failing image build") {
+		t.Errorf("expected the registry credentials step:\n%s", out)
 	}
 }

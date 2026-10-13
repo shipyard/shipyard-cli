@@ -218,7 +218,7 @@ func BuildLogsSchema() map[string]interface{} {
 			},
 			"tail": map[string]interface{}{
 				"type":        "integer",
-				"description": "Lines to return for service_name",
+				"description": "Lines to return; used only with service_name. Without it, each service's log ends with a default number of lines",
 				"default":     200,
 				"maximum":     MaxBuildLogTail,
 			},
