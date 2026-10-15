@@ -20,6 +20,23 @@ Using an AI assistant? The CLI includes an MCP server: see [Use Shipyard from an
     brew install shipyard
     ```
 
+### Verifying a download
+
+Every release publishes a `checksums.txt` with the SHA-256 of each binary. The install script checks the binary
+against it and refuses to install on a mismatch. To check a binary you downloaded yourself:
+
+```bash
+grep " shipyard-darwin-arm64$" checksums.txt | shasum -a 256 -c -
+```
+
+From 1.10.0, each binary also has a signed build provenance attestation, showing which workflow run, commit and tag
+built it, and an SPDX SBOM (`shipyard-<os>-<arch>.sbom.json`) listing what it was built from. Verify the attestation
+with the [GitHub CLI](https://cli.github.com):
+
+```bash
+gh attestation verify shipyard-darwin-arm64 -R shipyard/shipyard-cli
+```
+
 ## Upgrading
 
 ```bash
