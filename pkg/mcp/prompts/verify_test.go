@@ -38,10 +38,17 @@ func TestVerifyPromptGet(t *testing.T) {
 		wantMissing  []string
 	}{
 		{
-			name:         "no arguments returns the loop unchanged",
-			args:         nil,
-			wantContains: []string{"# Shipyard Verification Loop", "commit_hash"},
-			wantMissing:  []string{"## This invocation"},
+			name: "no arguments returns the loop unchanged",
+			args: nil,
+			wantContains: []string{
+				"# Shipyard Verification Loop", "commit_hash",
+				// A failed build goes through the failure tools, whose rebuild-once
+				// advice the loop must not contradict.
+				"Call `get_failure_details`. If it says to rebuild once",
+				"`get_build_logs` has the full log",
+				"`get_logs` with `previous: true`",
+			},
+			wantMissing: []string{"## This invocation", "Read build logs, fix the cause"},
 		},
 		{
 			name:         "branch and repo_name are no longer arguments and are ignored",
