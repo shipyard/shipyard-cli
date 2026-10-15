@@ -24,6 +24,10 @@ var annotations = map[string]ToolAnnotations{
 	"update_branches":     {Title: "Update environment branches", DestructiveHint: true, IdempotentHint: true},
 	"get_build_history":   {Title: "Get build history", ReadOnlyHint: true, IdempotentHint: true},
 
+	// Failed builds
+	"get_failure_details": {Title: "Get build failure details", ReadOnlyHint: true, IdempotentHint: true},
+	"get_build_logs":      {Title: "Get build logs", ReadOnlyHint: true, IdempotentHint: true},
+
 	// Organizations. set_org rewrites the local CLI config, which changes the
 	// org every later call targets: an overwrite, not an addition.
 	"get_orgs": {Title: "List organizations", ReadOnlyHint: true, IdempotentHint: true},

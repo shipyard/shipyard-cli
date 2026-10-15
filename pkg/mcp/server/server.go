@@ -505,6 +505,8 @@ func (s *MCPServer) registerTools() {
 	// Typed tools for API surfaces without a prior MCP binding.
 	for _, name := range []string{
 		"get_build_history",
+		"get_failure_details",
+		"get_build_logs",
 		"get_env_vars",
 		"put_env_vars",
 		"delete_env_var",

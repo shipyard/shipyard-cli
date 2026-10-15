@@ -450,6 +450,7 @@ Then ask things like:
 
 - "Which environments are running for the `web` repo?"
 - "Show me the `api` service's logs on my branch's environment."
+- "Why did the latest build of this environment fail?"
 - "Set `FEATURE_FLAGS=beta` on this environment and restart the `worker` service."
 - "I just pushed. Verify the change against its environment." (or `/mcp__shipyard__verify`)
 
