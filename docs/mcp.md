@@ -746,3 +746,13 @@ so the Codex `writes` setting above stops offering the read tools without asking
 - **A per-app firewall (LuLu, Little Snitch) is installed.** Approve the
   `shipyard` binary once, otherwise calls stall until the CLI's 20s timeout.
   Rules are keyed by path, so a Homebrew upgrade needs a fresh approval.
+- **Kiro won't install a power: "Invalid installed.json schema … expected "1.0.0"".**
+  The Kiro CLI and the Kiro IDE share `~/.kiro/powers/installed.json` but write it
+  in different formats: after `kiro-cli` installs or uninstalls a power, the IDE
+  rejects the file (seen with Kiro CLI 2.28.0 and Kiro 1.2.56). Move the file
+  aside and install again; the IDE recreates it. Powers it listed need
+  reinstalling.
+
+  ```bash
+  mv ~/.kiro/powers/installed.json ~/.kiro/powers/installed.json.bak
+  ```
