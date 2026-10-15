@@ -170,6 +170,7 @@ func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 		"get_environments": true, "get_environment": true, "get_orgs": true, "get_org": true,
 		"get_logs": true, "get_services": true, "get_volumes": true, "get_snapshots": true,
 		"get_build_history": true, "get_env_vars": true, "port_forward": true,
+		"get_failure_details": true, "get_build_logs": true,
 	}
 	// set_org overwrites the org every later call targets; telepresence_connect
 	// overwrites the shared kubeconfig and the host's routes. Neither only adds.
@@ -186,6 +187,7 @@ func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 		"get_environments": true, "get_environment": true, "get_orgs": true, "get_org": true,
 		"get_logs": true, "get_services": true, "get_volumes": true, "get_snapshots": true,
 		"get_build_history": true, "get_env_vars": true, "port_forward": true,
+		"get_failure_details": true, "get_build_logs": true,
 		"restart_environment": true, "stop_environment": true, "revive_environment": true,
 		"update_branches": true, "set_org": true, "put_env_vars": true, "delete_env_var": true,
 		"telepresence_connect": true,

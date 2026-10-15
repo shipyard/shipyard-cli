@@ -24,7 +24,7 @@ func TestServiceTool_Definition(t *testing.T) {
 			name:         "get_services tool definition",
 			toolName:     "get_services",
 			expectedName: "get_services",
-			expectedDesc: "List services in an environment",
+			expectedDesc: "List the enabled services in an environment. A Compose service that is not listed is disabled for this environment, so other services can't reach it",
 		},
 		{
 			// NewServiceTool leaves exec disabled, and the description says so:
