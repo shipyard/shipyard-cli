@@ -752,7 +752,9 @@ so the Codex `writes` setting above stops offering the read tools without asking
   `~/.kiro/powers/installed.json` but write it in different formats: after
   `kiro-cli` installs or uninstalls a power, the IDE rejects the file (seen with
   Kiro CLI 2.28.0 and Kiro 1.2.56). Move the file aside and install again; the
-  IDE recreates it. Powers it listed need reinstalling.
+  IDE recreates it. Powers it listed need reinstalling. This is a Kiro bug,
+  tracked as [kirodotdev/Kiro#11924](https://github.com/kirodotdev/Kiro/issues/11924);
+  remove this entry once a Kiro release fixes it.
 
   ```bash
   mv ~/.kiro/powers/installed.json ~/.kiro/powers/installed.json.bak
