@@ -47,9 +47,10 @@ func TestVerifyPromptGet(t *testing.T) {
 				"Call `get_failure_details`. If it says to rebuild once",
 				"`get_build_logs` has the full log",
 				"`get_logs` with `previous: true`",
-				// A failed build leaves commit_hash on the last running build, so polling
-				// must stop on it rather than wait out the timeout.
-				"→ BUILD FAILED. Stop polling",
+				// A failed build leaves commit_hash on the last running build, or marks a
+				// first build stopped, so polling reads the build record before either rule.
+				"get_build_history(environment_id=<id>, page_size=1)",
+				"with status FAILED → BUILD FAILED",
 			},
 			wantMissing: []string{"## This invocation", "Read build logs, fix the cause"},
 		},
@@ -395,6 +396,25 @@ func TestPollingContractChecksProcessingBeforeNullCommit(t *testing.T) {
 	}
 	if processing > null {
 		t.Error("the polling contract must check processing before treating a null commit_hash as stopped")
+	}
+}
+
+// A failed first build reports stopped with a null commit_hash, and a failed
+// later build leaves commit_hash on the previous build. If the stopped or
+// mismatch rule comes before the build-history check, an agent restarts a
+// broken build blind or polls it until the timeout.
+func TestPollingContractChecksBuildHistoryBeforeStopped(t *testing.T) {
+	text, _ := NewVerifyPrompt().Get(nil)
+	body := text.Messages[0].Content.Text
+
+	history := strings.Index(body, "get_build_history(environment_id=<id>, page_size=1)")
+	stopped := strings.Index(body, "stopped == true or retired == true")
+	mismatch := strings.Index(body, "commit_hash != PUSHED_SHA             →")
+	if history == -1 || stopped == -1 || mismatch == -1 {
+		t.Fatalf("polling contract is missing a rule: history at %d, stopped at %d, mismatch at %d", history, stopped, mismatch)
+	}
+	if history > stopped || history > mismatch {
+		t.Error("the polling contract must check build history before the stopped and commit mismatch rules")
 	}
 }
 

@@ -185,16 +185,22 @@ Loop:
   get_environments(branch=BRANCH, repo_name=<repo>)
   find projects[] entry where repo_name == <repo>
 
+  processing == false, and not (commit_hash == PUSHED_SHA AND ready)
+                                        → before the rules below, call
+                                          get_build_history(environment_id=<id>, page_size=1).
+                                          Its latest build is for PUSHED_SHA (projects[] entry
+                                          for <repo>) with status FAILED → BUILD FAILED. Stop
+                                          polling. Call get_failure_details and follow "Build
+                                          failed" in Troubleshooting, not "Stopped
+                                          environments": a failed first build shows stopped
+                                          with a null commit_hash, and a failed later build
+                                          leaves commit_hash on the previous one. Otherwise
+                                          apply the rules below
   stopped == true or retired == true    → STOP POLLING. The environment is not running;
                                           see "Stopped environments" below
   processing == true                    → a build is in flight, keep polling. Check this
                                           before commit_hash: a new environment's first
                                           build reports a null commit_hash for minutes
-  processing was true since your push, now false, and commit_hash is null or != PUSHED_SHA
-                                        → BUILD FAILED. Stop polling. commit_hash is the
-                                          last build that ran, so a failed build leaves it
-                                          behind. Call get_failure_details and follow "Build
-                                          failed" in Troubleshooting, not "Stopped environments"
   commit_hash is null, not processing   → no running build. Treat as stopped/retired above,
                                           not as a mismatch
   commit_hash == PUSHED_SHA AND ready   → SERVING. Stop polling, go to Step 4
