@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"context"
 	"errors"
 
 	"github.com/spf13/cobra"
@@ -58,6 +59,9 @@ func handleExecCmd(c client.Client, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	stop := k8s.StartActivityHeartbeat(context.Background(), c, id, k8s.ActivitySourceExec, k8s.ActivityHeartbeatInterval)
+	defer stop()
 
 	return k.Exec(args)
 }
