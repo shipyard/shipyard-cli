@@ -1,8 +1,8 @@
 # Shipyard MCP server
 
 `shipyard mcp serve` runs a [Model Context Protocol](https://modelcontextprotocol.io)
-server, so an AI assistant such as Claude Code, Claude Desktop, Cursor or Codex can
-work with your Shipyard environments. Once it's connected, you can ask for things
+server, so an AI assistant such as Claude Code, Claude Desktop, Cursor, Codex or Kiro
+can work with your Shipyard environments. Once it's connected, you can ask for things
 in plain language:
 
 - "Which environments are running for the `web` repo?"
@@ -19,9 +19,11 @@ as the CLI.
 - [Quick start](#quick-start)
 - [Connecting a client](#connecting-a-client)
 - [Configuration](#configuration)
+- [Permissions and least privilege](#permissions-and-least-privilege)
 - [Tools](#tools)
 - [Resources](#resources)
 - [The `verify` prompt](#the-verify-prompt)
+- [Updating, uninstalling and rolling back](#updating-uninstalling-and-rolling-back)
 - [Troubleshooting](#troubleshooting)
 
 ## Quick start
@@ -62,6 +64,12 @@ can't read your config file.
 `shipyard` has to be on the `PATH` the client sees. Desktop apps usually don't
 inherit your shell's `PATH`, so use the absolute path (`which shipyard`) as the
 command if the server fails to start.
+
+**Keep your token out of project files.** `.cursor/mcp.json`, `.kiro/settings/mcp.json`
+and Claude Code's `.mcp.json` live in the repository and tend to get committed.
+Run `shipyard login` instead, or put the token in a per-user file such as
+`~/.cursor/mcp.json`. The examples below show an `env` block only for the cases
+where you need one.
 
 ### Claude Code
 
@@ -135,12 +143,52 @@ args = ["mcp", "serve"]
 env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-name" }
 ```
 
-Drop the `env` line if the CLI is already configured.
+Drop the `env` line if the CLI is already configured. You can also add it from the
+command line: `codex mcp add shipyard -- shipyard mcp serve`, and check it with
+`codex mcp list`.
+
+### Kiro
+
+The Kiro IDE and the Kiro CLI read the same files: `~/.kiro/settings/mcp.json`
+for every workspace, or `.kiro/settings/mcp.json` inside one workspace, which wins
+over the user file. Add:
+
+```json
+{
+  "mcpServers": {
+    "shipyard": {
+      "command": "shipyard",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+Kiro reloads the file when you save it. If the CLI isn't logged in, add an `env`
+block as in the Cursor example, in the user file rather than the workspace one.
+Before using Kiro unattended, read [Kiro](#kiro-1) under permissions: Kiro's CLI
+doesn't ask before running a tool.
 
 ### Other clients
 
 Any MCP client that can launch a stdio server works. Configure it to run
 `shipyard mcp serve`, with the environment variables below if needed.
+
+### Tested clients
+
+These were run against a Shipyard org on 2026-10-09 and 2026-10-15, each with
+a read-only session (list orgs, list environments) and a check that destructive
+tools stay blocked:
+
+| Client | Version tested |
+|---|---|
+| Claude Code | 2.1.284 |
+| Codex CLI | 0.162.0 |
+| Cursor | 3.24.9, and its CLI `cursor-agent` 2026.10.01 |
+| Kiro | 1.2.56, and its CLI `kiro-cli` 2.28.0 |
+
+Newer client versions should work; the server speaks MCP protocol versions
+`2025-06-18`, `2025-03-26` and `2024-11-05`.
 
 ## Configuration
 
@@ -177,6 +225,121 @@ A few things differ from the CLI:
   leaves exec off.
 - **Restart the client after changing settings.** The server reads its
   configuration once, at startup.
+
+## Permissions and least privilege
+
+### Which token to use
+
+The server can do whatever its token can. `shipyard login` stores your personal
+token, which reaches every org you belong to. For a shared machine, CI, or an
+assistant you want confined to one org, use an **org API key** instead: it only
+reaches that org. Set it as `SHIPYARD_API_TOKEN` in the client's `env` block, in
+a per-user config file. An org has one key, and generating a new one replaces it,
+so check with your org before rotating it.
+
+`exec_service` stays off unless you turn it on (see
+[Running commands in a container](#running-commands-in-a-container-exec_service)).
+
+### What each tool may change
+
+From 1.10.0, every tool tells the client whether it only reads, may destroy or
+overwrite state, or neither. Clients use this to decide what to ask you about.
+
+| Kind | Tools |
+|---|---|
+| Read-only | `get_environments`, `get_environment`, `get_build_history`, `get_env_vars`, `get_logs`, `get_services`, `get_volumes`, `get_snapshots`, `get_orgs`, `get_org`, `port_forward` (returns a command, runs nothing) |
+| Destructive: overwrites, stops or removes something | `stop_environment`, `cancel_environment`, `rebuild_environment`, `update_branches`, `restart_service`, `put_env_vars`, `delete_env_var`, `reset_volume`, `load_snapshot`, `exec_service`, `set_org` (changes the org every later call targets), `telepresence_connect` (rewrites `~/.shipyard/kubeconfig` and your routes) |
+| Adds state only | `restart_environment`, `revive_environment`, `deploy_detached`, `create_snapshot` |
+
+### Letting an assistant read without asking
+
+In an interactive session each client asks before a tool call, and you can
+approve as you go. For an assistant that runs on its own (a script, a CI job, a
+headless session), allow the read-only tools and nothing else. Each recipe below
+was checked: the read tools run, and a destructive call is refused.
+
+#### Claude Code
+
+Add the read tools to `permissions.allow` in `.claude/settings.json` (or pass the
+same rule to `claude -p --allowedTools`):
+
+```json
+{
+  "permissions": {
+    "allow": ["mcp__shipyard__get_*"]
+  }
+}
+```
+
+Every other Shipyard tool still needs your approval, and a non-interactive
+session refuses it.
+
+#### Codex
+
+In `~/.codex/config.toml`, let Codex decide from the tool hints (CLI 1.10.0 or
+later):
+
+```toml
+[mcp_servers.shipyard]
+command = "shipyard"
+args = ["mcp", "serve"]
+default_tools_approval_mode = "writes"
+```
+
+Read tools then run without asking, and destructive tools aren't offered to a
+session that can't ask you. With an older CLI, which sends no hints, approve each
+read tool instead:
+
+```toml
+[mcp_servers.shipyard.tools.get_orgs]
+approval_mode = "approve"
+
+[mcp_servers.shipyard.tools.get_environments]
+approval_mode = "approve"
+```
+
+#### Cursor
+
+The Cursor agent CLI (`cursor-agent -p`) doesn't use the tool hints. Allow the
+read tools in `.cursor/cli.json`, or `~/.cursor/cli-config.json` for every
+project:
+
+```json
+{
+  "permissions": {
+    "allow": ["Mcp(shipyard:get_*)"]
+  }
+}
+```
+
+Cursor also asks you to approve the server itself the first time, and again
+whenever its `command` changes, for example after an upgrade moves the binary.
+`cursor-agent mcp enable shipyard` approves it from the command line.
+
+#### Kiro
+
+The Kiro CLI's non-interactive mode (`kiro-cli chat --no-interactive`) runs MCP
+tools **without asking**, whatever `--trust-tools` says, and it ignores the tool
+hints. Remove the destructive tools from the server with `disabledTools`:
+
+```json
+{
+  "mcpServers": {
+    "shipyard": {
+      "command": "shipyard",
+      "args": ["mcp", "serve"],
+      "disabledTools": [
+        "stop_environment", "cancel_environment", "rebuild_environment",
+        "update_branches", "restart_service", "put_env_vars", "delete_env_var",
+        "reset_volume", "load_snapshot", "exec_service", "set_org",
+        "telepresence_connect"
+      ]
+    }
+  }
+}
+```
+
+A disabled tool is not offered to the model at all.
 
 ## Tools
 
@@ -458,6 +621,65 @@ comparing hashes) and runs a known reloading process. Results from an edited
 container are never the verdict: after the push, the environment rebuilds and
 the checks run again on the clean commit. If the agent stops without pushing, it
 restores the files it changed.
+
+## Updating, uninstalling and rolling back
+
+### Updating
+
+```bash
+shipyard upgrade
+```
+
+From 1.10.0, `shipyard upgrade` installs the latest release, through Homebrew if
+that's how you installed. From 1.9.0 or earlier, upgrade once the way you
+installed; see [Upgrading from 1.9.0 or earlier](../README.md#upgrading-from-190-or-earlier).
+Then restart the MCP server: restart the client, or use its MCP panel
+(`/mcp` in Claude Code). In clients that show the server's instructions, such as
+Claude Code, an assistant connected to an out-of-date CLI is told so when the
+session starts. Codex doesn't show them.
+
+If the upgrade changed the binary's path, update the `command` in the client's
+config. Cursor asks you to approve the server again, and a per-app firewall needs
+a fresh approval too.
+
+### Uninstalling
+
+Remove the server from the client:
+
+| Client | Command or file |
+|---|---|
+| Claude Code | `claude mcp remove shipyard` (add `--scope user` if you added it there) |
+| Claude Desktop | Delete the `shipyard` entry from `claude_desktop_config.json`, then restart |
+| Cursor | Delete the `shipyard` entry from `~/.cursor/mcp.json` or `.cursor/mcp.json`, and any `Mcp(shipyard:…)` rules from `cli.json` |
+| Codex | `codex mcp remove shipyard` |
+| Kiro | Delete the `shipyard` entry from `~/.kiro/settings/mcp.json` or `.kiro/settings/mcp.json`, or set `"disabled": true` to keep it for later |
+
+To remove the CLI and its token as well: `brew uninstall shipyard` for a Homebrew
+install, otherwise delete the binary (`which shipyard`). There is no logout
+command; delete the token from `~/.shipyard/config.yaml` (the `api_token` line, or
+the whole file). An org API key you set in a client's `env` block goes away with
+that entry; rotate it if it may have leaked.
+
+### Rolling back
+
+To go back to an earlier release, download it from the
+[releases page](https://github.com/shipyard/shipyard-cli/releases), check it
+against that release's `checksums.txt`, and point the client's `command` at the
+binary's absolute path:
+
+```bash
+VERSION=1.9.0; OS=darwin; ARCH=arm64   # OS: darwin or linux; ARCH: arm64 or amd64
+curl -fsSLO https://github.com/shipyard/shipyard-cli/releases/download/v$VERSION/shipyard-$OS-$ARCH
+curl -fsSLO https://github.com/shipyard/shipyard-cli/releases/download/v$VERSION/checksums.txt
+grep " shipyard-$OS-$ARCH\$" checksums.txt | shasum -a 256 -c -
+chmod +x shipyard-$OS-$ARCH
+```
+
+On Windows, download `shipyard-windows-amd64.exe` (or `-arm64.exe`) and compare
+its SHA-256 (`certutil -hashfile <file> SHA256`) with the line in `checksums.txt`.
+
+Restart the client afterwards. Rolling back below 1.10.0 removes the tool hints,
+so the Codex `writes` setting above stops offering the read tools without asking.
 
 ## Troubleshooting
 
