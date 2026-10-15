@@ -190,6 +190,11 @@ Loop:
   processing == true                    → a build is in flight, keep polling. Check this
                                           before commit_hash: a new environment's first
                                           build reports a null commit_hash for minutes
+  processing was true since your push, now false, and commit_hash is null or != PUSHED_SHA
+                                        → BUILD FAILED. Stop polling. commit_hash is the
+                                          last build that ran, so a failed build leaves it
+                                          behind. Call get_failure_details and follow "Build
+                                          failed" in Troubleshooting, not "Stopped environments"
   commit_hash is null, not processing   → no running build. Treat as stopped/retired above,
                                           not as a mismatch
   commit_hash == PUSHED_SHA AND ready   → SERVING. Stop polling, go to Step 4

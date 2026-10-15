@@ -47,6 +47,9 @@ func TestVerifyPromptGet(t *testing.T) {
 				"Call `get_failure_details`. If it says to rebuild once",
 				"`get_build_logs` has the full log",
 				"`get_logs` with `previous: true`",
+				// A failed build leaves commit_hash on the last running build, so polling
+				// must stop on it rather than wait out the timeout.
+				"→ BUILD FAILED. Stop polling",
 			},
 			wantMissing: []string{"## This invocation", "Read build logs, fix the cause"},
 		},
