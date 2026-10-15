@@ -247,7 +247,7 @@ overwrite state, or neither. Clients use this to decide what to ask you about.
 
 | Kind | Tools |
 |---|---|
-| Read-only | `get_environments`, `get_environment`, `get_build_history`, `get_env_vars`, `get_logs`, `get_services`, `get_volumes`, `get_snapshots`, `get_orgs`, `get_org`, `port_forward` (returns a command, runs nothing) |
+| Read-only | `get_environments`, `get_environment`, `get_build_history`, `get_failure_details`, `get_build_logs`, `get_env_vars`, `get_logs`, `get_services`, `get_volumes`, `get_snapshots`, `get_orgs`, `get_org`, `port_forward` (returns a command, runs nothing) |
 | Destructive: overwrites, stops or removes something | `stop_environment`, `cancel_environment`, `rebuild_environment`, `update_branches`, `restart_service`, `put_env_vars`, `delete_env_var`, `reset_volume`, `load_snapshot`, `exec_service`, `set_org` (changes the org every later call targets), `telepresence_connect` (rewrites `~/.shipyard/kubeconfig` and your routes) |
 | Adds state only | `restart_environment`, `revive_environment`, `deploy_detached`, `create_snapshot` |
 
@@ -257,6 +257,12 @@ In an interactive session each client asks before a tool call, and you can
 approve as you go. For an assistant that runs on its own (a script, a CI job, a
 headless session), allow the read-only tools and nothing else. Each recipe below
 was checked: the read tools run, and a destructive call is refused.
+
+The `get_*` rules don't match `port_forward`, which is read-only too; add it by
+name if you want it. An assistant that also starts environments to test against,
+such as one running the [`verify` prompt](#the-verify-prompt), needs
+`restart_environment` and `revive_environment` as well: environments stop after
+a while without traffic, and these two only add state.
 
 #### Claude Code
 
@@ -339,7 +345,15 @@ hints. Remove the destructive tools from the server with `disabledTools`:
 }
 ```
 
-A disabled tool is not offered to the model at all.
+A disabled tool is not offered to the model at all. This leaves the read tools
+and the four that only add state (`restart_environment`, `revive_environment`,
+`deploy_detached`, `create_snapshot`) on, so the assistant can start a stopped
+environment to test against. Add those four too for a strictly read-only session.
+
+`disabledTools` is a block-list: a tool added in a later release is enabled until
+you add it, so check the [table above](#what-each-tool-may-change) after
+upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
+`.kiro/settings/mcp.json` that defines `shipyard` wins over the user file.
 
 ## Tools
 
@@ -651,7 +665,8 @@ installed; see [Upgrading from 1.9.0 or earlier](../README.md#upgrading-from-190
 Then restart the MCP server: restart the client, or use its MCP panel
 (`/mcp` in Claude Code). In clients that show the server's instructions, such as
 Claude Code, an assistant connected to an out-of-date CLI is told so when the
-session starts. Codex doesn't show them.
+session starts, once the CLI's daily update check has seen the new release. It
+isn't told when `CI` is set or update checks are off. Codex doesn't show them.
 
 If the upgrade changed the binary's path, update the `command` in the client's
 config. Cursor asks you to approve the server again, and a per-app firewall needs
