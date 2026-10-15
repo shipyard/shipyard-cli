@@ -24,8 +24,9 @@ see [Upgrading](README.md#upgrading).
 
 ## Handling credentials
 
-- The CLI and MCP server read your token from `SHIPYARD_API_TOKEN` or `~/.shipyard/config.yaml`, which is written with
-  mode 0600. Keep it out of repositories and out of project-level client config files; see
+- The CLI and MCP server read your token from `SHIPYARD_API_TOKEN` or `~/.shipyard/config.yaml`, which the CLI creates
+  with mode 0600 (if you created it yourself, run `chmod 600 ~/.shipyard/config.yaml`). Keep it out of repositories and
+  out of project-level client config files; see
   [Permissions and least privilege](docs/mcp.md#permissions-and-least-privilege).
 - If a token may have leaked, regenerate it from your Shipyard profile page (personal token) or your org's settings
   (org API key).
