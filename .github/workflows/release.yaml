@@ -34,7 +34,9 @@ jobs:
 
       # The snapshot builds the SBOMs too, so it fails without syft.
       - name: Install syft
-        uses: anchore/sbom-action/download-syft@v0
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          syft-version: v1.42.3
 
       - name: Build snapshot
         run: goreleaser release --snapshot --clean
@@ -142,8 +144,12 @@ jobs:
           go-version: '^1.24.x'
           cache: true
 
+      # Pinned by commit: this job can sign provenance and holds the release
+      # token, so a moved tag must not change what runs here.
       - name: Install syft
-        uses: anchore/sbom-action/download-syft@v0
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          syft-version: v1.42.3
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -156,8 +162,9 @@ jobs:
       # checksums.txt lists every uploaded binary and SBOM by its release name;
       # the binaries themselves sit in per-build directories under dist/, so a
       # path glob would miss them. Verify a download with:
-      #   gh attestation verify <file> -R shipyard/shipyard-cli
+      #   gh attestation verify <file> -R shipyard/shipyard-cli \
+      #     --signer-workflow shipyard/shipyard-cli/.github/workflows/release.yaml
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-checksums: dist/checksums.txt

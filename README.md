@@ -29,12 +29,17 @@ against it and refuses to install on a mismatch. To check a binary you downloade
 grep " shipyard-darwin-arm64$" checksums.txt | shasum -a 256 -c -
 ```
 
-From 1.10.0, each binary also has a signed build provenance attestation, showing which workflow run, commit and tag
-built it, and an SPDX SBOM (`shipyard-<os>-<arch>.sbom.json`) listing what it was built from. Verify the attestation
-with the [GitHub CLI](https://cli.github.com):
+`checksums.txt` comes from the same release as the binary, so it catches a corrupted or truncated download, not a
+release whose files were replaced. The attestation below is the check that the binary was built by this repo's release
+workflow.
+
+In releases after 1.9.0, each binary also has a signed build provenance attestation, showing which workflow run,
+commit and tag built it, and an SPDX SBOM (`shipyard-<os>-<arch>.sbom.json`; `.exe.sbom.json` on Windows) listing
+what it was built from. Verify the attestation with the [GitHub CLI](https://cli.github.com):
 
 ```bash
-gh attestation verify shipyard-darwin-arm64 -R shipyard/shipyard-cli
+gh attestation verify shipyard-darwin-arm64 -R shipyard/shipyard-cli \
+  --signer-workflow shipyard/shipyard-cli/.github/workflows/release.yaml
 ```
 
 ## Upgrading

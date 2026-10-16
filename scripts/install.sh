@@ -61,11 +61,19 @@ main() {
     verify_download "${workdir}/shipyard" "$ASSET" "${workdir}/checksums.txt"
 
     chmod +x "${workdir}/shipyard"
-    if [[ -w "$install_dir" ]]; then
-        mv "${workdir}/shipyard" "$install_dir"
-    else
-        sudo mv "${workdir}/shipyard" "$install_dir"
+    # Create the install dir if it's missing (moving onto a missing dir would
+    # install the binary as a file with the dir's name), and use sudo only when
+    # we can't create or write it ourselves.
+    as_root=""
+    if ! mkdir -p "$install_dir" 2>/dev/null || [[ ! -w "$install_dir" ]]; then
+        as_root=sudo
+        sudo mkdir -p "$install_dir"
     fi
+    $as_root mv "${workdir}/shipyard" "${install_dir}/shipyard"
+    case ":${PATH}:" in
+        *":${install_dir}:"*) ;;
+        *) echo "Note: ${install_dir} is not on your PATH." ;;
+    esac
     echo "Installation Complete! Run 'shipyard --help' to get started."
 }
 
