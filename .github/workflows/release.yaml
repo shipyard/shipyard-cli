@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  # Re-attests a published release whose attestation failed; see the
+  # attest-only job.
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: ID of the tag-push run that built the release
+        required: true
 
 # Read-only by default; only the release job, which declares its own
 # permissions, can write.
@@ -22,6 +29,8 @@ env:
 jobs:
   test-and-build:
     name: Test & Build
+    # The jobs that need this one, through to the release, are skipped with it.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -185,12 +194,102 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
 
+      # Kept so the attest-only job can attest this run's digests if every
+      # attempt below fails. The release is already public by then.
+      - name: Keep checksums for re-attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: checksums
+          path: dist/checksums.txt
+          retention-days: 90
+
       # Records which workflow run, commit and tag built each release asset.
       # checksums.txt lists every uploaded binary and SBOM by its release name;
       # the binaries themselves sit in per-build directories under dist/, so a
       # path glob would miss them. Verify a download with:
       #   gh attestation verify <file> -R shipyard/shipyard-cli \
       #     --signer-workflow shipyard/shipyard-cli/.github/workflows/release.yaml
+      #
+      # One retry covers a transient Sigstore or API failure. If the retry
+      # fails too, the job fails; don't re-run it (GoReleaser would fail on the
+      # existing release). Re-attest from this run's checksums instead:
+      #   gh workflow run release.yaml --ref <tag> -f run_id=<this run's ID>
+      - name: Attest build provenance
+        id: attest
+        continue-on-error: true
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-checksums: dist/checksums.txt
+
+      - name: Wait before retrying attestation
+        if: steps.attest.outcome == 'failure'
+        run: sleep 60
+
+      - name: Attest build provenance (retry)
+        if: steps.attest.outcome == 'failure'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-checksums: dist/checksums.txt
+
+  # Run on the release's tag, so the attestation names the same workflow and
+  # ref as one made at release time and the README's verify command passes:
+  #   gh workflow run release.yaml --ref v1.2.3 -f run_id=<tag-push run ID>
+  # It attests the digests the release run recorded when it built the assets,
+  # not files downloaded from the release, so it can't sign an asset that was
+  # replaced after publishing.
+  attest-only:
+    name: Re-attest release
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check the run built this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "Run this on a release tag (--ref v1.2.3), not ${GITHUB_REF}." >&2
+            exit 1
+          fi
+          if [[ ! "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "run_id must be a numeric workflow run ID." >&2
+            exit 1
+          fi
+          read -r event path head_branch conclusion < <(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" \
+            --jq '[.event, .path, .head_branch, .conclusion] | @tsv')
+          if [[ "$event" != push || "$path" != .github/workflows/release.yaml || "$head_branch" != "$GITHUB_REF_NAME" ]]; then
+            echo "Run ${RUN_ID} is not a release.yaml tag push of ${GITHUB_REF_NAME} (event=${event} path=${path} ref=${head_branch})." >&2
+            exit 1
+          fi
+          echo "Run ${RUN_ID} built ${GITHUB_REF_NAME} (conclusion: ${conclusion})."
+
+      - name: Download the release run's checksums
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: checksums
+          path: dist/
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      # A mismatch means the published checksums.txt isn't the one the release
+      # run built; investigate before attesting anything.
+      - name: Check the published checksums match
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" -p checksums.txt -O published-checksums.txt
+          if ! cmp -s dist/checksums.txt published-checksums.txt; then
+            echo "The published checksums.txt differs from the one run ${RUN_ID} built:" >&2
+            diff dist/checksums.txt published-checksums.txt >&2 || true
+            exit 1
+          fi
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
