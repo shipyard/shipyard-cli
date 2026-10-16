@@ -55,6 +55,23 @@ jobs:
       - name: Run tests (no cache)
         run: go test -v ./...
 
+  # install.sh is what curl | bash users run, and its checksum refusals are
+  # what keeps a bad download off their machines. Both hash tools are covered:
+  # sha256sum on Linux, shasum on macOS.
+  install-script:
+    name: Install script (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Test install.sh
+        run: ./scripts/install-test.sh
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

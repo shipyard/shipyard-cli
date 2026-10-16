@@ -1,0 +1,45 @@
+name: Release Check
+
+# Builds the release snapshot on PRs that touch the release toolchain, so a
+# bad digest bump, a syft change to the SBOM names or a .goreleaser.yaml edit
+# fails here instead of after a release tag is pushed. Same steps as
+# release.yaml's test-and-build job, with the toolchain read from its env.
+on:
+  pull_request:
+    paths:
+      - .goreleaser.yaml
+      - .github/workflows/release.yaml
+      - .github/workflows/release-check.yaml
+      - scripts/install-release-tools.sh
+      - scripts/check-dist.sh
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: Release snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Read the toolchain pinned in release.yaml
+        run: yq '.env | to_entries | .[] | .key + "=" + .value' .github/workflows/release.yaml >> "$GITHUB_ENV"
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install GoReleaser and syft
+        run: ./scripts/install-release-tools.sh
+
+      - name: Build snapshot
+        run: goreleaser release --snapshot --clean
+
+      - name: Check binaries, SBOMs and checksums
+        run: ./scripts/check-dist.sh dist

@@ -222,13 +222,17 @@ echo "Step 3: Waiting for release workflow to start..."
 
 # Poll for the workflow run to appear (may take a few seconds)
 RUN_ID=""
+# Match the commit too: a tag deleted after a failed release and pushed again
+# has the same name, and its old run would match first.
+TAG_SHA=$(git rev-parse "${NEXT_TAG}^{commit}")
 for i in $(seq 1 30); do
     RUN_ID=$(gh run list \
         --repo "$REPO" \
         --workflow=release.yaml \
-        --limit=1 \
-        --json databaseId,headBranch \
-        --jq ".[] | select(.headBranch == \"$NEXT_TAG\") | .databaseId" 2>/dev/null || true)
+        --event=push \
+        --limit=5 \
+        --json databaseId,headBranch,headSha \
+        --jq "[.[] | select(.headBranch == \"$NEXT_TAG\" and .headSha == \"$TAG_SHA\")][0].databaseId // empty" 2>/dev/null || true)
     if [[ -n "$RUN_ID" ]]; then
         break
     fi
@@ -261,6 +265,24 @@ else
     echo ""
     echo "=== Release workflow failed ==="
     echo ""
+    # GoReleaser publishes before the attest step, so a late failure leaves a
+    # live release. Don't offer to delete its tag; point at the recovery path.
+    if gh release view "$NEXT_TAG" --repo "$REPO" >/dev/null 2>&1; then
+        echo "  Release $NEXT_TAG is already published, so the failure came after publishing"
+        echo "  (attestation, or GoReleaser's Homebrew tap push). Check the run log."
+        # Re-attesting needs the checksums the run saved; without them it can't work.
+        SAVED=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+            --jq '[.artifacts[] | select(.name == "checksums" and (.expired | not))] | length' 2>/dev/null || echo 0)
+        if [[ "$SAVED" -gt 0 ]]; then
+            echo "  If the release has no attestation, re-attest with:"
+            echo "    gh workflow run release.yaml --repo $REPO --ref $NEXT_TAG -f run_id=$RUN_ID"
+            echo "  To withdraw the release instead, use scripts/rollback.sh."
+        else
+            echo "  The run saved no checksums, so it can't be re-attested. Withdraw it with"
+            echo "  scripts/rollback.sh and release again."
+        fi
+        exit 1
+    fi
     read -r -p "Delete tag $NEXT_TAG? [y/N] " DELETE_CONFIRM
     if [[ "$DELETE_CONFIRM" == "y" || "$DELETE_CONFIRM" == "Y" ]]; then
         echo "Cleaning up tag $NEXT_TAG..."
