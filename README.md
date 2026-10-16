@@ -10,6 +10,11 @@ Using an AI assistant? The CLI includes an MCP server: see [Use Shipyard from an
     ```
     curl https://www.shipyard.sh/install.sh | bash
     ```
+  It installs to `/usr/local/bin`, using `sudo` only if it can't write there. To install somewhere else, such as a
+  directory you own, set `SHIPYARD_INSTALL_DIR`:
+    ```
+    curl https://www.shipyard.sh/install.sh | SHIPYARD_INSTALL_DIR="$HOME/.local/bin" bash
+    ```
 - **Windows**
   Navigate to the [releases page](https://github.com/shipyard/shipyard-cli/releases) and download the executable for
   Windows.

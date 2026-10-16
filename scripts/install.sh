@@ -60,16 +60,16 @@ main() {
         "${RELEASES_URL}/download/v${VERSION}/checksums.txt"
     verify_download "${workdir}/shipyard" "$ASSET" "${workdir}/checksums.txt"
 
-    chmod +x "${workdir}/shipyard"
-    # Create the install dir if it's missing (moving onto a missing dir would
-    # install the binary as a file with the dir's name), and use sudo only when
-    # we can't create or write it ourselves.
+    # Create the install dir if it's missing, and use sudo only when we can't
+    # create or write it ourselves. install(1) sets the mode regardless of
+    # umask and, under sudo, makes the binary root-owned, so a later
+    # `sudo shipyard upgrade` can't run a binary any user process could replace.
     as_root=""
     if ! mkdir -p "$install_dir" 2>/dev/null || [[ ! -w "$install_dir" ]]; then
         as_root=sudo
         sudo mkdir -p "$install_dir"
     fi
-    $as_root mv "${workdir}/shipyard" "${install_dir}/shipyard"
+    $as_root install -m 0755 "${workdir}/shipyard" "${install_dir}/shipyard"
     case ":${PATH}:" in
         *":${install_dir}:"*) ;;
         *) echo "Note: ${install_dir} is not on your PATH." ;;
