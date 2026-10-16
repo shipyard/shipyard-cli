@@ -39,6 +39,24 @@ verify_download() {
 
 main() {
     install_dir="${SHIPYARD_INSTALL_DIR:-/usr/local/bin}"
+    # A quoted "~/bin" reaches us unexpanded, so match the literal tilde.
+    # shellcheck disable=SC2088
+    case "$install_dir" in
+        "~")    install_dir="$HOME" ;;
+        "~/"*)  install_dir="${HOME}/${install_dir#"~/"}" ;;
+    esac
+    target="${install_dir}/shipyard"
+    # install(1) would put the binary inside a directory, or replace a
+    # symlink such as Homebrew's, and still report success.
+    if [[ -L "$target" ]]; then
+        echo "${target} is a symlink (Homebrew creates one); not replacing it." >&2
+        echo "Upgrade a Homebrew install with 'brew upgrade shipyard', or remove the link and rerun." >&2
+        exit 1
+    fi
+    if [[ -d "$target" ]]; then
+        echo "${target} is a directory; not installing over it." >&2
+        exit 1
+    fi
 
     case $(uname -m) in
         i386 | i686)        ARCH="386" ;;
@@ -69,7 +87,7 @@ main() {
         as_root=sudo
         sudo mkdir -p "$install_dir"
     fi
-    $as_root install -m 0755 "${workdir}/shipyard" "${install_dir}/shipyard"
+    $as_root install -m 0755 "${workdir}/shipyard" "$target"
     case ":${PATH}:" in
         *":${install_dir}:"*) ;;
         *) echo "Note: ${install_dir} is not on your PATH." ;;
