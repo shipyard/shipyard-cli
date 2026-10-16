@@ -181,8 +181,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
 
       # Kept so the attest-only job can attest this run's digests if every
-      # attempt below fails. The release is already public by then.
+      # attempt below fails. The release is already public by then. Also runs
+      # when GoReleaser fails after publishing (a Homebrew tap push comes after
+      # the release upload), so that release can still be re-attested.
       - name: Keep checksums for re-attestation
+        if: ${{ always() && hashFiles('dist/checksums.txt') != '' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: checksums
@@ -194,7 +197,10 @@ jobs:
       # the binaries themselves sit in per-build directories under dist/, so a
       # path glob would miss them. Verify a download with:
       #   gh attestation verify <file> -R shipyard/shipyard-cli \
-      #     --signer-workflow shipyard/shipyard-cli/.github/workflows/release.yaml
+      #     --signer-workflow shipyard/shipyard-cli/.github/workflows/release.yaml \
+      #     --source-ref refs/tags/<tag>
+      # --source-ref matters: --signer-workflow matches the file path on any
+      # ref, so without it a copy of this file on any branch could sign.
       #
       # One retry covers a transient Sigstore or API failure. If the retry
       # fails too, the job fails; don't re-run it (GoReleaser would fail on the
@@ -253,10 +259,16 @@ jobs:
             echo "run_id must be a numeric workflow run ID." >&2
             exit 1
           fi
-          read -r event path head_branch conclusion < <(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" \
-            --jq '[.event, .path, .head_branch, .conclusion] | @tsv')
+          read -r event path head_branch head_sha conclusion < <(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" \
+            --jq '[.event, .path, .head_branch, .head_sha, .conclusion] | @tsv')
           if [[ "$event" != push || "$path" != .github/workflows/release.yaml || "$head_branch" != "$GITHUB_REF_NAME" ]]; then
             echo "Run ${RUN_ID} is not a release.yaml tag push of ${GITHUB_REF_NAME} (event=${event} path=${path} ref=${head_branch})." >&2
+            exit 1
+          fi
+          # head_branch is only a name: a branch called v1.2.3 matches it too,
+          # and a moved tag keeps it. The commit must be the tag's.
+          if [[ "$head_sha" != "$GITHUB_SHA" ]]; then
+            echo "Run ${RUN_ID} built ${head_sha}, but ${GITHUB_REF_NAME} is ${GITHUB_SHA}." >&2
             exit 1
           fi
           echo "Run ${RUN_ID} built ${GITHUB_REF_NAME} (conclusion: ${conclusion})."

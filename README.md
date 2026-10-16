@@ -40,12 +40,17 @@ workflow.
 
 In releases after 1.9.0, each binary also has a signed build provenance attestation, showing which workflow run,
 commit and tag built it, and an SPDX SBOM (`shipyard-<os>-<arch>.sbom.json`; `.exe.sbom.json` on Windows) listing
-what it was built from. Verify the attestation with the [GitHub CLI](https://cli.github.com):
+what it was built from. Verify the attestation with the [GitHub CLI](https://cli.github.com), naming the release you
+downloaded (here v1.10.0):
 
 ```bash
 gh attestation verify shipyard-darwin-arm64 -R shipyard/shipyard-cli \
-  --signer-workflow shipyard/shipyard-cli/.github/workflows/release.yaml
+  --signer-workflow shipyard/shipyard-cli/.github/workflows/release.yaml \
+  --source-ref refs/tags/v1.10.0
 ```
+
+Keep `--source-ref`: without it, the check passes for anything a copy of the workflow signed on any branch, not just
+that release's tag build.
 
 ## Upgrading
 
