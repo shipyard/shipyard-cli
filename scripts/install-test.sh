@@ -77,6 +77,76 @@ else
     fail "expands a quoted ~/ install dir"; cat "${tmp}/out" >&2
 fi
 
+# An existing install is replaced whole, with no staged copy left beside it.
+mkdir -p "${tmp}/upgrade"
+echo old > "${tmp}/upgrade/shipyard"
+if run_install "${tmp}/upgrade" \
+    && [[ "$("${tmp}/upgrade/shipyard")" == "fake shipyard ${VERSION}" ]] \
+    && [[ -z "$(find "${tmp}/upgrade" -name '.shipyard.new.*')" ]]; then
+    pass "replaces an existing install"
+else
+    fail "replaces an existing install"; cat "${tmp}/out" >&2
+fi
+
+# A failed rename fails the install and leaves no staged copy behind.
+mkdir -p "${tmp}/mvshim" "${tmp}/mvfail"
+printf '#!/bin/sh\nexit 1\n' > "${tmp}/mvshim/mv"
+chmod +x "${tmp}/mvshim/mv"
+if ! run_install "${tmp}/mvfail" PATH="${tmp}/mvshim:${PATH}" \
+    && [[ -z "$(find "${tmp}/mvfail" -name '.shipyard.new.*')" && ! -e "${tmp}/mvfail/shipyard" ]]; then
+    pass "cleans up after a failed rename"
+else
+    fail "cleans up after a failed rename"; cat "${tmp}/out" >&2
+fi
+
+# With no version given, it's read from where releases/latest redirects, as for
+# every curl | bash user. A curl shim answers that one request.
+mkdir -p "${tmp}/curlshim"
+# shellcheck disable=SC2016 # $* and $@ belong to the shim
+printf '#!/bin/sh\ncase "$*" in *url_effective*) echo "https://github.com/shipyard/shipyard-cli/releases/tag/v%s"; exit 0 ;; esac\nexec %s "$@"\n' \
+    "$VERSION" "$(command -v curl)" > "${tmp}/curlshim/curl"
+chmod +x "${tmp}/curlshim/curl"
+if run_install "${tmp}/latest" SHIPYARD_VERSION= PATH="${tmp}/curlshim:${PATH}" \
+    && [[ "$("${tmp}/latest/shipyard")" == "fake shipyard ${VERSION}" ]]; then
+    pass "installs the latest release by default"
+else
+    fail "installs the latest release by default"; cat "${tmp}/out" >&2
+fi
+
+if run_install "${tmp}/vprefix" SHIPYARD_VERSION="v${VERSION}" && [[ -x "${tmp}/vprefix/shipyard" ]]; then
+    pass "accepts a v-prefixed version"
+else
+    fail "accepts a v-prefixed version"; cat "${tmp}/out" >&2
+fi
+
+# sudo is used only for a dir we can't write, as /usr/local/bin usually is. The
+# shim logs each call and makes the dir writable, standing in for root.
+if (( EUID == 0 )); then
+    echo "skip sudo cases: running as root"
+else
+    mkdir -p "${tmp}/sudoshim" "${tmp}/readonly" "${tmp}/writable"
+    chmod 555 "${tmp}/readonly"
+    # shellcheck disable=SC2016 # $* and $@ belong to the shim
+    printf '#!/bin/sh\necho "$*" >> %s/sudo.log\nchmod u+w %s/readonly\nexec "$@"\n' "$tmp" "$tmp" > "${tmp}/sudoshim/sudo"
+    chmod +x "${tmp}/sudoshim/sudo"
+    : > "${tmp}/sudo.log"
+    if run_install "${tmp}/readonly" PATH="${tmp}/sudoshim:${PATH}" \
+        && grep -q '^install -m 0755 ' "${tmp}/sudo.log" \
+        && grep -q '^mv -f ' "${tmp}/sudo.log" \
+        && [[ -x "${tmp}/readonly/shipyard" ]]; then
+        pass "uses sudo for a dir it can't write"
+    else
+        fail "uses sudo for a dir it can't write"; cat "${tmp}/out" "${tmp}/sudo.log" >&2
+    fi
+    : > "${tmp}/sudo.log"
+    if run_install "${tmp}/writable" PATH="${tmp}/sudoshim:${PATH}" && [[ ! -s "${tmp}/sudo.log" ]]; then
+        pass "doesn't use sudo for a dir it can write"
+    else
+        fail "doesn't use sudo for a dir it can write"; cat "${tmp}/out" "${tmp}/sudo.log" >&2
+    fi
+    chmod u+w "${tmp}/readonly"
+fi
+
 write_sums 0000000000000000000000000000000000000000000000000000000000000000 "$asset"
 expect_refusal "refuses a checksum mismatch" "Checksum mismatch" "${tmp}/mismatch"
 

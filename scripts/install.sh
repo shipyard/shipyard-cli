@@ -81,7 +81,7 @@ main() {
     workdir="$(mktemp -d)"
     trap 'rm -rf "$workdir"' EXIT
 
-    echo "Downloading the latest binary..."
+    echo "Downloading shipyard ${VERSION} (${ASSET})..."
     curl --silent --show-error --location --fail --output "${workdir}/shipyard" \
         "${RELEASES_URL}/download/v${VERSION}/${ASSET}"
     curl --silent --show-error --location --fail --output "${workdir}/checksums.txt" \
@@ -97,7 +97,13 @@ main() {
         as_root=sudo
         sudo mkdir -p "$install_dir"
     fi
-    $as_root install -m 0755 "${workdir}/shipyard" "$target"
+    # Stage beside the target and rename over it: install(1) writes onto the
+    # final path, so an interrupted copy would leave a broken binary. The
+    # staged copy is removed if we exit before the rename.
+    staged="${install_dir}/.shipyard.new.$$"
+    trap 'rm -rf "$workdir"; if [[ -e "$staged" ]]; then $as_root rm -f "$staged"; fi' EXIT
+    $as_root install -m 0755 "${workdir}/shipyard" "$staged"
+    $as_root mv -f "$staged" "$target"
     case ":${PATH}:" in
         *":${install_dir}:"*) ;;
         *) echo "Note: ${install_dir} is not on your PATH." ;;
