@@ -17,13 +17,18 @@ on:
 permissions:
   contents: read
 
-# Tool versions shared by the snapshot and release builds, so the snapshot
-# that's smoke-tested is built the way the release is.
+# Toolchain shared by every job, so the snapshot that's smoke-tested and
+# vuln-scanned is built the way the release is: same commit, Go, GoReleaser
+# and syft. scripts/install-release-tools.sh checks the tarballs against these
+# digests; update a digest with its version, from that release's signed
+# checksums file.
 env:
-  GORELEASER_VERSION: v2.18.3
+  GO_VERSION: 1.26.9
+  GORELEASER_VERSION: 2.18.3
+  # goreleaser_Linux_x86_64.tar.gz
+  GORELEASER_SHA256: b8dee4728bca1aba0d71a832a17cd0a3799f75372878e7ffa36aef2343bce0bc
   SYFT_VERSION: 1.42.3
-  # SHA-256 of syft_<SYFT_VERSION>_linux_amd64.tar.gz, from the release's
-  # syft_<SYFT_VERSION>_checksums.txt. Update it with SYFT_VERSION.
+  # syft_<SYFT_VERSION>_linux_amd64.tar.gz
   SYFT_SHA256: 0d6be741479eddd2c8644a288990c04f3df0d609bbc1599a005532a9dff63509
 
 jobs:
@@ -41,31 +46,21 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: '^1.24.x'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Run tests
         run: go test ./...
 
-      - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
-        with:
-          version: ${{ env.GORELEASER_VERSION }}
-          install-only: true
-
-      # The snapshot builds the SBOMs too, so it fails without syft.
-      - name: Install syft
-        run: |
-          tarball="syft_${SYFT_VERSION}_linux_amd64.tar.gz"
-          curl --silent --show-error --location --fail --output "${RUNNER_TEMP}/${tarball}" \
-            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/${tarball}"
-          echo "${SYFT_SHA256}  ${RUNNER_TEMP}/${tarball}" | sha256sum -c -
-          mkdir -p "${RUNNER_TEMP}/syft"
-          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}/syft" syft
-          echo "${RUNNER_TEMP}/syft" >> "$GITHUB_PATH"
+      # The snapshot builds the SBOMs too, so it needs syft as well.
+      - name: Install GoReleaser and syft
+        run: ./scripts/install-release-tools.sh
 
       - name: Build snapshot
         run: goreleaser release --snapshot --clean
+
+      - name: Check binaries, SBOMs and checksums
+        run: ./scripts/check-dist.sh dist
 
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -123,7 +118,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: '^1.24.x'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Download artifacts
@@ -167,30 +162,21 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: '^1.24.x'
+          go-version: ${{ env.GO_VERSION }}
           # No cache: other runs write it, and this job signs what it builds.
           cache: false
 
       # Every action and tool in this job is pinned by commit or digest: it can
-      # sign provenance and holds the release token, so a moved tag or branch
-      # upstream must not change what runs here. syft is fetched directly
-      # because sbom-action's download-syft runs an install script from
-      # anchore/syft's main branch.
-      - name: Install syft
-        run: |
-          tarball="syft_${SYFT_VERSION}_linux_amd64.tar.gz"
-          curl --silent --show-error --location --fail --output "${RUNNER_TEMP}/${tarball}" \
-            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/${tarball}"
-          echo "${SYFT_SHA256}  ${RUNNER_TEMP}/${tarball}" | sha256sum -c -
-          mkdir -p "${RUNNER_TEMP}/syft"
-          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}/syft" syft
-          echo "${RUNNER_TEMP}/syft" >> "$GITHUB_PATH"
+      # sign provenance and holds the release token, so a moved tag, branch or
+      # release asset upstream must not change what runs here. The tools are
+      # fetched directly: goreleaser-action doesn't check what it downloads, and
+      # sbom-action's download-syft runs an install script from anchore/syft's
+      # main branch.
+      - name: Install GoReleaser and syft
+        run: ./scripts/install-release-tools.sh
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
-        with:
-          version: ${{ env.GORELEASER_VERSION }}
-          args: release --clean
+        run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
 
@@ -230,6 +216,13 @@ jobs:
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-checksums: dist/checksums.txt
+
+      # Runs the README's verify command against the published assets, so a
+      # wrong signer path or subject name fails here rather than for users.
+      - name: Verify attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/verify-attestation.sh "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY"
 
   # Run on the release's tag, so the attestation names the same workflow and
   # ref as one made at release time and the README's verify command passes:
@@ -294,3 +287,14 @@ jobs:
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-checksums: dist/checksums.txt
+
+      # The tag's copy, for scripts/verify-attestation.sh.
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: src
+
+      - name: Verify attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./src/scripts/verify-attestation.sh "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY"

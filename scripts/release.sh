@@ -261,6 +261,15 @@ else
     echo ""
     echo "=== Release workflow failed ==="
     echo ""
+    # GoReleaser publishes before the attest step, so a late failure leaves a
+    # live release. Don't offer to delete its tag; point at the recovery path.
+    if gh release view "$NEXT_TAG" --repo "$REPO" >/dev/null 2>&1; then
+        echo "  Release $NEXT_TAG is already published, so the failure came after publishing"
+        echo "  (most likely attestation). Check the run log, then re-attest with:"
+        echo "    gh workflow run release.yaml --repo $REPO --ref $NEXT_TAG -f run_id=$RUN_ID"
+        echo "  To withdraw the release instead, use scripts/rollback.sh."
+        exit 1
+    fi
     read -r -p "Delete tag $NEXT_TAG? [y/N] " DELETE_CONFIRM
     if [[ "$DELETE_CONFIRM" == "y" || "$DELETE_CONFIRM" == "Y" ]]; then
         echo "Cleaning up tag $NEXT_TAG..."

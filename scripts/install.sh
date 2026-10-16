@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -ex
 
-RELEASES_URL="https://github.com/shipyard/shipyard-cli/releases"
+# Both overrides exist for scripts/install-test.sh, which serves a fake
+# release from a file:// URL; SHIPYARD_VERSION also pins a version (1.2.3).
+RELEASES_URL="${SHIPYARD_RELEASES_URL:-https://github.com/shipyard/shipyard-cli/releases}"
 
 last_version() {
     curl --silent --show-error --location --fail \
@@ -58,16 +60,24 @@ main() {
         exit 1
     fi
 
+    # Only the platforms .goreleaser.yaml builds; anything else would fail
+    # later with a bare 404.
+    case $(uname -s) in
+        Linux)  OS="linux" ;;
+        Darwin) OS="darwin" ;;
+    esac
     case $(uname -m) in
-        i386 | i686)        ARCH="386" ;;
         x86_64)             ARCH="amd64" ;;
         arm64 | aarch64)    ARCH="arm64" ;;
     esac
+    if [[ -z "${OS:-}" || -z "${ARCH:-}" ]]; then
+        echo "Platform not supported: $(uname -s) $(uname -m). Releases are built for Linux and macOS on amd64 and arm64." >&2
+        exit 1
+    fi
 
-    [[ -z "$ARCH" ]] && { echo "Platform not supported."; exit 1; }
-
-    VERSION="$(last_version)"
-    ASSET="shipyard-$(uname -s | tr '[:upper:]' '[:lower:]')-${ARCH}"
+    VERSION="${SHIPYARD_VERSION:-$(last_version)}"
+    VERSION="${VERSION#v}"
+    ASSET="shipyard-${OS}-${ARCH}"
     workdir="$(mktemp -d)"
     trap 'rm -rf "$workdir"' EXIT
 
