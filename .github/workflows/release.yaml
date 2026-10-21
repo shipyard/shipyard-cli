@@ -4,39 +4,72 @@ on:
   push:
     tags:
       - 'v*'
+  # Re-attests a published release whose attestation failed; see the
+  # attest-only job.
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: ID of the tag-push run that built the release
+        required: true
 
+# Read-only by default; only the release job, which declares its own
+# permissions, can write.
 permissions:
-  contents: write
+  contents: read
+
+# Toolchain shared by every job, so the snapshot that's smoke-tested and
+# vuln-scanned is built from the same commit with the same Go, GoReleaser and
+# syft as the release. The release job still builds its own binaries, with the
+# tag as their version, so their bytes differ from the snapshot's.
+# scripts/install-release-tools.sh checks the tarballs against these
+# digests; update a digest with its version, from that release's signed
+# checksums file. Bump GO_VERSION for each Go security release: vuln-scan fails
+# on stdlib findings, and release-check's weekly run flags them before a tag.
+env:
+  GO_VERSION: 1.26.10
+  # A go.mod newer than GO_VERSION fails the build instead of quietly
+  # downloading a toolchain nobody pinned.
+  GOTOOLCHAIN: local
+  GORELEASER_VERSION: 2.18.3
+  # goreleaser_Linux_x86_64.tar.gz
+  GORELEASER_SHA256: b8dee4728bca1aba0d71a832a17cd0a3799f75372878e7ffa36aef2343bce0bc
+  SYFT_VERSION: 1.42.3
+  # syft_<SYFT_VERSION>_linux_amd64.tar.gz
+  SYFT_SHA256: 0d6be741479eddd2c8644a288990c04f3df0d609bbc1599a005532a9dff63509
 
 jobs:
   test-and-build:
     name: Test & Build
+    # The jobs that need this one, through to the release, are skipped with it.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: '^1.24.x'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Run tests
         run: go test ./...
 
-      - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          install-only: true
+      # The snapshot builds the SBOMs too, so it needs syft as well.
+      - name: Install GoReleaser and syft
+        run: ./scripts/install-release-tools.sh
 
       - name: Build snapshot
         run: goreleaser release --snapshot --clean
 
+      - name: Check binaries, SBOMs and checksums
+        run: ./scripts/check-dist.sh dist
+
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
           path: dist/
@@ -57,10 +90,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist/
@@ -86,16 +119,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: '^1.24.x'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist/
@@ -120,21 +153,201 @@ jobs:
     name: Release
     needs: [smoke-test, vuln-scan]
     runs-on: ubuntu-latest
+    # id-token and attestations let the job sign build provenance with its
+    # GitHub OIDC identity (Sigstore), so no signing key is stored anywhere.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+          # GoReleaser takes the token from GITHUB_TOKEN; don't leave this job's
+          # write token in .git/config for every later step.
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: '^1.24.x'
-          cache: true
+          go-version: ${{ env.GO_VERSION }}
+          # No cache: other runs write it, and this job signs what it builds.
+          cache: false
+
+      # Every action is pinned by commit and GoReleaser and syft by digest (Go
+      # by exact version only, via setup-go): this job can sign provenance and
+      # holds the release token, so a moved tag, branch or release asset
+      # upstream must not change what runs here. The tools are
+      # fetched directly: goreleaser-action doesn't check what it downloads, and
+      # sbom-action's download-syft runs an install script from anchore/syft's
+      # main branch.
+      - name: Install GoReleaser and syft
+        run: ./scripts/install-release-tools.sh
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          args: release --clean
+        run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+
+      # The snapshot passed this check, but these are the binaries and SBOMs
+      # that ship. GoReleaser has published by now, so a failure here stops
+      # the attestation rather than the release. Also runs when GoReleaser
+      # fails after publishing (a Homebrew tap push comes after the release
+      # upload), so that release's dist/ is checked too.
+      - name: Check binaries, SBOMs and checksums
+        id: check-dist
+        if: ${{ always() && hashFiles('dist/checksums.txt') != '' }}
+        run: ./scripts/check-dist.sh dist
+
+      # Kept so the attest-only job can attest this run's digests if every
+      # attempt below fails. The release is already public by then. Only a
+      # dist/ that passed the check is kept: without it, release.sh says to
+      # withdraw the release rather than re-attest it.
+      - name: Keep checksums for re-attestation
+        if: ${{ always() && steps.check-dist.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: checksums
+          path: dist/checksums.txt
+          retention-days: 90
+
+      # Records which workflow run, commit and tag built each release asset.
+      # checksums.txt lists every uploaded binary and SBOM by its release name;
+      # the binaries themselves sit in per-build directories under dist/, so a
+      # path glob would miss them. Verify a download with:
+      #   gh attestation verify <file> -R shipyard/shipyard-cli \
+      #     --signer-workflow shipyard/shipyard-cli/.github/workflows/release.yaml \
+      #     --source-ref refs/tags/<tag>
+      # --source-ref matters: --signer-workflow matches the file path on any
+      # ref, so without it a copy of this file on any branch could sign.
+      #
+      # One retry covers a transient Sigstore or API failure. If the retry
+      # fails too, the job fails; don't re-run it (GoReleaser would fail on the
+      # existing release). Re-attest from this run's checksums instead:
+      #   gh workflow run release.yaml --ref <tag> -f run_id=<this run's ID>
+      - name: Attest build provenance
+        id: attest
+        continue-on-error: true
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-checksums: dist/checksums.txt
+
+      - name: Wait before retrying attestation
+        if: steps.attest.outcome == 'failure'
+        run: sleep 60
+
+      - name: Attest build provenance (retry)
+        if: steps.attest.outcome == 'failure'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-checksums: dist/checksums.txt
+
+      # Runs the README's verify command against the published assets, so a
+      # wrong signer path or subject name fails here rather than for users.
+      - name: Verify attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/verify-attestation.sh "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY"
+
+  # Run on the release's tag, so the attestation names the same workflow and
+  # ref as one made at release time and the README's verify command passes:
+  #   gh workflow run release.yaml --ref v1.2.3 -f run_id=<tag-push run ID>
+  # It attests the digests the release run recorded when it built the assets,
+  # not files downloaded from the release, so it can't sign an asset that was
+  # replaced after publishing.
+  attest-only:
+    name: Re-attest release
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check the run built this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "Run this on a release tag (--ref v1.2.3), not ${GITHUB_REF}." >&2
+            exit 1
+          fi
+          if [[ ! "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "run_id must be a numeric workflow run ID." >&2
+            exit 1
+          fi
+          # One field per line: read splits on runs of tabs, so an empty field in
+          # @tsv output would shift the rest into the wrong variables.
+          run_info=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" \
+            --jq '.event, .path, (.head_branch // ""), .head_sha, (.conclusion // "none")')
+          mapfile -t run <<< "$run_info"
+          event=${run[0]-} path=${run[1]-} head_branch=${run[2]-} head_sha=${run[3]-} conclusion=${run[4]-}
+          if [[ "$event" != push || "$path" != .github/workflows/release.yaml || "$head_branch" != "$GITHUB_REF_NAME" ]]; then
+            echo "Run ${RUN_ID} is not a release.yaml tag push of ${GITHUB_REF_NAME} (event=${event} path=${path} ref=${head_branch})." >&2
+            exit 1
+          fi
+          # head_branch is only a name: a branch called v1.2.3 matches it too,
+          # and a moved tag keeps it. The commit must be the tag's.
+          if [[ "$head_sha" != "$GITHUB_SHA" ]]; then
+            echo "Run ${RUN_ID} built ${head_sha}, but ${GITHUB_REF_NAME} is ${GITHUB_SHA}." >&2
+            exit 1
+          fi
+          # A run that's still going may still attest on its own.
+          if [[ "$conclusion" == none ]]; then
+            echo "Run ${RUN_ID} hasn't finished; wait for it before re-attesting." >&2
+            exit 1
+          fi
+          # A draft's upload failed partway, so it's withdrawn, not re-attested.
+          # The tags endpoint returns only a published release (a draft is a 404).
+          if ! gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .id > /dev/null 2> lookup-error.txt; then
+            cat lookup-error.txt >&2
+            if grep -q "HTTP 404" lookup-error.txt; then
+              echo "${GITHUB_REF_NAME} has no published release. A draft isn't re-attested: withdraw it with scripts/rollback.sh." >&2
+            else
+              echo "Couldn't look up the release for ${GITHUB_REF_NAME}; nothing attested. Try again." >&2
+            fi
+            exit 1
+          fi
+          echo "Run ${RUN_ID} built ${GITHUB_REF_NAME} (conclusion: ${conclusion})."
+
+      - name: Download the release run's checksums
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: checksums
+          path: dist/
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      # A mismatch means the published checksums.txt isn't the one the release
+      # run built; investigate before attesting anything.
+      - name: Check the published checksums match
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" -p checksums.txt -O published-checksums.txt
+          if ! cmp -s dist/checksums.txt published-checksums.txt; then
+            echo "The published checksums.txt differs from the one run ${RUN_ID} built:" >&2
+            diff dist/checksums.txt published-checksums.txt >&2 || true
+            exit 1
+          fi
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-checksums: dist/checksums.txt
+
+      # The tag's copy, for scripts/verify-attestation.sh.
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: src
+          persist-credentials: false
+
+      - name: Verify attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./src/scripts/verify-attestation.sh "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY"

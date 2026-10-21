@@ -55,6 +55,41 @@ jobs:
       - name: Run tests (no cache)
         run: go test -v ./...
 
+  # install.sh is what curl | bash users run, and its checksum refusals are
+  # what keeps a bad download off their machines. Both hash tools are covered
+  # on each OS: macOS ships sha256sum too, so install-test.sh forces the shasum
+  # fallback with a PATH that lacks sha256sum.
+  install-script:
+    name: Install script (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Test install.sh
+        run: ./scripts/install-test.sh
+
+      # The release gate only ever sees good builds in CI, so its refusals are
+      # tested here. It runs on Linux, as the release does.
+      - name: Test check-dist.sh
+        if: runner.os == 'Linux'
+        run: ./scripts/check-dist-test.sh
+
+      # What release.sh offers after a failed release, including whether it
+      # may offer to delete the tag.
+      - name: Test release.sh recovery
+        run: ./scripts/release-test.sh
+
+      # The release job's digest check on its tools and its post-release
+      # attestation check, which otherwise run only on a real tag.
+      - name: Test release tool checks
+        if: runner.os == 'Linux'
+        run: ./scripts/release-tools-test.sh
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

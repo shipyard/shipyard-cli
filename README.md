@@ -10,6 +10,11 @@ Using an AI assistant? The CLI includes an MCP server: see [Use Shipyard from an
     ```
     curl https://www.shipyard.sh/install.sh | bash
     ```
+  It installs to `/usr/local/bin`, using `sudo` only if it can't write there. To install somewhere else, such as a
+  directory you own, set `SHIPYARD_INSTALL_DIR`:
+    ```
+    curl https://www.shipyard.sh/install.sh | SHIPYARD_INSTALL_DIR="$HOME/.local/bin" bash
+    ```
 - **Windows**
   Navigate to the [releases page](https://github.com/shipyard/shipyard-cli/releases) and download the executable for
   Windows.
@@ -19,6 +24,37 @@ Using an AI assistant? The CLI includes an MCP server: see [Use Shipyard from an
     brew tap shipyard/tap
     brew install shipyard
     ```
+
+### Verifying a download
+
+Every release publishes a `checksums.txt` with the SHA-256 of each binary. The install script checks the binary
+against it and refuses to install on a mismatch. To check a binary you downloaded yourself:
+
+```bash
+grep " shipyard-darwin-arm64$" checksums.txt | shasum -a 256 -c -
+```
+
+`checksums.txt` comes from the same release as the binary, so it catches a corrupted or truncated download, not a
+release whose files were replaced. The attestation below is the check that the binary was built by this repo's release
+workflow.
+
+In releases after 1.9.0, each binary also has a signed build provenance attestation, showing which workflow run,
+commit and tag built it, and an SPDX SBOM (`shipyard-<os>-<arch>.sbom.json`; `.exe.sbom.json` on Windows) listing
+what it was built from. Verify the attestation with the [GitHub CLI](https://cli.github.com), naming the release you
+downloaded (here v1.10.0):
+
+```bash
+gh attestation verify shipyard-darwin-arm64 -R shipyard/shipyard-cli \
+  --signer-workflow shipyard/shipyard-cli/.github/workflows/release.yaml \
+  --source-ref refs/tags/v1.10.0
+```
+
+Keep `--source-ref`: without it, the check passes for anything a copy of the workflow signed on any branch, not just
+that release's tag build.
+
+The check names the tag, not its commit. A withdrawn release's attestations aren't deleted, so if a version is ever
+released again under the same tag, its withdrawn binaries still pass. To pin the commit as well, add
+`--source-digest <commit SHA>` with the commit the tag points to.
 
 ## Upgrading
 
