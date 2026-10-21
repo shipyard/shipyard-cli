@@ -1,0 +1,82 @@
+name: Release Check
+
+# Builds the release snapshot on PRs that touch the release toolchain, so a
+# bad digest bump, a syft change to the SBOM names or a .goreleaser.yaml edit
+# fails here instead of after a release tag is pushed. Same steps as
+# release.yaml's test-and-build, smoke-test (Linux only) and vuln-scan jobs,
+# with the toolchain read from its env. The weekly run catches a Go security release that the pinned
+# GO_VERSION predates, which would otherwise fail the next release's vuln-scan.
+on:
+  pull_request:
+    paths:
+      - .goreleaser.yaml
+      - .github/workflows/release.yaml
+      - .github/workflows/release-check.yaml
+      - scripts/install-release-tools.sh
+      - scripts/check-dist.sh
+      - scripts/vuln-scan.sh
+      - scripts/smoke-test.sh
+      - scripts/mcp-smoke-test.sh
+      - go.mod
+      - go.sum
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: Release snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Read the toolchain pinned in release.yaml
+        run: yq '.env | to_entries | .[] | .key + "=" + .value' .github/workflows/release.yaml >> "$GITHUB_ENV"
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install GoReleaser and syft
+        run: ./scripts/install-release-tools.sh
+
+      - name: Build snapshot
+        run: goreleaser release --snapshot --clean
+
+      - name: Check binaries, SBOMs and checksums
+        run: ./scripts/check-dist.sh dist
+
+      # The release's smoke-test job also runs the macOS builds; Linux catches a
+      # broken build, a renamed command or a failing MCP handshake.
+      - name: Run smoke tests
+        run: |
+          BINARY=$(find dist -path "*linux_amd64*" -name "shipyard" -type f | head -1)
+          if [[ -z "$BINARY" ]]; then
+            echo "Binary for linux_amd64 not found in dist/"
+            find dist -type f
+            exit 1
+          fi
+          chmod +x "$BINARY"
+          ./scripts/smoke-test.sh "$BINARY"
+          ./scripts/mcp-smoke-test.sh "$BINARY"
+
+      - name: Scan release binaries
+        run: |
+          BINARIES=()
+          while IFS= read -r binary; do
+            BINARIES+=("$binary")
+          done < <(find dist -type f \( -name "shipyard" -o -name "shipyard.exe" \))
+          if [[ "${#BINARIES[@]}" -eq 0 ]]; then
+            echo "No binaries found in dist/"
+            find dist -type f
+            exit 1
+          fi
+          ./scripts/vuln-scan.sh "${BINARIES[@]}"

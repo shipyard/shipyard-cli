@@ -24,6 +24,13 @@ archives:
     name_template: "shipyard-{{ .Os }}-{{ .Arch }}"
 checksum:
   name_template: 'checksums.txt'
+# An SPDX SBOM per binary (shipyard-<os>-<arch>.sbom.json, or
+# shipyard-windows-<arch>.exe.sbom.json), uploaded with the release and listed
+# in checksums.txt. Needs syft on the PATH.
+sboms:
+  - artifacts: binary
+    documents:
+      - "{{ .ArtifactName }}.sbom.json"
 changelog:
   disable: true
 release:

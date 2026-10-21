@@ -15,6 +15,9 @@
 #
 set -euo pipefail
 
+# shellcheck source=scripts/release-state.sh
+source "$(cd "$(dirname "$0")" && pwd)/release-state.sh"
+
 TAG="${1:-}"
 if [[ -z "$TAG" ]]; then
     echo "Usage: $0 <version-tag>"
@@ -28,14 +31,28 @@ TAP_REPO="shipyard/homebrew-tap"
 echo "=== Rolling back release $TAG ==="
 echo ""
 
-# 1. Delete the GitHub release
+# 1. Delete the GitHub release. The tag is deleted only once the release is
+# known to be gone: deleting it first would leave a live release with no tag.
 echo "Step 1: Deleting GitHub release $TAG..."
-if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-    gh release delete "$TAG" --repo "$REPO" --yes
-    echo "  Deleted GitHub release."
-else
-    echo "  No GitHub release found for $TAG (skipping)."
+if ! can_push "$REPO"; then
+    echo "  gh's token can't push to $REPO (check 'gh auth status'); nothing changed." >&2
+    exit 1
 fi
+RELEASE_DELETED=false
+case "$(release_state "$TAG" "$REPO")" in
+    published | draft)
+        gh release delete "$TAG" --repo "$REPO" --yes
+        RELEASE_DELETED=true
+        echo "  Deleted GitHub release."
+        ;;
+    not-found)
+        echo "  No GitHub release found for $TAG (skipping)."
+        ;;
+    *)
+        echo "  Couldn't tell whether release $TAG exists (gh's error is above); nothing changed." >&2
+        exit 1
+        ;;
+esac
 
 # 2. Delete the git tag (remote and local)
 echo "Step 2: Deleting git tag $TAG..."
@@ -85,9 +102,17 @@ fi
 
 echo ""
 echo "=== Rollback Checklist ==="
-echo "[x] GitHub release $TAG deleted"
+if $RELEASE_DELETED; then
+    echo "[x] GitHub release $TAG deleted"
+else
+    echo "[x] GitHub release $TAG: none found"
+fi
 echo "[x] Git tag $TAG deleted (remote + local)"
 echo "[ ] Verify: gh release view --repo $REPO"
 echo "[ ] Verify: curl -sI https://github.com/$REPO/releases/latest | grep location"
 echo "[ ] Revert Homebrew cask commit if not done above"
 echo "[ ] Notify team of rollback"
+echo ""
+# gstack-shortcut(dec-90477c5c): reuse is warned against, not blocked; upgrade when release.sh refuses a tag whose earlier run reached publishing
+echo "Release the fix as a new version, not $TAG again: $TAG's attestations aren't"
+echo "deleted, so the withdrawn binaries would still verify as $TAG."
