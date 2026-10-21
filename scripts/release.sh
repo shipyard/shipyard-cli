@@ -22,6 +22,9 @@
 #
 set -euo pipefail
 
+# shellcheck source=scripts/release-state.sh
+source "$(cd "$(dirname "$0")" && pwd)/release-state.sh"
+
 REPO="shipyard/shipyard-cli"
 
 # ── Flags ──────────────────────────────────────────────────────────────────────
@@ -267,7 +270,21 @@ else
     echo ""
     # GoReleaser publishes before the attest step, so a late failure leaves a
     # live release. Don't offer to delete its tag; point at the recovery path.
-    if gh release view "$NEXT_TAG" --repo "$REPO" >/dev/null 2>&1; then
+    # Only a definite "release not found" reaches the delete prompt.
+    RELEASE_STATE=$(release_state "$NEXT_TAG" "$REPO")
+    if [[ "$RELEASE_STATE" == unknown ]]; then
+        echo "  Couldn't tell whether release $NEXT_TAG exists (gh's error is above)."
+        echo "  Tag $NEXT_TAG left in place. Check https://github.com/$REPO/releases, then"
+        echo "  rerun the workflow or withdraw it with scripts/rollback.sh."
+        exit 1
+    fi
+    # Re-attesting wouldn't finish a draft: its upload failed partway.
+    if [[ "$RELEASE_STATE" == draft ]]; then
+        echo "  Release $NEXT_TAG is still a draft: the upload failed partway and some assets"
+        echo "  may be missing. Withdraw it with scripts/rollback.sh and release again."
+        exit 1
+    fi
+    if [[ "$RELEASE_STATE" == published ]]; then
         echo "  Release $NEXT_TAG is already published, so the failure came after publishing"
         echo "  (attestation, or GoReleaser's Homebrew tap push). Check the run log."
         # Re-attesting needs the checksums the run saved; without them it can't work.

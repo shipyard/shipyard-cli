@@ -48,7 +48,7 @@ main() {
         "~/"*)  install_dir="${HOME}/${install_dir#"~/"}" ;;
     esac
     target="${install_dir}/shipyard"
-    # install(1) would put the binary inside a directory, or replace a
+    # The final mv would put the binary inside a directory, or replace a
     # symlink such as Homebrew's, and still report success.
     if [[ -L "$target" ]]; then
         echo "${target} is a symlink (Homebrew creates one); not replacing it." >&2
@@ -61,7 +61,8 @@ main() {
     fi
 
     # Only the platforms .goreleaser.yaml builds; anything else would fail
-    # later with a bare 404.
+    # later with a bare 404. Cleared first: Git Bash exports OS=Windows_NT.
+    OS="" ARCH=""
     case $(uname -s) in
         Linux)  OS="linux" ;;
         Darwin) OS="darwin" ;;

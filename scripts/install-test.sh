@@ -163,6 +163,37 @@ expect_refusal "refuses to replace a symlink" "is a symlink" "${tmp}/brew"
 mkdir -p "${tmp}/dirtarget/shipyard"
 expect_refusal "refuses a directory at the target" "is a directory" "${tmp}/dirtarget"
 
+# A release with no checksums.txt can't be verified, so nothing is installed.
+rm "${release}/checksums.txt"
+if run_install "${tmp}/nosums"; then
+    fail "refuses a release with no checksums.txt: install.sh succeeded"
+elif ! grep -q "^curl: .*checksums\.txt" "${tmp}/out"; then
+    fail "refuses a release with no checksums.txt: failed for another reason"; cat "${tmp}/out" >&2
+elif [[ -e "${tmp}/nosums/shipyard" ]]; then
+    fail "refuses a release with no checksums.txt: a binary was installed anyway"
+else
+    pass "refuses a release with no checksums.txt"
+fi
+write_sums "$good_sum" "$asset"
+
+# Current macOS ships sha256sum too, so the shasum fallback is forced with a
+# PATH that holds only what install.sh needs. The shasum wrapper logs its use.
+mkdir -p "${tmp}/nosha"
+for t in bash curl awk grep mktemp mkdir install mv rm uname cat; do
+    ln -sf "$(command -v "$t")" "${tmp}/nosha/${t}"
+done
+printf '#!/bin/sh\necho used >> %s/shasum.log\nexec %s "$@"\n' "$tmp" "$(command -v shasum)" > "${tmp}/nosha/shasum"
+chmod +x "${tmp}/nosha/shasum"
+if run_install "${tmp}/shasum" PATH="${tmp}/nosha" \
+    && [[ -s "${tmp}/shasum.log" && -x "${tmp}/shasum/shipyard" ]]; then
+    pass "verifies with shasum when sha256sum is missing"
+else
+    fail "verifies with shasum when sha256sum is missing"; cat "${tmp}/out" >&2
+fi
+
+rm "${tmp}/nosha/shasum"
+expect_refusal "refuses when no hash tool is installed" "can't be verified" "${tmp}/nohash" PATH="${tmp}/nosha"
+
 # An unbuilt architecture is refused up front, not with a download 404.
 mkdir -p "${tmp}/shim"
 real_uname="$(command -v uname)"
@@ -170,6 +201,16 @@ real_uname="$(command -v uname)"
 printf '#!/bin/sh\nif [ "$1" = -m ]; then echo i686; else exec %s "$@"; fi\n' "$real_uname" > "${tmp}/shim/uname"
 chmod +x "${tmp}/shim/uname"
 expect_refusal "refuses an unsupported platform" "Platform not supported" "${tmp}/i686" PATH="${tmp}/shim:${PATH}"
+
+# Git Bash exports OS=Windows_NT, which mustn't stand in for a detected OS.
+mkdir -p "${tmp}/winshim"
+# shellcheck disable=SC2016 # $1 and $@ belong to the shim
+printf '#!/bin/sh\nif [ "$1" = -s ]; then echo MINGW64_NT-10.0; else exec %s "$@"; fi\n' "$real_uname" > "${tmp}/winshim/uname"
+chmod +x "${tmp}/winshim/uname"
+expect_refusal "ignores an inherited OS variable" "Platform not supported" "${tmp}/gitbash" \
+    PATH="${tmp}/winshim:${PATH}" OS=Windows_NT
+expect_refusal "ignores an inherited ARCH variable" "Platform not supported" "${tmp}/archenv" \
+    PATH="${tmp}/shim:${PATH}" ARCH=amd64
 
 if (( failures > 0 )); then
     echo "${failures} install.sh test(s) failed" >&2

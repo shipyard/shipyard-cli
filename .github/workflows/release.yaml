@@ -21,9 +21,13 @@ permissions:
 # vuln-scanned is built the way the release is: same commit, Go, GoReleaser
 # and syft. scripts/install-release-tools.sh checks the tarballs against these
 # digests; update a digest with its version, from that release's signed
-# checksums file.
+# checksums file. Bump GO_VERSION for each Go security release: vuln-scan fails
+# on stdlib findings, and release-check's weekly run flags them before a tag.
 env:
   GO_VERSION: 1.26.9
+  # A go.mod newer than GO_VERSION fails the build instead of quietly
+  # downloading a toolchain nobody pinned.
+  GOTOOLCHAIN: local
   GORELEASER_VERSION: 2.18.3
   # goreleaser_Linux_x86_64.tar.gz
   GORELEASER_SHA256: b8dee4728bca1aba0d71a832a17cd0a3799f75372878e7ffa36aef2343bce0bc
@@ -158,6 +162,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+          # GoReleaser takes the token from GITHUB_TOKEN; don't leave this job's
+          # write token in .git/config for every later step.
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -166,9 +173,10 @@ jobs:
           # No cache: other runs write it, and this job signs what it builds.
           cache: false
 
-      # Every action and tool in this job is pinned by commit or digest: it can
-      # sign provenance and holds the release token, so a moved tag, branch or
-      # release asset upstream must not change what runs here. The tools are
+      # Every action is pinned by commit and GoReleaser and syft by digest (Go
+      # by exact version only, via setup-go): this job can sign provenance and
+      # holds the release token, so a moved tag, branch or release asset
+      # upstream must not change what runs here. The tools are
       # fetched directly: goreleaser-action doesn't check what it downloads, and
       # sbom-action's download-syft runs an install script from anchore/syft's
       # main branch.
@@ -305,6 +313,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: src
+          persist-credentials: false
 
       - name: Verify attestation
         env:

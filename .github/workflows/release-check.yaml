@@ -3,7 +3,9 @@ name: Release Check
 # Builds the release snapshot on PRs that touch the release toolchain, so a
 # bad digest bump, a syft change to the SBOM names or a .goreleaser.yaml edit
 # fails here instead of after a release tag is pushed. Same steps as
-# release.yaml's test-and-build job, with the toolchain read from its env.
+# release.yaml's test-and-build and vuln-scan jobs, with the toolchain read
+# from its env. The weekly run catches a Go security release that the pinned
+# GO_VERSION predates, which would otherwise fail the next release's vuln-scan.
 on:
   pull_request:
     paths:
@@ -12,6 +14,12 @@ on:
       - .github/workflows/release-check.yaml
       - scripts/install-release-tools.sh
       - scripts/check-dist.sh
+      - scripts/vuln-scan.sh
+      - go.mod
+      - go.sum
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -43,3 +51,16 @@ jobs:
 
       - name: Check binaries, SBOMs and checksums
         run: ./scripts/check-dist.sh dist
+
+      - name: Scan release binaries
+        run: |
+          BINARIES=()
+          while IFS= read -r binary; do
+            BINARIES+=("$binary")
+          done < <(find dist -type f \( -name "shipyard" -o -name "shipyard.exe" \))
+          if [[ "${#BINARIES[@]}" -eq 0 ]]; then
+            echo "No binaries found in dist/"
+            find dist -type f
+            exit 1
+          fi
+          ./scripts/vuln-scan.sh "${BINARIES[@]}"
