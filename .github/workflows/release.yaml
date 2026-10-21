@@ -18,13 +18,15 @@ permissions:
   contents: read
 
 # Toolchain shared by every job, so the snapshot that's smoke-tested and
-# vuln-scanned is built the way the release is: same commit, Go, GoReleaser
-# and syft. scripts/install-release-tools.sh checks the tarballs against these
+# vuln-scanned is built from the same commit with the same Go, GoReleaser and
+# syft as the release. The release job still builds its own binaries, with the
+# tag as their version, so their bytes differ from the snapshot's.
+# scripts/install-release-tools.sh checks the tarballs against these
 # digests; update a digest with its version, from that release's signed
 # checksums file. Bump GO_VERSION for each Go security release: vuln-scan fails
 # on stdlib findings, and release-check's weekly run flags them before a tag.
 env:
-  GO_VERSION: 1.26.9
+  GO_VERSION: 1.26.10
   # A go.mod newer than GO_VERSION fails the build instead of quietly
   # downloading a toolchain nobody pinned.
   GOTOOLCHAIN: local
@@ -188,12 +190,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
 
-      # Kept so the attest-only job can attest this run's digests if every
-      # attempt below fails. The release is already public by then. Also runs
-      # when GoReleaser fails after publishing (a Homebrew tap push comes after
-      # the release upload), so that release can still be re-attested.
-      - name: Keep checksums for re-attestation
+      # The snapshot passed this check, but these are the binaries and SBOMs
+      # that ship. GoReleaser has published by now, so a failure here stops
+      # the attestation rather than the release. Also runs when GoReleaser
+      # fails after publishing (a Homebrew tap push comes after the release
+      # upload), so that release's dist/ is checked too.
+      - name: Check binaries, SBOMs and checksums
+        id: check-dist
         if: ${{ always() && hashFiles('dist/checksums.txt') != '' }}
+        run: ./scripts/check-dist.sh dist
+
+      # Kept so the attest-only job can attest this run's digests if every
+      # attempt below fails. The release is already public by then. Only a
+      # dist/ that passed the check is kept: without it, release.sh says to
+      # withdraw the release rather than re-attest it.
+      - name: Keep checksums for re-attestation
+        if: ${{ always() && steps.check-dist.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: checksums
@@ -267,8 +279,12 @@ jobs:
             echo "run_id must be a numeric workflow run ID." >&2
             exit 1
           fi
-          read -r event path head_branch head_sha conclusion < <(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" \
-            --jq '[.event, .path, .head_branch, .head_sha, .conclusion] | @tsv')
+          # One field per line: read splits on runs of tabs, so an empty field in
+          # @tsv output would shift the rest into the wrong variables.
+          run_info=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" \
+            --jq '.event, .path, (.head_branch // ""), .head_sha, (.conclusion // "none")')
+          mapfile -t run <<< "$run_info"
+          event=${run[0]-} path=${run[1]-} head_branch=${run[2]-} head_sha=${run[3]-} conclusion=${run[4]-}
           if [[ "$event" != push || "$path" != .github/workflows/release.yaml || "$head_branch" != "$GITHUB_REF_NAME" ]]; then
             echo "Run ${RUN_ID} is not a release.yaml tag push of ${GITHUB_REF_NAME} (event=${event} path=${path} ref=${head_branch})." >&2
             exit 1
@@ -277,6 +293,22 @@ jobs:
           # and a moved tag keeps it. The commit must be the tag's.
           if [[ "$head_sha" != "$GITHUB_SHA" ]]; then
             echo "Run ${RUN_ID} built ${head_sha}, but ${GITHUB_REF_NAME} is ${GITHUB_SHA}." >&2
+            exit 1
+          fi
+          # A run that's still going may still attest on its own.
+          if [[ "$conclusion" == none ]]; then
+            echo "Run ${RUN_ID} hasn't finished; wait for it before re-attesting." >&2
+            exit 1
+          fi
+          # A draft's upload failed partway, so it's withdrawn, not re-attested.
+          # The tags endpoint returns only a published release (a draft is a 404).
+          if ! gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .id > /dev/null 2> lookup-error.txt; then
+            cat lookup-error.txt >&2
+            if grep -q "HTTP 404" lookup-error.txt; then
+              echo "${GITHUB_REF_NAME} has no published release. A draft isn't re-attested: withdraw it with scripts/rollback.sh." >&2
+            else
+              echo "Couldn't look up the release for ${GITHUB_REF_NAME}; nothing attested. Try again." >&2
+            fi
             exit 1
           fi
           echo "Run ${RUN_ID} built ${GITHUB_REF_NAME} (conclusion: ${conclusion})."

@@ -84,6 +84,12 @@ jobs:
       - name: Test release.sh recovery
         run: ./scripts/release-test.sh
 
+      # The release job's digest check on its tools and its post-release
+      # attestation check, which otherwise run only on a real tag.
+      - name: Test release tool checks
+        if: runner.os == 'Linux'
+        run: ./scripts/release-tools-test.sh
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

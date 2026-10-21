@@ -52,6 +52,10 @@ gh attestation verify shipyard-darwin-arm64 -R shipyard/shipyard-cli \
 Keep `--source-ref`: without it, the check passes for anything a copy of the workflow signed on any branch, not just
 that release's tag build.
 
+The check names the tag, not its commit. A withdrawn release's attestations aren't deleted, so if a version is ever
+released again under the same tag, its withdrawn binaries still pass. To pin the commit as well, add
+`--source-digest <commit SHA>` with the commit the tag points to.
+
 ## Upgrading
 
 ```bash

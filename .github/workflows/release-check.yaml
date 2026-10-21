@@ -3,8 +3,8 @@ name: Release Check
 # Builds the release snapshot on PRs that touch the release toolchain, so a
 # bad digest bump, a syft change to the SBOM names or a .goreleaser.yaml edit
 # fails here instead of after a release tag is pushed. Same steps as
-# release.yaml's test-and-build and vuln-scan jobs, with the toolchain read
-# from its env. The weekly run catches a Go security release that the pinned
+# release.yaml's test-and-build, smoke-test (Linux only) and vuln-scan jobs,
+# with the toolchain read from its env. The weekly run catches a Go security release that the pinned
 # GO_VERSION predates, which would otherwise fail the next release's vuln-scan.
 on:
   pull_request:
@@ -15,6 +15,8 @@ on:
       - scripts/install-release-tools.sh
       - scripts/check-dist.sh
       - scripts/vuln-scan.sh
+      - scripts/smoke-test.sh
+      - scripts/mcp-smoke-test.sh
       - go.mod
       - go.sum
   schedule:
@@ -51,6 +53,20 @@ jobs:
 
       - name: Check binaries, SBOMs and checksums
         run: ./scripts/check-dist.sh dist
+
+      # The release's smoke-test job also runs the macOS builds; Linux catches a
+      # broken build, a renamed command or a failing MCP handshake.
+      - name: Run smoke tests
+        run: |
+          BINARY=$(find dist -path "*linux_amd64*" -name "shipyard" -type f | head -1)
+          if [[ -z "$BINARY" ]]; then
+            echo "Binary for linux_amd64 not found in dist/"
+            find dist -type f
+            exit 1
+          fi
+          chmod +x "$BINARY"
+          ./scripts/smoke-test.sh "$BINARY"
+          ./scripts/mcp-smoke-test.sh "$BINARY"
 
       - name: Scan release binaries
         run: |
