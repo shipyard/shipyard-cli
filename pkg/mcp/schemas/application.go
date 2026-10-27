@@ -1,0 +1,105 @@
+package schemas
+
+func stringArray(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "array",
+		"description": description,
+		"items":       map[string]interface{}{"type": "string"},
+	}
+}
+
+func routesSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"description": "Map of service name to its route (the shipyard.route label value, e.g. \"/\" or \"/api\"). " +
+			"Pick from the plan's routes and route_candidates",
+		"additionalProperties": map[string]interface{}{"type": "string"},
+	}
+}
+
+func envSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "array",
+		"description": "Variables to set. Ask the user for each value; values are sent to Shipyard and never " +
+			"returned in the result. kind=runtime (default) sets a secret, kind=build_arg a build arg",
+		"items": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"name":  map[string]interface{}{"type": "string", "description": "Variable name"},
+				"value": map[string]interface{}{"type": "string", "description": "Variable value"},
+				"kind": map[string]interface{}{
+					"type":        "string",
+					"enum":        []string{"runtime", "build_arg"},
+					"description": "runtime (default) or build_arg, as the plan's env list says",
+				},
+				"hidden":   map[string]interface{}{"type": "boolean", "description": "Mask the value in API responses"},
+				"services": stringArray("Optional service names to scope the variable to"),
+			},
+			"required": []string{"name", "value"},
+		},
+	}
+}
+
+// PlanApplicationSchema is the input for plan_application.
+func PlanApplicationSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"repo":   map[string]interface{}{"type": "string", "description": "GitHub repo as owner/name"},
+			"branch": map[string]interface{}{"type": "string", "description": "Branch to build, already pushed"},
+		},
+		"required": []string{"repo", "branch"},
+	}
+}
+
+// CreateApplicationSchema is the input for create_application.
+func CreateApplicationSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"repo":     map[string]interface{}{"type": "string", "description": "GitHub repo as owner/name"},
+			"branch":   map[string]interface{}{"type": "string", "description": "Branch to build, already pushed"},
+			"app_name": map[string]interface{}{"type": "string", "description": "Application name (defaults to the repo name)"},
+			"services": stringArray("Compose services to enable; defaults to the plan's services"),
+			"routes":   routesSchema(),
+			"env":      envSchema(),
+			"head_sha": map[string]interface{}{
+				"type":        "string",
+				"description": "head_sha from plan_application, so Shipyard can refuse a plan that went stale",
+			},
+			"compose_filename": map[string]interface{}{
+				"type":        "string",
+				"description": "Compose file path, when the plan's compose_file is not the default",
+			},
+		},
+		"required": []string{"repo", "branch"},
+	}
+}
+
+// UpdateApplicationSchema is the input for update_application.
+func UpdateApplicationSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"application_id": map[string]interface{}{"type": "string", "description": "Application UUID"},
+			"projects": map[string]interface{}{
+				"type":        "array",
+				"description": "Repos to change or add. Only the fields given change; repos left out are kept",
+				"items": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"repo":             map[string]interface{}{"type": "string", "description": "Repo name, or owner/name to add a repo"},
+						"branch":           map[string]interface{}{"type": "string", "description": "Branch"},
+						"services":         stringArray("Compose services to enable"),
+						"routes":           routesSchema(),
+						"compose_filename": map[string]interface{}{"type": "string", "description": "Compose file path"},
+					},
+					"required": []string{"repo"},
+				},
+			},
+			"remove_repos": stringArray("Repo names to unlink from the application"),
+			"env":          envSchema(),
+		},
+		"required": []string{"application_id"},
+	}
+}

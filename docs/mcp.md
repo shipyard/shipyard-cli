@@ -247,9 +247,9 @@ overwrite state, or neither. Clients use this to decide what to ask you about.
 
 | Kind | Tools |
 |---|---|
-| Read-only | `get_environments`, `get_environment`, `get_build_history`, `get_failure_details`, `get_build_logs`, `get_env_vars`, `get_logs`, `get_services`, `get_volumes`, `get_snapshots`, `get_orgs`, `get_org`, `port_forward` (returns a command, runs nothing) |
-| Destructive: overwrites, stops or removes something | `stop_environment`, `cancel_environment`, `rebuild_environment`, `update_branches`, `restart_service`, `put_env_vars`, `delete_env_var`, `reset_volume`, `load_snapshot`, `exec_service`, `set_org` (changes the org every later call targets), `telepresence_connect` (rewrites `~/.shipyard/kubeconfig` and your routes) |
-| Adds state only | `restart_environment`, `revive_environment`, `deploy_detached`, `create_snapshot` |
+| Read-only | `get_environments`, `get_environment`, `get_build_history`, `get_failure_details`, `get_build_logs`, `get_env_vars`, `get_logs`, `get_services`, `get_volumes`, `get_snapshots`, `get_orgs`, `get_org`, `plan_application`, `port_forward` (returns a command, runs nothing) |
+| Destructive: overwrites, stops or removes something | `stop_environment`, `cancel_environment`, `rebuild_environment`, `update_branches`, `restart_service`, `put_env_vars`, `delete_env_var`, `reset_volume`, `load_snapshot`, `exec_service`, `set_org` (changes the org every later call targets), `telepresence_connect` (rewrites `~/.shipyard/kubeconfig` and your routes), `update_application` (overwrites an app's config and can unlink repos) |
+| Adds state only | `restart_environment`, `revive_environment`, `deploy_detached`, `create_snapshot`, `create_application` |
 
 ### Letting an assistant read without asking
 
@@ -338,7 +338,7 @@ hints. Remove the destructive tools from the server with `disabledTools`:
         "stop_environment", "cancel_environment", "rebuild_environment",
         "update_branches", "restart_service", "put_env_vars", "delete_env_var",
         "reset_volume", "load_snapshot", "exec_service", "set_org",
-        "telepresence_connect"
+        "telepresence_connect", "update_application"
       ]
     }
   }
@@ -346,9 +346,10 @@ hints. Remove the destructive tools from the server with `disabledTools`:
 ```
 
 A disabled tool is not offered to the model at all. This leaves the read tools
-and the four that only add state (`restart_environment`, `revive_environment`,
-`deploy_detached`, `create_snapshot`) on, so the assistant can start a stopped
-environment to test against. Add those four too for a strictly read-only session.
+and the five that only add state (`restart_environment`, `revive_environment`,
+`deploy_detached`, `create_snapshot`, `create_application`) on, so the assistant
+can start a stopped environment to test against. Add those five too for a strictly
+read-only session.
 
 `disabledTools` is a block-list: a tool added in a later release is enabled until
 you add it, so check the [table above](#what-each-tool-may-change) after
@@ -379,6 +380,20 @@ upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
 | `delete_env_var` | Delete an environment variable by name |
 | `update_branches` | Change the branch of every repo in an environment |
 | `deploy_detached` | Deploy a detached environment cloned from an application build |
+
+### Applications
+
+| Tool | What it does |
+|---|---|
+| `plan_application` | Preview creating an app for a pushed GitHub branch: its compose file, services, suggested routes, the env var names it needs and any existing app. Changes nothing |
+| `create_application` | Create an app from a confirmed plan: services, routes and env vars. Env values are sent to Shipyard but never returned |
+| `update_application` | Reconfigure an app: a repo's branch, services or routes, added or removed repos, env vars |
+
+When Shipyard needs something done first, such as installing the GitHub app,
+pushing the branch or adding a compose file, these return `status: needs_action`
+with a `next_step` (`kind`, `message`, and a `url` when there is one) instead of
+an error. A repo that already has an app returns `status: already_exists`. The
+agent shows you the message and waits for you to act.
 
 ### Failed builds
 

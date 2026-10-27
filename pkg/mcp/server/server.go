@@ -502,6 +502,11 @@ func (s *MCPServer) registerTools() {
 	// Register telepresence tools
 	s.tools["telepresence_connect"] = tools.NewTelepresenceTool(s.client, "telepresence_connect")
 
+	// Register application tools
+	for _, name := range []string{"plan_application", "create_application", "update_application"} {
+		s.tools[name] = tools.NewApplicationTool(s.client, name)
+	}
+
 	// Typed tools for API surfaces without a prior MCP binding.
 	for _, name := range []string{
 		"get_build_history",

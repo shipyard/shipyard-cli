@@ -170,7 +170,7 @@ func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 		"get_environments": true, "get_environment": true, "get_orgs": true, "get_org": true,
 		"get_logs": true, "get_services": true, "get_volumes": true, "get_snapshots": true,
 		"get_build_history": true, "get_env_vars": true, "port_forward": true,
-		"get_failure_details": true, "get_build_logs": true,
+		"get_failure_details": true, "get_build_logs": true, "plan_application": true,
 	}
 	// set_org overwrites the org every later call targets; telepresence_connect
 	// overwrites the shared kubeconfig and the host's routes. Neither only adds.
@@ -178,7 +178,7 @@ func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 		"stop_environment": true, "cancel_environment": true, "rebuild_environment": true,
 		"restart_service": true, "put_env_vars": true, "delete_env_var": true,
 		"update_branches": true, "reset_volume": true, "load_snapshot": true, "exec_service": true,
-		"set_org": true, "telepresence_connect": true,
+		"set_org": true, "telepresence_connect": true, "update_application": true,
 	}
 	// Clients retry idempotent calls on their own. reset_volume and load_snapshot
 	// queue a new restore each call, and cancel_environment cancels whatever build
@@ -191,6 +191,7 @@ func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 		"restart_environment": true, "stop_environment": true, "revive_environment": true,
 		"update_branches": true, "set_org": true, "put_env_vars": true, "delete_env_var": true,
 		"telepresence_connect": true,
+		"plan_application":     true, "create_application": true, "update_application": true,
 	}
 	openWorld := map[string]bool{"exec_service": true, "telepresence_connect": true}
 
