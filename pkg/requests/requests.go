@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -90,17 +89,27 @@ func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if len(b) == 0 {
-			return nil, fmt.Errorf("empty response")
-		}
-		errString := types.ErrorFromResponse(b)
-		if errString == "" {
-			return nil, errors.New(string(b))
-		}
-		// Force the first character of the error string from the API to be lower-case.
-		errString = strings.ToLower(errString[:1]) + errString[1:]
-		return nil, errors.New(errString)
+		return nil, newAPIError(resp.StatusCode, b)
 	}
 
 	return b, nil
+}
+
+// newAPIError keeps the status and body of a failed response, with the message
+// callers have always seen: the API's first error title, lower-cased, or else
+// the raw body.
+func newAPIError(status int, body []byte) *APIError {
+	e := &APIError{StatusCode: status, Body: body}
+	if len(body) == 0 {
+		e.message = "empty response"
+		return e
+	}
+	errString := types.ErrorFromResponse(body)
+	if errString == "" {
+		e.message = string(body)
+		return e
+	}
+	// Force the first character of the error string from the API to be lower-case.
+	e.message = strings.ToLower(errString[:1]) + errString[1:]
+	return e
 }
