@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
+	"github.com/shipyard/shipyard-cli/commands/app"
 	"github.com/shipyard/shipyard-cli/commands/env"
 	"github.com/shipyard/shipyard-cli/commands/k8s"
 	"github.com/shipyard/shipyard-cli/commands/telepresence"
@@ -92,6 +93,7 @@ func setupCommands() {
 	rootCmd.AddCommand(NewSetCmd())
 	rootCmd.AddCommand(NewUpgradeCmd())
 	rootCmd.AddCommand(NewModeCmd())
+	rootCmd.AddCommand(app.NewAddCmd(c))
 	rootCmd.AddCommand(volumes.NewResetCmd(c))
 	rootCmd.AddCommand(volumes.NewCreateCmd(c))
 	rootCmd.AddCommand(volumes.NewUploadCmd(c))

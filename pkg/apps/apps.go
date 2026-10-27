@@ -51,20 +51,47 @@ type EnvName struct {
 	Kind string `json:"kind"`
 }
 
+// Route is a service's route in a plan.
+type Route struct {
+	Service string `json:"service"`
+	Route   string `json:"route"`
+}
+
+// RouteCandidate is a service that could take the app's main route. Core may
+// send a bare service name or an object with a service field.
+type RouteCandidate string
+
+// UnmarshalJSON accepts "web" or {"service": "web", ...}.
+func (c *RouteCandidate) UnmarshalJSON(b []byte) error {
+	var name string
+	if err := json.Unmarshal(b, &name); err == nil {
+		*c = RouteCandidate(name)
+		return nil
+	}
+	var obj struct {
+		Service string `json:"service"`
+	}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return err
+	}
+	*c = RouteCandidate(obj.Service)
+	return nil
+}
+
 // PlanResponse is the body of POST /application/plan.
 type PlanResponse struct {
-	Status          string          `json:"status"`
-	Org             string          `json:"org"`
-	Repo            string          `json:"repo"`
-	Branch          string          `json:"branch"`
-	HeadSHA         string          `json:"head_sha"`
-	ComposeFile     string          `json:"compose_file"`
-	Services        []string        `json:"services"`
-	Routes          json.RawMessage `json:"routes,omitempty"`
-	RouteCandidates []string        `json:"route_candidates"`
-	Env             []EnvName       `json:"env"`
-	ExistingApp     json.RawMessage `json:"existing_app,omitempty"`
-	NextStep        *NextStep       `json:"next_step,omitempty"`
+	Status          string           `json:"status"`
+	Org             string           `json:"org"`
+	Repo            string           `json:"repo"`
+	Branch          string           `json:"branch"`
+	HeadSHA         string           `json:"head_sha"`
+	ComposeFile     string           `json:"compose_file"`
+	Services        []string         `json:"services"`
+	Routes          []Route          `json:"routes"`
+	RouteCandidates []RouteCandidate `json:"route_candidates"`
+	Env             []EnvName        `json:"env"`
+	ExistingApp     json.RawMessage  `json:"existing_app,omitempty"`
+	NextStep        *NextStep        `json:"next_step,omitempty"`
 }
 
 // ActionResponse is the part of a create or update answer that says whether
