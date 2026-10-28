@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/viper"
 
+	"github.com/shipyard/shipyard-cli/pkg/apps"
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/requests"
 )
@@ -40,7 +41,7 @@ func cleanCheckout() map[string]string {
 		"rev-parse --abbrev-ref HEAD":                 "feature",
 		"ls-remote --heads origin refs/heads/feature": sha + "\trefs/heads/feature",
 		"rev-parse HEAD":                              sha,
-		"status --porcelain":                          "",
+		"status --porcelain --untracked-files=normal --ignore-submodules=none": "",
 	}
 }
 
@@ -54,11 +55,12 @@ func TestPreflight(t *testing.T) {
 		{name: "clean pushed branch"},
 		{name: "no origin", drop: "remote get-url origin", wantErr: "no git remote named origin"},
 		{name: "origin not on GitHub", change: map[string]string{"remote get-url origin": "https://gitlab.com/example-org/app.git"}, wantErr: "not a GitHub repo"},
+		{name: "origin credentials are not printed", change: map[string]string{"remote get-url origin": "https://user:tok123@gitlab.com/example-org/app.git"}, wantErr: "https://gitlab.com/example-org/app.git"},
 		{name: "detached HEAD", change: map[string]string{"rev-parse --abbrev-ref HEAD": "HEAD"}, wantErr: "detached"},
 		{name: "branch not on origin", change: map[string]string{"ls-remote --heads origin refs/heads/feature": ""}, wantErr: "not on origin"},
 		{name: "local HEAD differs from origin", change: map[string]string{"rev-parse HEAD": "2222222222222222222222222222222222222222"}, wantErr: "differs from origin"},
-		{name: "modified tracked file", change: map[string]string{"status --porcelain": " M main.go"}, wantErr: "uncommitted changes"},
-		{name: "untracked file", change: map[string]string{"status --porcelain": "?? notes.txt"}, wantErr: "uncommitted changes"},
+		{name: "modified tracked file", change: map[string]string{"status --porcelain --untracked-files=normal --ignore-submodules=none": " M main.go"}, wantErr: "uncommitted changes"},
+		{name: "untracked file", change: map[string]string{"status --porcelain --untracked-files=normal --ignore-submodules=none": "?? notes.txt"}, wantErr: "uncommitted changes"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -69,6 +71,9 @@ func TestPreflight(t *testing.T) {
 			delete(answers, tt.drop)
 
 			co, err := preflight(fakeGit(answers))
+			if err != nil && strings.Contains(err.Error(), "tok123") {
+				t.Fatalf("err prints the remote's credentials: %v", err)
+			}
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("err = %v, want it to contain %q", err, tt.wantErr)
@@ -115,9 +120,9 @@ type apiCall struct {
 }
 
 const planBody = `{"status":"plan","org":"example-org","repo":"example-org/app","branch":"feature","head_sha":"` + sha + `",
-	"compose_file":"docker-compose.yml","services":["web","api","db"],
+	"compose_file":"docker-compose.yml","services":[{"name":"web","ports":[80],"profiles":[],"enabled_by_default":true},{"name":"api","ports":[8080],"profiles":[],"enabled_by_default":true},{"name":"db","ports":[],"profiles":["db"],"enabled_by_default":false}],
 	"routes":[{"service":"web","route":"/"},{"service":"api","route":"/api"}],
-	"route_candidates":["web","api"],
+	"route_candidates":[{"service":"web","hint":"port 80"},{"service":"api","hint":"port 8080"}],
 	"env":[{"name":"API_KEY","kind":"runtime"},{"name":"NPM_TOKEN","kind":"build_arg"}]}`
 
 func TestAdd(t *testing.T) {
@@ -128,11 +133,13 @@ func TestAdd(t *testing.T) {
 		createStatus int
 		createResp   string
 		// input answers the prompts in order.
-		input      string
-		wantErr    error
-		wantOut    []string
-		wantCreate bool
-		checkBody  func(t *testing.T, body map[string]any)
+		input   string
+		wantErr error
+		// wantErrText, when set, must appear in the error instead of matching wantErr.
+		wantErrText string
+		wantOut     []string
+		wantCreate  bool
+		checkBody   func(t *testing.T, body map[string]any)
 	}{
 		{
 			name:         "created with edited services, route and one env var",
@@ -142,7 +149,7 @@ func TestAdd(t *testing.T) {
 			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"my-app","url":"https://app.example.com"}}}`,
 			// name, all services?, which services, main route, API_KEY?, value, NPM_TOKEN?, create?
 			input:      "my-app\nn\nweb,api\napi\ny\n" + secretVal + "\nn\ny\n",
-			wantOut:    []string{"Services: web, api, db", "/api -> api", "API_KEY (runtime)", "NPM_TOKEN (build arg)", "Created app my-app (app-uuid-1)", "URL: https://app.example.com"},
+			wantOut:    []string{"Org: example-org", `Create app "my-app" in org example-org`, "Services: web, api, db", "/api -> api", "API_KEY (runtime)", "NPM_TOKEN (build arg)", "Created app my-app (app-uuid-1)", "URL: https://app.example.com"},
 			wantCreate: true,
 			checkBody: func(t *testing.T, body map[string]any) {
 				if body["application_name"] != "my-app" || body["head_sha"] != sha {
@@ -220,6 +227,152 @@ func TestAdd(t *testing.T) {
 			input:      "\n\n\nn\nn\nn\n",
 			wantOut:    []string{"Nothing was created."},
 		},
+		{
+			name:         "create needs_action quoting a value inside a message is masked",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusConflict,
+			createResp:   `{"status":"needs_action","next_step":{"kind":"fix_env","message":"value ` + secretVal + ` for API_KEY is invalid"}}`,
+			input:        "\n\n\ny\n" + secretVal + "\nn\n\n",
+			wantErr:      errStopped,
+			wantOut:      []string{"Next step: value [REDACTED] for API_KEY is invalid"},
+			wantCreate:   true,
+		},
+		{
+			name:         "create error quoting a value is masked",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusBadRequest,
+			createResp:   `{"errors":[{"title":"Bad value ` + secretVal + `"}]}`,
+			input:        "\n\n\ny\n" + secretVal + "\nn\n\n",
+			wantErrText:  "bad value [REDACTED]",
+			wantCreate:   true,
+		},
+		{
+			// Someone pushed between preflight and the plan
+			name:        "plan for a commit other than local HEAD",
+			planStatus:  http.StatusOK,
+			planResp:    strings.Replace(planBody, sha, "2222222222222222222222222222222222222222", 1),
+			wantErrText: "your checkout is at 1111111. If you just pushed",
+		},
+		{
+			name:       "unknown service is asked again",
+			planStatus: http.StatusOK,
+			planResp:   planBody,
+			// name, all services?, which (bogus, then web), route, API_KEY?, NPM_TOKEN?, create?
+			input:   "\nn\nbogus\nweb\nweb\nn\nn\nn\n",
+			wantOut: []string{"Not in the compose file: bogus", "Nothing was created."},
+		},
+		{
+			name:       "an answer other than y or n is asked again",
+			planStatus: http.StatusOK,
+			planResp:   planBody,
+			input:      "\nmaybe\n\n\nn\nn\nn\n",
+			wantOut:    []string{"Answer y or n", "Nothing was created."},
+		},
+		{
+			name:       "a route that is not a candidate is asked again",
+			planStatus: http.StatusOK,
+			planResp:   planBody,
+			input:      "\n\ndb\nweb\nn\nn\nn\n",
+			wantOut:    []string{"Choose one of web, api", "Nothing was created."},
+		},
+		{
+			name:        "input ends before all answers",
+			planStatus:  http.StatusOK,
+			planResp:    planBody,
+			input:       "\n",
+			wantErrText: "input ended",
+		},
+		{
+			name:         "a plan without head_sha creates from the local HEAD",
+			planStatus:   http.StatusOK,
+			planResp:     strings.Replace(planBody, `"head_sha":"`+sha+`",`, "", 1),
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			input:        "\n\n\nn\nn\n\n",
+			wantOut:      []string{"Created app app (app-uuid-1)"},
+			wantCreate:   true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				if body["head_sha"] != sha {
+					t.Errorf("head_sha = %v, want the local HEAD %s", body["head_sha"], sha)
+				}
+			},
+		},
+		{
+			// A compose file is repo content: an escape sequence in it must not reach the terminal
+			name:       "control characters from the plan are not printed",
+			planStatus: http.StatusOK,
+			planResp: `{"status":"plan","org":"example-org","head_sha":"` + sha + `","compose_file":"docker-compose.yml\u001b[2J",` +
+				`"services":["web\u001b]52;c;aGk=\u0007"],"env":[{"name":"KEY\rFAKE","kind":"runtime"}]}`,
+			input:   "\n\nn\nn\n",
+			wantOut: []string{"Nothing was created."},
+		},
+		{
+			name:         "services behind a compose profile are off by default",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			// name, enable web, api?, route, API_KEY?, NPM_TOKEN?, create?
+			input:      "\n\n\nn\nn\n\n",
+			wantOut:    []string{"db (off by default)", "Enable web, api?"},
+			wantCreate: true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				project := body["projects"].([]any)[0].(map[string]any)
+				if got := project["services"].([]any); len(got) != 2 || got[0] != "web" || got[1] != "api" {
+					t.Errorf("services = %v, want web and api", got)
+				}
+			},
+		},
+		{
+			name:         "an empty value is asked for again",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			// API_KEY? y, then an empty value, then the value
+			input:      "\n\n\ny\n\n" + secretVal + "\nn\n\n",
+			wantOut:    []string{"A value is required"},
+			wantCreate: true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				if secrets := body["secrets"].([]any); secrets[0].(map[string]any)["value"] != secretVal {
+					t.Errorf("secrets = %v", secrets)
+				}
+			},
+		},
+		{
+			name:       "plan creating stops before any prompt",
+			planStatus: http.StatusOK,
+			planResp:   `{"status":"creating","data":{"id":"app-uuid-1"}}`,
+			wantErr:    errStopped,
+			wantOut:    []string{"still being created by another request"},
+		},
+		{
+			name:       "plan already_exists stops before any prompt",
+			planStatus: http.StatusOK,
+			planResp:   `{"status":"already_exists","data":{"id":"app-uuid-1"}}`,
+			wantErr:    errStopped,
+			wantOut:    []string{"already exists"},
+		},
+		{
+			name:       "plan with only a next step stops",
+			planStatus: http.StatusOK,
+			planResp:   `{"next_step":{"kind":"push_branch","message":"Push the branch"}}`,
+			wantErr:    errStopped,
+			wantOut:    []string{"Next step: Push the branch"},
+		},
+		{
+			name:         "create 2xx with only a next step stops",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusOK,
+			createResp:   `{"next_step":{"kind":"visitors_required","message":"Send visitors"}}`,
+			input:        "\n\n\nn\nn\n\n",
+			wantErr:      errStopped,
+			wantOut:      []string{"Next step: Send visitors"},
+			wantCreate:   true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -258,8 +411,18 @@ func TestAdd(t *testing.T) {
 				},
 			}
 			err := a.run()
-			if !errors.Is(err, tt.wantErr) {
+			if tt.wantErrText != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrText) {
+					t.Fatalf("err = %v, want it to contain %q\noutput:\n%s", err, tt.wantErrText, out.String())
+				}
+			} else if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v\noutput:\n%s", err, tt.wantErr, out.String())
+			}
+			if err != nil && strings.Contains(err.Error(), secretVal) {
+				t.Fatalf("error prints an env value: %v", err)
+			}
+			if strings.ContainsAny(out.String(), "\x1b\x07\r") {
+				t.Fatalf("output holds a control character: %q", out.String())
 			}
 			if strings.Contains(out.String(), secretVal) {
 				t.Fatalf("output prints an env value:\n%s", out.String())
@@ -284,9 +447,71 @@ func TestAdd(t *testing.T) {
 	}
 }
 
+func TestOrgName(t *testing.T) {
+	tests := []struct {
+		name    string
+		planned string
+		lookup  string
+		want    string
+	}{
+		{"core's planned org wins", "planned-org", "config-org", "planned-org"},
+		{"else the org this CLI sends", "", "config-org", "config-org"},
+		{"else the account default", "", "", "(your default org)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &adder{client: client.New(requests.New(), func() string { return tt.lookup })}
+			if got := a.orgName(apps.PlanResponse{Org: tt.planned}); got != tt.want {
+				t.Errorf("orgName = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWithoutCredentials(t *testing.T) {
+	for remote, want := range map[string]string{
+		"https://user:tok123@gitlab.com/o/r.git": "https://gitlab.com/o/r.git",
+		// url.Parse rejects the port, so the fallback must still drop the token
+		"https://user:tok123@gitlab.com:bad/o/r.git": "https://gitlab.com:bad/o/r.git",
+		"git@gitlab.com:o/r.git":                     "git@gitlab.com:o/r.git",
+	} {
+		if got := withoutCredentials(remote); got != want {
+			t.Errorf("withoutCredentials(%q) = %q, want %q", remote, got, want)
+		}
+	}
+}
+
+func TestCleanError(t *testing.T) {
+	if got := cleanError(errStopped); !errors.Is(got, errStopped) {
+		t.Errorf("cleanError lost errStopped: %v", got)
+	}
+	got := cleanError(errors.New("bad name web\x1b[2J"))
+	if strings.ContainsRune(got.Error(), '\x1b') {
+		t.Errorf("cleanError = %q, want control characters replaced", got)
+	}
+	if cleanError(nil) != nil {
+		t.Error("cleanError(nil) should be nil")
+	}
+}
+
+func TestSecretReader(t *testing.T) {
+	stdin := strings.NewReader(" padded value \r\nlast")
+	in := bufio.NewReader(stdin)
+	read := secretReader(stdin)
+	for _, want := range []string{" padded value ", "last"} {
+		got, err := read(in)
+		if err != nil || got != want {
+			t.Errorf("read = %q, %v; want %q", got, err, want)
+		}
+	}
+	if _, err := read(in); !errors.Is(err, io.EOF) {
+		t.Errorf("read at the end = %v, want io.EOF", err)
+	}
+}
+
 func TestAddStopsOnPreflight(t *testing.T) {
 	answers := cleanCheckout()
-	answers["status --porcelain"] = " M main.go"
+	answers["status --porcelain --untracked-files=normal --ignore-submodules=none"] = " M main.go"
 	a := &adder{
 		client: client.New(requests.New(), func() string { return "" }),
 		git:    fakeGit(answers),

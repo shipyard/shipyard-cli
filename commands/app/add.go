@@ -7,9 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"os/signal"
 	"slices"
 	"strings"
+	"syscall"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -47,10 +51,19 @@ and are never printed.`,
 				out:        cmd.OutOrStdout(),
 				readSecret: secretReader(cmd.InOrStdin()),
 			}
-			return a.run()
+			return cleanError(a.run())
 		},
 	}
 	return cmd
+}
+
+// cleanError strips control characters from an error before cobra prints it:
+// an API error can quote compose-file content. errStopped is kept as is.
+func cleanError(err error) error {
+	if err == nil || errors.Is(err, errStopped) {
+		return err
+	}
+	return errors.New(withoutControl(err.Error()))
 }
 
 // adder runs one `shipyard add`. Its dependencies are fields so tests can
@@ -67,8 +80,7 @@ type adder struct {
 func secretReader(stdin io.Reader) func(in *bufio.Reader) (string, error) {
 	return func(in *bufio.Reader) (string, error) {
 		if f, ok := stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
-			b, err := term.ReadPassword(int(f.Fd()))
-			return string(b), err
+			return readPassword(int(f.Fd()))
 		}
 		line, err := in.ReadString('\n')
 		if err != nil && line == "" {
@@ -78,8 +90,52 @@ func secretReader(stdin io.Reader) func(in *bufio.Reader) (string, error) {
 	}
 }
 
+// readPassword reads a line without echo. Ctrl-C would otherwise end the
+// process with echo still off, so it restores the terminal before exiting.
+func readPassword(fd int) (string, error) {
+	state, err := term.GetState(fd)
+	if err != nil {
+		return "", err
+	}
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	done := make(chan struct{})
+	defer func() {
+		signal.Stop(sigs)
+		close(done)
+	}()
+	go func() {
+		select {
+		case <-sigs:
+			_ = term.Restore(fd, state)
+			os.Exit(130)
+		case <-done:
+		}
+	}()
+	b, err := term.ReadPassword(fd)
+	return string(b), err
+}
+
+// printf writes to the terminal. String arguments come from the repo or the
+// server (service names, routes, messages), so their control characters are
+// replaced: an escape sequence in a compose file must not rewrite the screen.
 func (a *adder) printf(format string, args ...any) {
+	for i, arg := range args {
+		if s, ok := arg.(string); ok {
+			args[i] = withoutControl(s)
+		}
+	}
 	_, _ = fmt.Fprintf(a.out, format, args...)
+}
+
+// withoutControl replaces control characters other than newline and tab.
+func withoutControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r != '\n' && r != '\t' && unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, s)
 }
 
 func (a *adder) run() error {
@@ -91,7 +147,7 @@ func (a *adder) run() error {
 	a.printf("Planning an app for %s on branch %s (%s)...\n", co.Repo, co.Branch, short(co.HeadSHA))
 	body, err := apps.Plan(a.client, co.Repo, co.Branch)
 	if actionBody, ok := apps.ActionBody(err); ok {
-		a.printAction(actionBody, nil)
+		a.printAction(actionBody, nil, nil)
 		return errStopped
 	}
 	if err != nil {
@@ -101,12 +157,22 @@ func (a *adder) run() error {
 	if err := json.Unmarshal(body, &plan); err != nil {
 		return fmt.Errorf("reading the plan: %w", err)
 	}
-	if plan.Status == apps.StatusNeedsAction || plan.NextStep != nil {
-		a.printAction(body, nil)
+	// A plan can answer creating or already_exists too: stop before any prompt
+	if apps.IsActionBody(body) {
+		a.printAction(body, nil, nil)
 		return errStopped
 	}
+	// Core plans the branch head it reads from GitHub. If that is not the
+	// commit preflight checked, stop rather than build a commit the user does
+	// not have. GitHub's API can lag a fresh push, so the head may be older.
+	if plan.HeadSHA != "" && plan.HeadSHA != co.HeadSHA {
+		return fmt.Errorf("branch %s on GitHub is at %s but your checkout is at %s. If you just pushed, wait a few seconds "+
+			"and run shipyard add again; otherwise fetch and reconcile with origin",
+			co.Branch, short(plan.HeadSHA), short(co.HeadSHA))
+	}
 
-	a.printPlan(plan)
+	org := a.orgName(plan)
+	a.printPlan(plan, org)
 
 	name, err := a.ask("App name", repoName(co.Repo))
 	if err != nil {
@@ -126,7 +192,7 @@ func (a *adder) run() error {
 	}
 
 	a.printf("\n")
-	ok, err := a.confirm(fmt.Sprintf("Create app %q from %s@%s with services %s?", name, co.Repo, co.Branch, orNone(services)), true)
+	ok, err := a.confirm(fmt.Sprintf("Create app %q in org %s from %s@%s with services %s?", name, org, co.Repo, co.Branch, orNone(services)), true)
 	if err != nil {
 		return err
 	}
@@ -135,36 +201,34 @@ func (a *adder) run() error {
 		return nil
 	}
 
-	headSHA := plan.HeadSHA
-	if headSHA == "" {
-		headSHA = co.HeadSHA
+	project := apps.Project{
+		Repo:            co.Repo,
+		Branch:          co.Branch,
+		Services:        services,
+		Routes:          routes,
+		ComposeFilename: plan.ComposeFile,
 	}
 	payload, err := apps.CreatePayload(apps.CreateRequest{
 		AppName: name,
-		Project: apps.Project{
-			Repo:            co.Repo,
-			Branch:          co.Branch,
-			Services:        services,
-			Routes:          routes,
-			ComposeFilename: plan.ComposeFile,
-		},
+		Project: project,
 		Env:     env,
-		HeadSHA: headSHA,
+		HeadSHA: co.HeadSHA,
 	})
 	if err != nil {
 		return err
 	}
 
+	public := apps.PublicValues(name, project)
 	body, err = apps.Create(a.client, payload)
 	if actionBody, ok := apps.ActionBody(err); ok {
-		a.printAction(actionBody, env)
+		a.printAction(actionBody, env, public)
 		return errStopped
 	}
 	if err != nil {
-		return errors.New(apps.RedactString(err.Error(), env))
+		return apps.RedactError(err, env, public...)
 	}
 	if apps.IsActionBody(body) {
-		a.printAction(body, env)
+		a.printAction(body, env, public)
 		return errStopped
 	}
 	a.printCreated(body)
@@ -176,11 +240,34 @@ func repoName(repo string) string {
 	return name
 }
 
-func (a *adder) printPlan(plan apps.PlanResponse) {
+// orgName is the org the app will be created in: the one core planned for, or
+// else the one this CLI sends.
+func (a *adder) orgName(plan apps.PlanResponse) string {
+	if plan.Org != "" {
+		return plan.Org
+	}
+	if a.client.OrgLookupFn != nil {
+		if org := a.client.OrgLookupFn(); org != "" {
+			return org
+		}
+	}
+	return "(your default org)"
+}
+
+func (a *adder) printPlan(plan apps.PlanResponse, org string) {
+	a.printf("Org: %s\n", org)
 	if plan.ComposeFile != "" {
 		a.printf("Compose file: %s\n", plan.ComposeFile)
 	}
-	a.printf("Services: %s\n", orNone(plan.Services))
+	var services []string
+	for _, s := range plan.Services {
+		if s.EnabledByDefault {
+			services = append(services, s.Name)
+		} else {
+			services = append(services, s.Name+" (off by default)")
+		}
+	}
+	a.printf("Services: %s\n", orNone(services))
 	if len(plan.Routes) > 0 {
 		a.printf("Routes:\n")
 		for _, r := range plan.Routes {
@@ -212,16 +299,27 @@ func orNone(items []string) string {
 	return strings.Join(items, ", ")
 }
 
-func (a *adder) chooseServices(planned []string) ([]string, error) {
-	if len(planned) == 0 {
+// chooseServices offers the services core enables by default, those not behind
+// a compose profile, and lets the user pick another set.
+func (a *adder) chooseServices(plan []apps.PlanService) ([]string, error) {
+	if len(plan) == 0 {
 		return nil, nil
 	}
-	ok, err := a.confirm("Enable all services?", true)
-	if err != nil || ok {
-		return planned, err
+	var planned, defaults []string
+	for _, s := range plan {
+		planned = append(planned, s.Name)
+		if s.EnabledByDefault {
+			defaults = append(defaults, s.Name)
+		}
+	}
+	if len(defaults) > 0 {
+		ok, err := a.confirm(fmt.Sprintf("Enable %s?", strings.Join(defaults, ", ")), true)
+		if err != nil || ok {
+			return defaults, err
+		}
 	}
 	for {
-		answer, err := a.ask("Services to enable, comma-separated", strings.Join(planned, ","))
+		answer, err := a.ask("Services to enable, comma-separated", strings.Join(defaults, ","))
 		if err != nil {
 			return nil, err
 		}
@@ -307,11 +405,18 @@ func (a *adder) chooseEnv(names []apps.EnvName) ([]apps.EnvItem, error) {
 		if !ok {
 			continue
 		}
-		a.printf("Value for %s (not shown): ", e.Name)
-		value, err := a.readSecret(a.in)
-		a.printf("\n")
-		if err != nil {
-			return nil, fmt.Errorf("reading the value of %s: %w", e.Name, err)
+		// An empty value would clear the variable; answer n above to skip it
+		var value string
+		for value == "" {
+			a.printf("Value for %s (not shown): ", e.Name)
+			value, err = a.readSecret(a.in)
+			a.printf("\n")
+			if err != nil {
+				return nil, fmt.Errorf("reading the value of %s: %w", e.Name, err)
+			}
+			if value == "" {
+				a.printf("A value is required.\n")
+			}
 		}
 		kind := e.Kind
 		if kind == "" {
@@ -369,8 +474,8 @@ func (a *adder) confirm(prompt string, def bool) (bool, error) {
 
 // printAction shows a needs_action, already_exists or creating answer: what to
 // do next and, for an existing app, everything else core sent about it.
-func (a *adder) printAction(body []byte, env []apps.EnvItem) {
-	body = apps.RedactValues(body, env)
+func (a *adder) printAction(body []byte, env []apps.EnvItem, public []string) {
+	body = apps.RedactValues(body, env, public...)
 	var resp map[string]json.RawMessage
 	_ = json.Unmarshal(body, &resp)
 	var action apps.ActionResponse
@@ -379,7 +484,7 @@ func (a *adder) printAction(body []byte, env []apps.EnvItem) {
 	switch action.Status {
 	case apps.StatusAlreadyExists:
 		a.printf("An app already exists for this repo and branch.\n")
-		for _, key := range sortedKeys(resp) {
+		for _, key := range slices.Sorted(maps.Keys(resp)) {
 			if key == "status" || key == "next_step" || key == "errors" {
 				continue
 			}
@@ -415,15 +520,6 @@ func (a *adder) printCreated(body []byte) {
 	if resp.Data.Attributes.URL != "" {
 		a.printf("URL: %s\n", resp.Data.Attributes.URL)
 	}
-}
-
-func sortedKeys(m map[string]json.RawMessage) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	return keys
 }
 
 func indentJSON(raw json.RawMessage) string {
