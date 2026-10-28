@@ -12,7 +12,8 @@ func routesSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"description": "Map of service name to its route (the shipyard.route label value, e.g. \"/\" or \"/api\"). " +
-			"Pick from the plan's routes and route_candidates",
+			"Only routes to set: the plan's routes come from the compose file and already apply, and sending one back " +
+			"duplicates it. To pick the main route, pass one of the plan's route_candidates with \"/\"",
 		"additionalProperties": map[string]interface{}{"type": "string"},
 	}
 }
@@ -64,6 +65,8 @@ func CreateApplicationSchema() map[string]interface{} {
 				"plus any the user turns on"),
 			"visitors": stringArray("GitHub logins who may open the environment. Required with an org API token " +
 				"(next_step visitors_required); with a user token the caller is added"),
+			"selected_profiles": stringArray("Compose profiles to turn on: each enabled service whose enabled_by_default " +
+				"is false needs one of its profiles here"),
 			"routes": routesSchema(),
 			"env":    envSchema(),
 			"head_sha": map[string]interface{}{

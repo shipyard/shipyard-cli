@@ -423,6 +423,33 @@ func TestApplicationTools(t *testing.T) {
 	}
 }
 
+// Core's create and update answers carry the app's bypass_token, as
+// get_environment's do, so the same rule against printing it applies.
+func TestApplicationToolsWarnAboutBypassToken(t *testing.T) {
+	for _, name := range []string{"create_application", "update_application"} {
+		desc := applicationToolDefinitions[name].Description
+		if !strings.Contains(desc, "bypass_token") || !strings.Contains(strings.ToLower(desc), "never print") {
+			t.Errorf("%s description must warn never to print the bypass_token, got: %q", name, desc)
+		}
+	}
+}
+
+func TestCreateApplicationProfilesAndDefaultName(t *testing.T) {
+	c, got := newAppServer(t, http.StatusCreated, `{"status":"created","data":{"id":"app-uuid-1"}}`)
+	args := `{"repo":"example-org/my.site","branch":"main","head_sha":"abc123","services":["web","debug"],"selected_profiles":["debug"]}`
+	if _, err := NewApplicationTool(c, "create_application").Execute(context.Background(), json.RawMessage(args)); err != nil {
+		t.Fatal(err)
+	}
+	// Core rejects a name with a dot
+	if got.body["application_name"] != "my-site" {
+		t.Errorf("application_name = %v, want my-site", got.body["application_name"])
+	}
+	project := got.body["projects"].([]any)[0].(map[string]any)
+	if p, _ := project["selectedProfiles"].([]any); len(p) != 1 || p[0] != "debug" {
+		t.Errorf("selectedProfiles = %v", project["selectedProfiles"])
+	}
+}
+
 func TestUpdateApplicationIDErrorNamesField(t *testing.T) {
 	for _, args := range []string{`{"projects":[{"repo":"app"}]}`, `{"application_id":"x"}`} {
 		_, err := NewApplicationTool(client.Client{}, "update_application").Execute(context.Background(), json.RawMessage(args))

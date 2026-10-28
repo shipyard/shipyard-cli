@@ -21,13 +21,18 @@ const nextStepNote = "If the result has status needs_action, tell the user next_
 	"Status creating means another request is still creating this app: wait about 30 seconds and call " +
 	"create_application again with the same input."
 
+// bypassTokenNote is the rule get_environment carries too: the app in the
+// result can include its bypass_token.
+const bypassTokenNote = "The app in the result can carry a bypass_token, which gets past its login gate: " +
+	"never print it or paste it into chat, a commit, or a pull request comment. "
+
 var applicationToolDefinitions = map[string]ToolDefinition{
 	"plan_application": {
 		Name: "plan_application",
 		Description: "Preview what creating a Shipyard app for a pushed GitHub branch would do, without changing anything: " +
 			"the compose file and its services, suggested routes (routes, route_candidates), the env var names it needs " +
-			"(kind runtime or build_arg), head_sha, and any existing app for the repo. Call it before create_application " +
-			"and confirm services, routes and env names with the user. " + nextStepNote,
+			"(kind runtime or build_arg, and the services that use each), head_sha, and any existing app for the repo. " +
+			"Call it before create_application and confirm services, routes and env names with the user. " + nextStepNote,
 		InputSchema: schemas.PlanApplicationSchema(),
 	},
 	"create_application": {
@@ -35,14 +40,16 @@ var applicationToolDefinitions = map[string]ToolDefinition{
 		Description: "Create a Shipyard app for a pushed GitHub branch, from a plan_application result the user confirmed. " +
 			"head_sha is required: pass the plan's, so Shipyard builds the commit the user confirmed. " +
 			"Env values are sent to Shipyard but never returned: the result lists env names only. " +
-			"Returns status created with the new app, or " + nextStepNote,
+			"Set each env item's services to the plan's, so a value reaches only the services that use it. " +
+			"Enabling a service whose enabled_by_default is false needs its profile in selected_profiles. " +
+			bypassTokenNote + "Returns status created with the new app, or " + nextStepNote,
 		InputSchema: schemas.CreateApplicationSchema(),
 	},
 	"update_application": {
 		Name: "update_application",
 		Description: "Reconfigure an existing app: change a repo's branch, services or routes, or add or remove repos. " +
 			"Only the fields given change. Material changes queue a rebuild. It does not set env vars: use put_env_vars. " +
-			nextStepNote,
+			bypassTokenNote + nextStepNote,
 		InputSchema: schemas.UpdateApplicationSchema(),
 	},
 }
@@ -165,15 +172,16 @@ func validateRepoBranch(tool, repo, branch string) error {
 
 func (t *ApplicationTool) executeCreate(params json.RawMessage) (string, error) {
 	var toolParams struct {
-		Repo            string            `json:"repo"`
-		Branch          string            `json:"branch"`
-		AppName         string            `json:"app_name,omitempty"`
-		Services        []string          `json:"services,omitempty"`
-		Routes          map[string]string `json:"routes,omitempty"`
-		Env             []apps.EnvItem    `json:"env,omitempty"`
-		HeadSHA         string            `json:"head_sha,omitempty"`
-		ComposeFilename string            `json:"compose_filename,omitempty"`
-		Visitors        []string          `json:"visitors,omitempty"`
+		Repo             string            `json:"repo"`
+		Branch           string            `json:"branch"`
+		AppName          string            `json:"app_name,omitempty"`
+		Services         []string          `json:"services,omitempty"`
+		Routes           map[string]string `json:"routes,omitempty"`
+		Env              []apps.EnvItem    `json:"env,omitempty"`
+		HeadSHA          string            `json:"head_sha,omitempty"`
+		ComposeFilename  string            `json:"compose_filename,omitempty"`
+		Visitors         []string          `json:"visitors,omitempty"`
+		SelectedProfiles []string          `json:"selected_profiles,omitempty"`
 	}
 	if err := json.Unmarshal(params, &toolParams); err != nil {
 		// A JSON error can quote the input, which may hold a value
@@ -197,16 +205,17 @@ func (t *ApplicationTool) executeCreate(params json.RawMessage) (string, error) 
 	// Core rejects a create without a name
 	appName := toolParams.AppName
 	if appName == "" {
-		_, appName, _ = apps.SplitRepo(toolParams.Repo)
+		appName = apps.DefaultAppName(toolParams.Repo)
 	}
 
 	env := toolParams.Env
 	project := apps.Project{
-		Repo:            toolParams.Repo,
-		Branch:          toolParams.Branch,
-		Services:        toolParams.Services,
-		Routes:          toolParams.Routes,
-		ComposeFilename: toolParams.ComposeFilename,
+		Repo:             toolParams.Repo,
+		Branch:           toolParams.Branch,
+		Services:         toolParams.Services,
+		Routes:           toolParams.Routes,
+		ComposeFilename:  toolParams.ComposeFilename,
+		SelectedProfiles: toolParams.SelectedProfiles,
 	}
 	payload, err := apps.CreatePayload(apps.CreateRequest{
 		AppName:  appName,

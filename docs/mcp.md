@@ -386,7 +386,7 @@ upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
 | Tool | What it does |
 |---|---|
 | `plan_application` | Preview creating an app for a pushed GitHub branch: its compose file, services, suggested routes, the env var names it needs and any existing app. Changes nothing |
-| `create_application` | Create an app from a confirmed plan: services (at least one), routes and env vars. Requires the plan's `head_sha`, so Shipyard builds the commit you confirmed. Env values are sent to Shipyard but never returned. With an org API token, pass `visitors` (GitHub logins) |
+| `create_application` | Create an app from a confirmed plan: services (at least one), routes and env vars. Requires the plan's `head_sha`, so Shipyard builds the commit you confirmed. Env values are sent to Shipyard but never returned, and each is scoped to the services the plan lists for it. A service behind a compose profile needs that profile in `selected_profiles`. With an org API token, pass `visitors` (GitHub logins) |
 | `update_application` | Reconfigure an app: a repo's branch, services or routes, added or removed repos. Env vars are set with `put_env_vars` |
 
 When Shipyard needs something done first, such as installing the GitHub app,
