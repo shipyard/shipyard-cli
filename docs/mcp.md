@@ -390,10 +390,16 @@ upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
 | `update_application` | Reconfigure an app: a repo's branch, services or routes, added or removed repos, env vars |
 
 When Shipyard needs something done first, such as installing the GitHub app,
-pushing the branch or adding a compose file, these return `status: needs_action`
-with a `next_step` (`kind`, `message`, and a `url` when there is one) instead of
-an error. A repo that already has an app returns `status: already_exists`. The
-agent shows you the message and waits for you to act.
+pushing the branch, adding a compose file or freeing an environment under your
+plan's limit, these return `status: needs_action` with a `next_step` (`kind`,
+`message`, and a `url` when there is one) instead of an error. The agent shows
+you the message and waits for you to act.
+
+A branch that already has an app returns `status: already_exists` with that app
+and `requested_vs_existing`, the services, routes and env names you asked for
+that it doesn't have yet; the agent can apply them with `update_application`.
+If another request is still creating the same app, `create_application` returns
+`status: creating` and the agent tries again shortly.
 
 ### Failed builds
 
