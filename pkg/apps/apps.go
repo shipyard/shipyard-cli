@@ -5,6 +5,7 @@ package apps
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -33,7 +34,6 @@ const (
 // Response statuses core sets when the agent or user must act before a create
 // can go ahead.
 const (
-	StatusPlan          = "plan"
 	StatusNeedsAction   = "needs_action"
 	StatusAlreadyExists = "already_exists"
 	// StatusCreating: another request is still creating this app; nothing was
@@ -41,7 +41,8 @@ const (
 	StatusCreating = "creating"
 )
 
-// NextStep is what core says to do about a needs_action or already_exists answer.
+// NextStep is what core says to do about a needs_action, already_exists or
+// creating answer.
 type NextStep struct {
 	Kind    string `json:"kind"`
 	URL     string `json:"url,omitempty"`
@@ -81,6 +82,25 @@ func (c *RouteCandidate) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// PlanService is a compose service in a plan. A service that runs only under a
+// compose profile is off by default.
+type PlanService struct {
+	Name             string `json:"name"`
+	EnabledByDefault bool   `json:"enabled_by_default"`
+}
+
+// UnmarshalJSON accepts core's {"name": "web", "enabled_by_default": true, ...}
+// or a bare "web", which is on by default.
+func (s *PlanService) UnmarshalJSON(b []byte) error {
+	var name string
+	if err := json.Unmarshal(b, &name); err == nil {
+		*s = PlanService{Name: name, EnabledByDefault: true}
+		return nil
+	}
+	type plain PlanService
+	return json.Unmarshal(b, (*plain)(s))
+}
+
 // PlanResponse is the body of POST /application/plan.
 type PlanResponse struct {
 	Status          string           `json:"status"`
@@ -89,7 +109,7 @@ type PlanResponse struct {
 	Branch          string           `json:"branch"`
 	HeadSHA         string           `json:"head_sha"`
 	ComposeFile     string           `json:"compose_file"`
-	Services        []string         `json:"services"`
+	Services        []PlanService    `json:"services"`
 	Routes          []Route          `json:"routes"`
 	RouteCandidates []RouteCandidate `json:"route_candidates"`
 	Env             []EnvName        `json:"env"`
@@ -132,13 +152,34 @@ type CreateRequest struct {
 	Env     []EnvItem
 	// HeadSHA is the commit the plan saw, so core can refuse a stale plan.
 	HeadSHA string
+	// Visitors are GitHub logins who may open the environment. An org API
+	// token has no user to add, so core requires them with one.
+	Visitors []string
 }
 
-// UpdateRequest is the input of Update. Only the fields set are changed.
+// UpdateRequest is the input of Update. Only the fields set are changed. Env
+// vars are not among them: core's PATCH ignores secrets and build_args.
 type UpdateRequest struct {
 	Projects    []Project
 	RemoveRepos []string
-	Env         []EnvItem
+}
+
+// PublicValues lists what a request sends in the clear: repo, branch, app
+// name, services and routes. A sent env value equal to one is no secret, and
+// masking it would garble service names and links in core's answer.
+func PublicValues(appName string, projects ...Project) []string {
+	public := []string{appName}
+	for _, p := range projects {
+		public = append(public, p.Repo, p.Branch, p.ComposeFilename)
+		if owner, name, err := SplitRepo(p.Repo); err == nil {
+			public = append(public, owner, name)
+		}
+		public = append(public, p.Services...)
+		for svc, route := range p.Routes {
+			public = append(public, svc, route)
+		}
+	}
+	return public
 }
 
 // SplitRepo splits "owner/name". A bare name returns an empty owner.
@@ -244,6 +285,9 @@ func CreatePayload(r CreateRequest) (map[string]any, error) {
 	if r.HeadSHA != "" {
 		payload["head_sha"] = r.HeadSHA
 	}
+	if len(r.Visitors) > 0 {
+		payload["visitors"] = r.Visitors
+	}
 	if err := addEnv(payload, r.Env); err != nil {
 		return nil, err
 	}
@@ -267,11 +311,8 @@ func UpdatePayload(r UpdateRequest) (map[string]any, error) {
 	if len(r.RemoveRepos) > 0 {
 		payload["remove_repos"] = r.RemoveRepos
 	}
-	if err := addEnv(payload, r.Env); err != nil {
-		return nil, err
-	}
 	if len(payload) == 0 {
-		return nil, fmt.Errorf("nothing to update: set projects, remove_repos or env")
+		return nil, fmt.Errorf("nothing to update: set projects or remove_repos")
 	}
 	return payload, nil
 }
@@ -318,7 +359,7 @@ func Update(c client.Client, id string, payload map[string]any) ([]byte, error) 
 }
 
 // ActionBody returns the body of a failed request when core answered with a
-// needs_action or already_exists status or a next_step, which the caller
+// needs_action, already_exists or creating status or a next_step, which the caller
 // should show as an answer rather than a bare error.
 func ActionBody(err error) ([]byte, bool) {
 	apiErr, ok := requests.AsAPIError(err)
@@ -344,62 +385,138 @@ func IsActionBody(body []byte) bool {
 
 // RedactValues returns body with every env value replaced, so a response or
 // error that echoes one does not reach the agent or the terminal. Objects with
-// both name and value fields lose their value, and any string equal to one of
-// the sent values is masked.
-func RedactValues(body []byte, items []EnvItem) []byte {
+// both name and value fields lose their value, a string or number equal to a
+// sent value is masked, and a sent value inside a longer string is masked as
+// RedactString does.
+//
+// public lists values the request sent in the clear (see PublicValues). An env
+// value equal to one of them is left alone everywhere.
+func RedactValues(body []byte, items []EnvItem, public ...string) []byte {
 	if len(body) == 0 {
 		return body
 	}
-	values := sentValues(items)
+	r := newRedactor(items, public)
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 	var v any
 	if err := dec.Decode(&v); err != nil {
-		return []byte(RedactString(string(body), items))
+		return []byte(r.mask(string(body)))
 	}
-	if !redactJSON(v, values) {
+	// A bare JSON string or number has no object to walk
+	if m, ok := r.leaf(v); ok {
+		v = m
+	} else if !r.redactJSON(v) {
 		return body
 	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
-		return []byte(RedactString(string(body), items))
+		return []byte(r.mask(string(body)))
 	}
 	return bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
 }
 
-// RedactString masks every sent env value found in s. Values shorter than
-// four characters ("1", "on") are left alone: masking them inside free text
-// would garble the message without hiding anything secret.
-func RedactString(s string, items []EnvItem) string {
-	var values []string
-	for v := range sentValues(items) {
-		if len(v) >= 4 {
-			values = append(values, v)
+// RedactString masks every sent env value found in s, including its
+// JSON-escaped form, which is how a value with a newline or quote appears in a
+// raw error body. Values shorter than four characters ("1", "on") are left
+// alone: masking them inside free text would garble the message without hiding
+// anything secret.
+func RedactString(s string, items []EnvItem, public ...string) string {
+	return newRedactor(items, public).mask(s)
+}
+
+// RedactError returns err with every env value masked. An API error is rebuilt
+// from its redacted body, so values are masked before the message is shaped:
+// the title's first letter is lower-cased and JSON escapes are decoded only
+// after redaction, and neither can hide a value from it.
+func RedactError(err error, items []EnvItem, public ...string) error {
+	if err == nil {
+		return nil
+	}
+	if apiErr, ok := err.(*requests.APIError); ok {
+		return requests.NewAPIError(apiErr.StatusCode, RedactValues(apiErr.Body, items, public...))
+	}
+	return errors.New(RedactString(err.Error(), items, public...))
+}
+
+const redacted = "[REDACTED]"
+
+type redactor struct {
+	// exact holds every sent value, matched against whole JSON leaves.
+	exact map[string]bool
+	// long holds the values masked inside longer text, longest first so a
+	// value that contains another is masked whole.
+	long []string
+	// escaped holds the JSON-escaped forms of long values that differ from them.
+	escaped []string
+}
+
+func newRedactor(items []EnvItem, public []string) redactor {
+	r := redactor{exact: make(map[string]bool)}
+	clear := make(map[string]bool, len(public))
+	for _, p := range public {
+		clear[p] = true
+	}
+	for _, item := range items {
+		v := item.Value
+		if v == "" || r.exact[v] || clear[v] {
+			continue
+		}
+		r.exact[v] = true
+		if len(v) < 4 {
+			continue
+		}
+		r.long = append(r.long, v)
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(v); err == nil {
+			b := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+			if e := string(b[1 : len(b)-1]); e != v {
+				r.escaped = append(r.escaped, e)
+			}
 		}
 	}
-	// Longest first, so a value that contains another is masked whole
-	sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
-	for _, v := range values {
+	byLength := func(s []string) {
+		sort.Slice(s, func(i, j int) bool { return len(s[i]) > len(s[j]) })
+	}
+	byLength(r.long)
+	byLength(r.escaped)
+	return r
+}
+
+// mask replaces the long values in s and their escaped forms. A decoded JSON
+// string can still hold an escaped form when it carries serialized JSON.
+func (r redactor) mask(s string) string {
+	for _, v := range r.escaped {
+		s = strings.ReplaceAll(s, v, redacted)
+	}
+	for _, v := range r.long {
 		s = strings.ReplaceAll(s, v, redacted)
 	}
 	return s
 }
 
-const redacted = "[REDACTED]"
-
-func sentValues(items []EnvItem) map[string]bool {
-	values := make(map[string]bool)
-	for _, item := range items {
-		if item.Value != "" {
-			values[item.Value] = true
+// leaf returns the masked form of a JSON leaf, and whether it changed.
+func (r redactor) leaf(v any) (any, bool) {
+	switch t := v.(type) {
+	case string:
+		if r.exact[t] {
+			return redacted, true
+		}
+		if m := r.mask(t); m != t {
+			return m, true
+		}
+	case json.Number:
+		if r.exact[t.String()] {
+			return redacted, true
 		}
 	}
-	return values
+	return v, false
 }
 
-func redactJSON(v any, values map[string]bool) bool {
+func (r redactor) redactJSON(v any) bool {
 	changed := false
 	switch t := v.(type) {
 	case map[string]any:
@@ -412,27 +529,19 @@ func redactJSON(v any, values map[string]bool) bool {
 				}
 				continue
 			}
-			if s, ok := child.(string); ok {
-				if values[s] {
-					t[k] = redacted
-					changed = true
-				}
-				continue
-			}
-			if redactJSON(child, values) {
+			if m, ok := r.leaf(child); ok {
+				t[k] = m
+				changed = true
+			} else if r.redactJSON(child) {
 				changed = true
 			}
 		}
 	case []any:
 		for i, child := range t {
-			if s, ok := child.(string); ok {
-				if values[s] {
-					t[i] = redacted
-					changed = true
-				}
-				continue
-			}
-			if redactJSON(child, values) {
+			if m, ok := r.leaf(child); ok {
+				t[i] = m
+				changed = true
+			} else if r.redactJSON(child) {
 				changed = true
 			}
 		}

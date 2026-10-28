@@ -1,7 +1,6 @@
 package requests
 
 import (
-	"encoding/json"
 	"errors"
 )
 
@@ -26,14 +25,4 @@ func AsAPIError(err error) (*APIError, bool) {
 		return apiErr, true
 	}
 	return nil, false
-}
-
-// JSONObject decodes Body as a JSON object. It returns nil when Body is empty
-// or not an object.
-func (e *APIError) JSONObject() map[string]any {
-	var obj map[string]any
-	if err := json.Unmarshal(e.Body, &obj); err != nil {
-		return nil
-	}
-	return obj
 }

@@ -89,16 +89,16 @@ func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, newAPIError(resp.StatusCode, b)
+		return nil, NewAPIError(resp.StatusCode, b)
 	}
 
 	return b, nil
 }
 
-// newAPIError keeps the status and body of a failed response, with the message
+// NewAPIError keeps the status and body of a failed response, with the message
 // callers have always seen: the API's first error title, lower-cased, or else
 // the raw body.
-func newAPIError(status int, body []byte) *APIError {
+func NewAPIError(status int, body []byte) *APIError {
 	e := &APIError{StatusCode: status, Body: body}
 	if len(body) == 0 {
 		e.message = "empty response"

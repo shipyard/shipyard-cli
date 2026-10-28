@@ -1,6 +1,7 @@
 package requests
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -70,8 +71,11 @@ func TestDoReturnsAPIError(t *testing.T) {
 			if string(apiErr.Body) != tt.body {
 				t.Errorf("Body = %q, want %q", apiErr.Body, tt.body)
 			}
-			got, _ := apiErr.JSONObject()["status"].(string)
-			if got != tt.wantStatus {
+			var body struct {
+				Status string `json:"status"`
+			}
+			_ = json.Unmarshal(apiErr.Body, &body)
+			if got := body.Status; got != tt.wantStatus {
 				t.Errorf("body status = %q, want %q", got, tt.wantStatus)
 			}
 		})
