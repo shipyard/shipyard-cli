@@ -49,7 +49,9 @@ as the CLI.
    claude mcp add shipyard -- shipyard mcp serve
    ```
 
-   Other clients are covered in [Connecting a client](#connecting-a-client).
+   Claude Code, Codex and Kiro can also install the [Shipyard plugin](#installing-the-plugin),
+   which adds the server and a skill in one step. Other clients are covered in
+   [Connecting a client](#connecting-a-client).
 
 4. **Try it.** Start a new session and ask "list my Shipyard environments".
 
@@ -70,6 +72,22 @@ and Claude Code's `.mcp.json` live in the repository and tend to get committed.
 Run `shipyard login` instead, or put the token in a per-user file such as
 `~/.cursor/mcp.json`. The examples below show an `env` block only for the cases
 where you need one.
+
+### Installing the plugin
+
+The [Shipyard plugin](https://github.com/shipyard/shipyard-plugins) adds the
+server and a short skill that tells the assistant how to use it safely. It
+contains no code and no token: it starts `shipyard mcp serve`, so you still need
+the CLI on your `PATH` and `shipyard login`.
+
+| Client | Install |
+|---|---|
+| Claude Code | `claude plugin marketplace add shipyard/shipyard-plugins`, then `claude plugin install shipyard@shipyard` |
+| Codex | `codex plugin marketplace add shipyard/shipyard-plugins`, then `codex plugin add shipyard@shipyard` |
+| Kiro | In the Powers panel, install from the GitHub URL `https://github.com/shipyard/shipyard-plugins` |
+
+Restart the session afterwards. If you install the plugin, don't also add the
+server by hand as below, or the client runs two copies.
 
 ### Claude Code
 
@@ -690,6 +708,11 @@ Claude Code, an assistant connected to an out-of-date CLI is told so when the
 session starts, once the CLI's daily update check has seen the new release. It
 isn't told when `CI` is set or update checks are off. Codex doesn't show them.
 
+To update the [plugin](#installing-the-plugin): `claude plugin update shipyard@shipyard`,
+or `codex plugin marketplace upgrade shipyard`. In Kiro, uninstall the power and
+import it from GitHub again, because Kiro's own update check can fail with "No
+name was provided for author".
+
 If the upgrade changed the binary's path, update the `command` in the client's
 config. Cursor asks you to approve the server again, and a per-app firewall needs
 a fresh approval too.
@@ -705,6 +728,9 @@ Remove the server from the client:
 | Cursor | Delete the `shipyard` entry from `~/.cursor/mcp.json` or `.cursor/mcp.json`, and any `Mcp(shipyard:…)` rules from `cli.json` |
 | Codex | `codex mcp remove shipyard` |
 | Kiro | Delete the `shipyard` entry from `~/.kiro/settings/mcp.json` or `.kiro/settings/mcp.json`, or set `"disabled": true` to keep it for later |
+
+If you installed the plugin, remove it instead: `claude plugin uninstall shipyard@shipyard`,
+`codex plugin remove shipyard@shipyard`, or uninstall the power from Kiro's Powers panel.
 
 To remove the CLI and its token as well: `brew uninstall shipyard` for a Homebrew
 install, otherwise delete the binary (`which shipyard`). There is no logout
