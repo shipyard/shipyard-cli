@@ -41,18 +41,25 @@ It shows what Shipyard found (services, routes, env var names) and asks before
 creating anything. Env var values are asked for only for the names you choose,
 and are never printed.`,
 		Example: `  # From a clone of a GitHub repo, on a pushed branch
-  shipyard add`,
+  shipyard add
+
+  # With an org API token, name who may open the environment
+  shipyard add --visitor octocat`,
 		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			a := &adder{
-				client:     c,
-				git:        runGit,
-				in:         bufio.NewReader(cmd.InOrStdin()),
-				out:        cmd.OutOrStdout(),
-				readSecret: secretReader(cmd.InOrStdin()),
-			}
-			return cleanError(a.run())
-		},
+	}
+	var visitors []string
+	cmd.Flags().StringArrayVar(&visitors, "visitor", nil,
+		"GitHub login who may open the environment (repeatable); required with an org API token")
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		a := &adder{
+			client:     c,
+			git:        runGit,
+			in:         bufio.NewReader(cmd.InOrStdin()),
+			out:        cmd.OutOrStdout(),
+			readSecret: secretReader(cmd.InOrStdin()),
+			visitors:   visitors,
+		}
+		return cleanError(a.run())
 	}
 	return cmd
 }
@@ -75,6 +82,8 @@ type adder struct {
 	out    io.Writer
 	// readSecret reads a value without echoing it when stdin is a terminal.
 	readSecret func(in *bufio.Reader) (string, error)
+	// visitors are GitHub logins who may open the environment (--visitor).
+	visitors []string
 }
 
 func secretReader(stdin io.Reader) func(in *bufio.Reader) (string, error) {
@@ -173,8 +182,17 @@ func (a *adder) run() error {
 
 	org := a.orgName(plan)
 	a.printPlan(plan, org)
+	// Stop before asking for any value when the create cannot succeed: core
+	// would answer already_exists without applying them, or reject no services
+	if len(plan.ExistingApp) > 0 && string(plan.ExistingApp) != "null" {
+		a.printf("An app already exists for this repo and branch: %s\n", compactJSON(withoutBypassToken(plan.ExistingApp)))
+		return errStopped
+	}
+	if len(plan.Services) == 0 {
+		return fmt.Errorf("the plan found no services in the compose file: add one, push, and run shipyard add again")
+	}
 
-	name, err := a.ask("App name", repoName(co.Repo))
+	name, err := a.ask("App name", apps.DefaultAppName(co.Repo))
 	if err != nil {
 		return err
 	}
@@ -201,18 +219,21 @@ func (a *adder) run() error {
 		return nil
 	}
 
+	// No compose_filename: core pins one the caller names, and the plan's is
+	// the one it detects anyway
 	project := apps.Project{
-		Repo:            co.Repo,
-		Branch:          co.Branch,
-		Services:        services,
-		Routes:          routes,
-		ComposeFilename: plan.ComposeFile,
+		Repo:             co.Repo,
+		Branch:           co.Branch,
+		Services:         services,
+		Routes:           routes,
+		SelectedProfiles: profilesFor(plan.Services, services),
 	}
 	payload, err := apps.CreatePayload(apps.CreateRequest{
-		AppName: name,
-		Project: project,
-		Env:     env,
-		HeadSHA: co.HeadSHA,
+		AppName:  name,
+		Project:  project,
+		Env:      env,
+		HeadSHA:  co.HeadSHA,
+		Visitors: a.visitors,
 	})
 	if err != nil {
 		return err
@@ -235,9 +256,50 @@ func (a *adder) run() error {
 	return nil
 }
 
-func repoName(repo string) string {
-	_, name, _ := apps.SplitRepo(repo)
-	return name
+// profilesFor lists the compose profiles the chosen services need: core
+// rejects an enabled service whose profiles are all unselected.
+func profilesFor(plan []apps.PlanService, chosen []string) []string {
+	var profiles []string
+	for _, s := range plan {
+		if s.EnabledByDefault || !slices.Contains(chosen, s.Name) {
+			continue
+		}
+		for _, p := range s.Profiles {
+			if !slices.Contains(profiles, p) {
+				profiles = append(profiles, p)
+			}
+		}
+	}
+	return profiles
+}
+
+// withoutBypassToken drops every bypass_token from a JSON body before it is
+// printed: it gets past the app's login gate.
+func withoutBypassToken(body []byte) []byte {
+	var v any
+	if err := json.Unmarshal(body, &v); err != nil {
+		return body
+	}
+	var drop func(any)
+	drop = func(v any) {
+		switch t := v.(type) {
+		case map[string]any:
+			delete(t, "bypass_token")
+			for _, child := range t {
+				drop(child)
+			}
+		case []any:
+			for _, child := range t {
+				drop(child)
+			}
+		}
+	}
+	drop(v)
+	out, err := json.Marshal(v)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // orgName is the org the app will be created in: the one core planned for, or
@@ -279,9 +341,6 @@ func (a *adder) printPlan(plan apps.PlanResponse, org string) {
 		for _, e := range plan.Env {
 			a.printf("  %s (%s)\n", e.Name, kindLabel(e.Kind))
 		}
-	}
-	if len(plan.ExistingApp) > 0 && string(plan.ExistingApp) != "null" {
-		a.printf("An app already exists for this repo: %s\n", compactJSON(plan.ExistingApp))
 	}
 }
 
@@ -350,18 +409,9 @@ func (a *adder) chooseServices(plan []apps.PlanService) ([]string, error) {
 // chooseRoutes keeps the plan's routes for enabled services and, when core
 // offered route candidates, lets the user pick which one serves the main route.
 func (a *adder) chooseRoutes(plan apps.PlanResponse, services []string) (map[string]string, error) {
-	routes := make(map[string]string)
-	current := ""
-	for _, r := range plan.Routes {
-		if r.Service == "" || r.Route == "" || (services != nil && !slices.Contains(services, r.Service)) {
-			continue
-		}
-		routes[r.Service] = r.Route
-		if r.Route == mainRoute {
-			current = r.Service
-		}
-	}
-
+	// The plan's routes come from the compose file's labels, named ones
+	// included, and apply already: sending them back as shipyard.route would
+	// duplicate them. Core offers candidates only when the file has no route.
 	var candidates []string
 	for _, c := range plan.RouteCandidates {
 		if s := string(c); s != "" && (services == nil || slices.Contains(services, s)) {
@@ -369,13 +419,10 @@ func (a *adder) chooseRoutes(plan apps.PlanResponse, services []string) (map[str
 		}
 	}
 	if len(candidates) == 0 {
-		return routes, nil
-	}
-	if current == "" {
-		current = candidates[0]
+		return nil, nil
 	}
 	for {
-		answer, err := a.ask(fmt.Sprintf("Service for the %s route (%s)", mainRoute, strings.Join(candidates, ", ")), current)
+		answer, err := a.ask(fmt.Sprintf("Service for the %s route (%s)", mainRoute, strings.Join(candidates, ", ")), candidates[0])
 		if err != nil {
 			return nil, err
 		}
@@ -383,13 +430,7 @@ func (a *adder) chooseRoutes(plan apps.PlanResponse, services []string) (map[str
 			a.printf("Choose one of %s\n", strings.Join(candidates, ", "))
 			continue
 		}
-		for svc, route := range routes {
-			if route == mainRoute && svc != answer {
-				delete(routes, svc)
-			}
-		}
-		routes[answer] = mainRoute
-		return routes, nil
+		return map[string]string{answer: mainRoute}, nil
 	}
 }
 
@@ -422,7 +463,7 @@ func (a *adder) chooseEnv(names []apps.EnvName) ([]apps.EnvItem, error) {
 		if kind == "" {
 			kind = apps.KindRuntime
 		}
-		items = append(items, apps.EnvItem{Name: e.Name, Value: value, Kind: kind})
+		items = append(items, apps.EnvItem{Name: e.Name, Value: value, Kind: kind, Services: e.Services})
 	}
 	return items, nil
 }
@@ -475,7 +516,7 @@ func (a *adder) confirm(prompt string, def bool) (bool, error) {
 // printAction shows a needs_action, already_exists or creating answer: what to
 // do next and, for an existing app, everything else core sent about it.
 func (a *adder) printAction(body []byte, env []apps.EnvItem, public []string) {
-	body = apps.RedactValues(body, env, public...)
+	body = withoutBypassToken(apps.RedactValues(body, env, public...))
 	var resp map[string]json.RawMessage
 	_ = json.Unmarshal(body, &resp)
 	var action apps.ActionResponse

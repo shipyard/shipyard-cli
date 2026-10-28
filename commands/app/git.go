@@ -51,6 +51,18 @@ func withoutCredentials(remote string) string {
 	return remoteUserinfoRE.ReplaceAllString(remote, "$1")
 }
 
+// shellSafeRE matches a word a shell reads as itself.
+var shellSafeRE = regexp.MustCompile(`^[A-Za-z0-9._/@%+=:,-]+$`)
+
+// shellQuote quotes s for a command the user may paste: git allows ; and $ in
+// branch names.
+func shellQuote(s string) string {
+	if shellSafeRE.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // preflight checks that what Shipyard will build from GitHub is exactly the
 // local checkout: origin is on GitHub, the branch is pushed, local HEAD is the
 // remote head, and nothing is left uncommitted.
@@ -78,7 +90,7 @@ func preflight(git gitRunner) (checkout, error) {
 	}
 	remoteSHA, _, _ := strings.Cut(heads, "\t")
 	if remoteSHA == "" {
-		return checkout{}, fmt.Errorf("branch %s is not on origin: push it first (git push -u origin %s)", branch, branch)
+		return checkout{}, fmt.Errorf("branch %s is not on origin: push it first (git push -u origin %s)", branch, shellQuote(branch))
 	}
 
 	localSHA, err := git("rev-parse", "HEAD")

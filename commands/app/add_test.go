@@ -58,6 +58,12 @@ func TestPreflight(t *testing.T) {
 		{name: "origin credentials are not printed", change: map[string]string{"remote get-url origin": "https://user:tok123@gitlab.com/example-org/app.git"}, wantErr: "https://gitlab.com/example-org/app.git"},
 		{name: "detached HEAD", change: map[string]string{"rev-parse --abbrev-ref HEAD": "HEAD"}, wantErr: "detached"},
 		{name: "branch not on origin", change: map[string]string{"ls-remote --heads origin refs/heads/feature": ""}, wantErr: "not on origin"},
+		{
+			// The suggested push command must be safe to paste whatever the branch is called
+			name:    "branch name is quoted in the push hint",
+			change:  map[string]string{"rev-parse --abbrev-ref HEAD": "fix;id", "ls-remote --heads origin refs/heads/fix;id": ""},
+			wantErr: "git push -u origin 'fix;id'",
+		},
 		{name: "local HEAD differs from origin", change: map[string]string{"rev-parse HEAD": "2222222222222222222222222222222222222222"}, wantErr: "differs from origin"},
 		{name: "modified tracked file", change: map[string]string{"status --porcelain --untracked-files=normal --ignore-submodules=none": " M main.go"}, wantErr: "uncommitted changes"},
 		{name: "untracked file", change: map[string]string{"status --porcelain --untracked-files=normal --ignore-submodules=none": "?? notes.txt"}, wantErr: "uncommitted changes"},
@@ -121,9 +127,16 @@ type apiCall struct {
 
 const planBody = `{"status":"plan","org":"example-org","repo":"example-org/app","branch":"feature","head_sha":"` + sha + `",
 	"compose_file":"docker-compose.yml","services":[{"name":"web","ports":[80],"profiles":[],"enabled_by_default":true},{"name":"api","ports":[8080],"profiles":[],"enabled_by_default":true},{"name":"db","ports":[],"profiles":["db"],"enabled_by_default":false}],
-	"routes":[{"service":"web","route":"/"},{"service":"api","route":"/api"}],
+	"routes":[],
 	"route_candidates":[{"service":"web","hint":"port 80"},{"service":"api","hint":"port 8080"}],
-	"env":[{"name":"API_KEY","kind":"runtime"},{"name":"NPM_TOKEN","kind":"build_arg"}]}`
+	"env":[{"name":"API_KEY","kind":"runtime","services":["api"]},{"name":"NPM_TOKEN","kind":"build_arg","services":["web"]}]}`
+
+// planWithRoutes is a plan whose compose file labels its routes, one of them
+// named. Core offers route candidates only when the file has no route.
+const planWithRoutes = `{"status":"plan","org":"example-org","head_sha":"` + sha + `","compose_file":"docker-compose.yml",
+	"services":[{"name":"web","profiles":[],"enabled_by_default":true},{"name":"api","profiles":[],"enabled_by_default":true}],
+	"routes":[{"service":"web","route":"/","source":"compose"},{"service":"api","route":"/api","source":"compose"},{"service":"api","route":"/v2","source":"compose"}],
+	"route_candidates":[],"env":[]}`
 
 func TestAdd(t *testing.T) {
 	tests := []struct {
@@ -140,6 +153,7 @@ func TestAdd(t *testing.T) {
 		wantOut     []string
 		wantCreate  bool
 		checkBody   func(t *testing.T, body map[string]any)
+		visitors    []string
 	}{
 		{
 			name:         "created with edited services, route and one env var",
@@ -149,7 +163,7 @@ func TestAdd(t *testing.T) {
 			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"my-app","url":"https://app.example.com"}}}`,
 			// name, all services?, which services, main route, API_KEY?, value, NPM_TOKEN?, create?
 			input:      "my-app\nn\nweb,api\napi\ny\n" + secretVal + "\nn\ny\n",
-			wantOut:    []string{"Org: example-org", `Create app "my-app" in org example-org`, "Services: web, api, db", "/api -> api", "API_KEY (runtime)", "NPM_TOKEN (build arg)", "Created app my-app (app-uuid-1)", "URL: https://app.example.com"},
+			wantOut:    []string{"Org: example-org", `Create app "my-app" in org example-org`, "Services: web, api, db", "API_KEY (runtime)", "NPM_TOKEN (build arg)", "Created app my-app (app-uuid-1)", "URL: https://app.example.com"},
 			wantCreate: true,
 			checkBody: func(t *testing.T, body map[string]any) {
 				if body["application_name"] != "my-app" || body["head_sha"] != sha {
@@ -163,9 +177,17 @@ func TestAdd(t *testing.T) {
 				if _, ok := labels["web"]; ok || labels["api"].(map[string]any)["shipyard.route"] != "/" {
 					t.Errorf("serviceLabels = %v, want only api on /", labels)
 				}
+				// Core pins a compose file the caller names, so the detected one is not sent
+				if _, ok := project["compose_filename"]; ok {
+					t.Errorf("compose_filename sent: %v", project["compose_filename"])
+				}
 				secrets := body["secrets"].([]any)
 				if len(secrets) != 1 || secrets[0].(map[string]any)["value"] != secretVal {
 					t.Errorf("secrets = %v", secrets)
+				}
+				// API_KEY is set only on the service the compose file gives it to
+				if s, _ := secrets[0].(map[string]any)["services"].([]any); len(s) != 1 || s[0] != "api" {
+					t.Errorf("secret services = %v, want [api]", secrets[0].(map[string]any)["services"])
 				}
 				if _, ok := body["build_args"]; ok {
 					t.Errorf("NPM_TOKEN was declined but sent: %v", body["build_args"])
@@ -373,6 +395,82 @@ func TestAdd(t *testing.T) {
 			wantOut:      []string{"Next step: Send visitors"},
 			wantCreate:   true,
 		},
+		{
+			// Re-sending a named shipyard.route.<name> label as shipyard.route would
+			// duplicate it, and the build fails with DUPLICATE_ROUTES
+			name:         "compose routes are not sent back",
+			planStatus:   http.StatusOK,
+			planResp:     planWithRoutes,
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			// name, enable web, api?, create?
+			input:      "\n\n\n",
+			wantOut:    []string{"/v2 -> api"},
+			wantCreate: true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				project := body["projects"].([]any)[0].(map[string]any)
+				if _, ok := project["serviceLabels"]; ok {
+					t.Errorf("serviceLabels sent: %v", project["serviceLabels"])
+				}
+			},
+		},
+		{
+			name:       "an existing app on the branch stops before any prompt",
+			planStatus: http.StatusOK,
+			planResp:   strings.Replace(planBody, `"routes":[]`, `"existing_app":{"id":"app-uuid-1"},"routes":[]`, 1),
+			wantErr:    errStopped,
+			wantOut:    []string{"An app already exists for this repo and branch", "app-uuid-1"},
+		},
+		{
+			name:        "a plan with no services stops before any prompt",
+			planStatus:  http.StatusOK,
+			planResp:    `{"status":"plan","org":"example-org","head_sha":"` + sha + `","services":[],"routes":[],"route_candidates":[],"env":[]}`,
+			wantErrText: "no services",
+		},
+		{
+			// Core rejects a profile-only service unless its profile is selected
+			name:         "choosing a service behind a profile selects the profile",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			// name, enable web, api? n, services, route, API_KEY?, NPM_TOKEN?, create?
+			input:      "\nn\nweb,db\n\nn\nn\n\n",
+			wantCreate: true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				project := body["projects"].([]any)[0].(map[string]any)
+				if p, _ := project["selectedProfiles"].([]any); len(p) != 1 || p[0] != "db" {
+					t.Errorf("selectedProfiles = %v, want [db]", project["selectedProfiles"])
+				}
+			},
+		},
+		{
+			name:         "an existing app's bypass token is not printed",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusOK,
+			createResp:   `{"status":"already_exists","data":{"id":"app-uuid-1","attributes":{"bypass_token":"bt-secret-9"}}}`,
+			input:        "\n\n\nn\nn\n\n",
+			wantErr:      errStopped,
+			wantOut:      []string{"already exists", "app-uuid-1"},
+			wantCreate:   true,
+		},
+		{
+			// An org API token has no user to add, so core requires visitors
+			name:         "visitors are sent",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			visitors:     []string{"octocat"},
+			input:        "\n\n\nn\nn\n\n",
+			wantCreate:   true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				if v, _ := body["visitors"].([]any); len(v) != 1 || v[0] != "octocat" {
+					t.Errorf("visitors = %v", body["visitors"])
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -401,10 +499,11 @@ func TestAdd(t *testing.T) {
 
 			var out bytes.Buffer
 			a := &adder{
-				client: client.New(requests.New(), func() string { return "" }),
-				git:    fakeGit(cleanCheckout()),
-				in:     bufio.NewReader(strings.NewReader(tt.input)),
-				out:    &out,
+				client:   client.New(requests.New(), func() string { return "" }),
+				git:      fakeGit(cleanCheckout()),
+				in:       bufio.NewReader(strings.NewReader(tt.input)),
+				out:      &out,
+				visitors: tt.visitors,
 				readSecret: func(in *bufio.Reader) (string, error) {
 					line, err := in.ReadString('\n')
 					return strings.TrimSpace(line), err
@@ -423,6 +522,9 @@ func TestAdd(t *testing.T) {
 			}
 			if strings.ContainsAny(out.String(), "\x1b\x07\r") {
 				t.Fatalf("output holds a control character: %q", out.String())
+			}
+			if strings.Contains(out.String(), "bt-secret-9") {
+				t.Fatalf("output prints a bypass token:\n%s", out.String())
 			}
 			if strings.Contains(out.String(), secretVal) {
 				t.Fatalf("output prints an env value:\n%s", out.String())
