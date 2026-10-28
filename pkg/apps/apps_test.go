@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -82,14 +83,54 @@ func TestPlanServices(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &plan); err != nil {
 		t.Fatal(err)
 	}
-	want := []PlanService{{Name: "web", EnabledByDefault: true}, {Name: "debug", EnabledByDefault: false}, {Name: "legacy", EnabledByDefault: true}}
-	if len(plan.Services) != len(want) {
-		t.Fatalf("services = %+v", plan.Services)
+	want := []PlanService{
+		{Name: "web", EnabledByDefault: true, Profiles: []string{}},
+		{Name: "debug", EnabledByDefault: false, Profiles: []string{"debug"}},
+		{Name: "legacy", EnabledByDefault: true},
 	}
-	for i := range want {
-		if plan.Services[i] != want[i] {
-			t.Errorf("services[%d] = %+v, want %+v", i, plan.Services[i], want[i])
+	if !reflect.DeepEqual(plan.Services, want) {
+		t.Errorf("services = %+v, want %+v", plan.Services, want)
+	}
+}
+
+func TestPlanEnvServices(t *testing.T) {
+	// Core names the services that use each variable, so a value is set only there
+	var plan PlanResponse
+	if err := json.Unmarshal([]byte(`{"env":[{"name":"PAY_KEY","kind":"runtime","services":["api"]}]}`), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if got := plan.Env[0].Services; len(got) != 1 || got[0] != "api" {
+		t.Errorf("env services = %v", got)
+	}
+}
+
+func TestCreatePayloadSelectedProfiles(t *testing.T) {
+	payload, err := CreatePayload(CreateRequest{
+		AppName: "app",
+		Project: Project{Repo: "example-org/app", Branch: "main", Services: []string{"web", "debug"}, SelectedProfiles: []string{"debug"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := payload["projects"].([]map[string]any)[0]
+	if got, _ := project["selectedProfiles"].([]string); len(got) != 1 || got[0] != "debug" {
+		t.Errorf("selectedProfiles = %v", project["selectedProfiles"])
+	}
+}
+
+func TestDefaultAppName(t *testing.T) {
+	// Core allows letters, digits, dashes, underscores and spaces
+	for repo, want := range map[string]string{"example-org/app": "app", "example-org/my.site": "my-site", "my_app": "my_app"} {
+		if got := DefaultAppName(repo); got != want {
+			t.Errorf("DefaultAppName(%q) = %q, want %q", repo, got, want)
 		}
+	}
+}
+
+func TestRedactValuesKeys(t *testing.T) {
+	env := []EnvItem{{Name: "K", Value: "s3cret-value"}}
+	if got := string(RedactValues([]byte(`{"errors":{"s3cret-value":"invalid"}}`), env)); strings.Contains(got, "s3cret-value") {
+		t.Errorf("RedactValues = %s, want the key masked", got)
 	}
 }
 

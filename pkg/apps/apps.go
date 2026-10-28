@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -53,6 +56,9 @@ type NextStep struct {
 type EnvName struct {
 	Name string `json:"name"`
 	Kind string `json:"kind"`
+	// Services are the services the compose file gives the variable to; a
+	// value set without them reaches every service.
+	Services []string `json:"services,omitempty"`
 }
 
 // Route is a service's route in a plan.
@@ -85,8 +91,9 @@ func (c *RouteCandidate) UnmarshalJSON(b []byte) error {
 // PlanService is a compose service in a plan. A service that runs only under a
 // compose profile is off by default.
 type PlanService struct {
-	Name             string `json:"name"`
-	EnabledByDefault bool   `json:"enabled_by_default"`
+	Name             string   `json:"name"`
+	EnabledByDefault bool     `json:"enabled_by_default"`
+	Profiles         []string `json:"profiles"`
 }
 
 // UnmarshalJSON accepts core's {"name": "web", "enabled_by_default": true, ...}
@@ -143,6 +150,20 @@ type Project struct {
 	ComposeFilename string
 	// Routes maps a service to its shipyard.route label value.
 	Routes map[string]string
+	// SelectedProfiles are the compose profiles to turn on. Core rejects an
+	// enabled service whose profiles are all unselected.
+	SelectedProfiles []string
+}
+
+// appNameRE matches the characters core does not allow in an app name.
+var appNameRE = regexp.MustCompile(`[^- _a-zA-Z0-9]+`)
+
+// DefaultAppName is the repo name with the characters core rejects in an app
+// name (anything but letters, digits, dashes, underscores and spaces) turned
+// into dashes, so "my.site" becomes "my-site".
+func DefaultAppName(repo string) string {
+	_, name, _ := SplitRepo(repo)
+	return appNameRE.ReplaceAllString(name, "-")
 }
 
 // CreateRequest is the input of Create.
@@ -219,6 +240,9 @@ func projectPayload(p Project, requireOwner bool) (map[string]any, error) {
 	}
 	if p.ComposeFilename != "" {
 		out["compose_filename"] = p.ComposeFilename
+	}
+	if len(p.SelectedProfiles) > 0 {
+		out["selectedProfiles"] = p.SelectedProfiles
 	}
 	if len(p.Routes) > 0 {
 		labels := make(map[string]any, len(p.Routes))
@@ -533,6 +557,18 @@ func (r redactor) redactJSON(v any) bool {
 				t[k] = m
 				changed = true
 			} else if r.redactJSON(child) {
+				changed = true
+			}
+		}
+		// A key can carry a value too, as in {"errors": {"<value>": "invalid"}}
+		for _, k := range slices.Collect(maps.Keys(t)) {
+			if m, ok := r.leaf(k); ok {
+				key := m.(string)
+				for _, taken := t[key]; taken; _, taken = t[key] {
+					key += "_"
+				}
+				t[key] = t[k]
+				delete(t, k)
 				changed = true
 			}
 		}
