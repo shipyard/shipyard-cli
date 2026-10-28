@@ -60,19 +60,22 @@ func CreateApplicationSchema() map[string]interface{} {
 			"repo":     map[string]interface{}{"type": "string", "description": "GitHub repo as owner/name"},
 			"branch":   map[string]interface{}{"type": "string", "description": "Branch to build, already pushed"},
 			"app_name": map[string]interface{}{"type": "string", "description": "Application name (defaults to the repo name)"},
-			"services": stringArray("Compose services to enable; defaults to the plan's services"),
-			"routes":   routesSchema(),
-			"env":      envSchema(),
+			"services": stringArray("Compose services to enable, at least one: the plan's services with enabled_by_default, " +
+				"plus any the user turns on"),
+			"visitors": stringArray("GitHub logins who may open the environment. Required with an org API token " +
+				"(next_step visitors_required); with a user token the caller is added"),
+			"routes": routesSchema(),
+			"env":    envSchema(),
 			"head_sha": map[string]interface{}{
 				"type":        "string",
-				"description": "head_sha from plan_application, so Shipyard can refuse a plan that went stale",
+				"description": "head_sha from plan_application, so Shipyard builds the commit the user confirmed and refuses a plan that went stale",
 			},
 			"compose_filename": map[string]interface{}{
 				"type":        "string",
 				"description": "Compose file path, when the plan's compose_file is not the default",
 			},
 		},
-		"required": []string{"repo", "branch"},
+		"required": []string{"repo", "branch", "head_sha", "services"},
 	}
 }
 
@@ -98,7 +101,6 @@ func UpdateApplicationSchema() map[string]interface{} {
 				},
 			},
 			"remove_repos": stringArray("Repo names to unlink from the application"),
-			"env":          envSchema(),
 		},
 		"required": []string{"application_id"},
 	}

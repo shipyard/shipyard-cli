@@ -386,8 +386,8 @@ upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
 | Tool | What it does |
 |---|---|
 | `plan_application` | Preview creating an app for a pushed GitHub branch: its compose file, services, suggested routes, the env var names it needs and any existing app. Changes nothing |
-| `create_application` | Create an app from a confirmed plan: services, routes and env vars. Env values are sent to Shipyard but never returned |
-| `update_application` | Reconfigure an app: a repo's branch, services or routes, added or removed repos, env vars |
+| `create_application` | Create an app from a confirmed plan: services (at least one), routes and env vars. Requires the plan's `head_sha`, so Shipyard builds the commit you confirmed. Env values are sent to Shipyard but never returned. With an org API token, pass `visitors` (GitHub logins) |
+| `update_application` | Reconfigure an app: a repo's branch, services or routes, added or removed repos. Env vars are set with `put_env_vars` |
 
 When Shipyard needs something done first, such as installing the GitHub app,
 pushing the branch, adding a compose file or freeing an environment under your
@@ -397,7 +397,8 @@ you the message and waits for you to act.
 
 A branch that already has an app returns `status: already_exists` with that app
 and `requested_vs_existing`, the services, routes and env names you asked for
-that it doesn't have yet; the agent can apply them with `update_application`.
+that it doesn't have yet; the agent can apply services and routes with
+`update_application` and env vars with `put_env_vars`.
 If another request is still creating the same app, `create_application` returns
 `status: creating` and the agent tries again shortly.
 

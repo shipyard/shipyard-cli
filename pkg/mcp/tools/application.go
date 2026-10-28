@@ -16,7 +16,8 @@ import (
 const nextStepNote = "If the result has status needs_action, tell the user next_step.message " +
 	"(and next_step.url, if any) and stop: do not retry until they have acted on it. " +
 	"Status already_exists means an app is already on this repo and branch: data is that app and " +
-	"requested_vs_existing lists what this request asked for that it lacks; offer update_application for those. " +
+	"requested_vs_existing lists what this request asked for that it lacks; offer update_application for services " +
+	"and routes, and put_env_vars for env vars. " +
 	"Status creating means another request is still creating this app: wait about 30 seconds and call " +
 	"create_application again with the same input."
 
@@ -32,14 +33,15 @@ var applicationToolDefinitions = map[string]ToolDefinition{
 	"create_application": {
 		Name: "create_application",
 		Description: "Create a Shipyard app for a pushed GitHub branch, from a plan_application result the user confirmed. " +
-			"Pass the plan's head_sha. Env values are sent to Shipyard but never returned: the result lists env names only. " +
+			"head_sha is required: pass the plan's, so Shipyard builds the commit the user confirmed. " +
+			"Env values are sent to Shipyard but never returned: the result lists env names only. " +
 			"Returns status created with the new app, or " + nextStepNote,
 		InputSchema: schemas.CreateApplicationSchema(),
 	},
 	"update_application": {
 		Name: "update_application",
-		Description: "Reconfigure an existing app: change a repo's branch, services or routes, add or remove repos, or set " +
-			"env vars. Only the fields given change. Material changes queue a rebuild. Env values are never returned. " +
+		Description: "Reconfigure an existing app: change a repo's branch, services or routes, or add or remove repos. " +
+			"Only the fields given change. Material changes queue a rebuild. It does not set env vars: use put_env_vars. " +
 			nextStepNote,
 		InputSchema: schemas.UpdateApplicationSchema(),
 	},
@@ -68,12 +70,12 @@ func (t *ApplicationTool) Definition() ToolDefinition {
 	}
 }
 
-// Execute runs the named tool. Params of create and update carry env values,
-// so they are never logged.
+// Execute runs the named tool. Params are never logged: create's carry env
+// values, and an agent may send them to plan or update by mistake.
 func (t *ApplicationTool) Execute(ctx context.Context, params json.RawMessage) (string, error) {
 	switch t.name {
 	case "plan_application":
-		log.Printf("MCP tool execution started: %s with params: %s", t.name, string(params))
+		log.Printf("MCP tool execution started: %s", t.name)
 		return t.executePlan(params)
 	case "create_application":
 		log.Printf("MCP tool execution started: %s", t.name)
@@ -86,20 +88,24 @@ func (t *ApplicationTool) Execute(ctx context.Context, params json.RawMessage) (
 	}
 }
 
-type envParam struct {
-	Name     string   `json:"name"`
-	Value    string   `json:"value"`
-	Kind     string   `json:"kind,omitempty"`
-	Hidden   *bool    `json:"hidden,omitempty"`
-	Services []string `json:"services,omitempty"`
-}
-
-func toEnvItems(params []envParam) []apps.EnvItem {
-	items := make([]apps.EnvItem, 0, len(params))
-	for _, p := range params {
-		items = append(items, apps.EnvItem(p))
+// requireEnvValues rejects an env item whose value is missing, null or empty.
+// The schema requires it, but nothing enforces the schema, and an empty value
+// would clear a working variable. delete_env_var removes one on purpose.
+func requireEnvValues(tool string, params json.RawMessage) error {
+	var raw struct {
+		Env []struct {
+			Value *string `json:"value"`
+		} `json:"env"`
 	}
-	return items
+	if err := json.Unmarshal(params, &raw); err != nil {
+		return errors.ValidationError(tool, "parameters", "arguments are not valid JSON for this tool")
+	}
+	for i, item := range raw.Env {
+		if item.Value == nil || *item.Value == "" {
+			return errors.ValidationError(tool, "env", fmt.Sprintf("env[%d].value is required", i))
+		}
+	}
+	return nil
 }
 
 // envNames lists what was set, for the result: names and kinds, never values.
@@ -164,9 +170,10 @@ func (t *ApplicationTool) executeCreate(params json.RawMessage) (string, error) 
 		AppName         string            `json:"app_name,omitempty"`
 		Services        []string          `json:"services,omitempty"`
 		Routes          map[string]string `json:"routes,omitempty"`
-		Env             []envParam        `json:"env,omitempty"`
+		Env             []apps.EnvItem    `json:"env,omitempty"`
 		HeadSHA         string            `json:"head_sha,omitempty"`
 		ComposeFilename string            `json:"compose_filename,omitempty"`
+		Visitors        []string          `json:"visitors,omitempty"`
 	}
 	if err := json.Unmarshal(params, &toolParams); err != nil {
 		// A JSON error can quote the input, which may hold a value
@@ -175,26 +182,45 @@ func (t *ApplicationTool) executeCreate(params json.RawMessage) (string, error) 
 	if err := validateRepoBranch(t.name, toolParams.Repo, toolParams.Branch); err != nil {
 		return "", err
 	}
+	// Without the plan's commit, core would build whatever the branch holds
+	// now, which may be code pushed after the user confirmed the plan
+	if toolParams.HeadSHA == "" {
+		return "", errors.ValidationError(t.name, "head_sha", "head_sha is required: pass the head_sha from plan_application")
+	}
+	if err := requireEnvValues(t.name, params); err != nil {
+		return "", err
+	}
+	// Core enables no service by default and rejects a create without one
+	if len(toolParams.Services) == 0 {
+		return "", errors.ValidationError(t.name, "services", "services is required: pass the plan's services to enable")
+	}
+	// Core rejects a create without a name
+	appName := toolParams.AppName
+	if appName == "" {
+		_, appName, _ = apps.SplitRepo(toolParams.Repo)
+	}
 
-	env := toEnvItems(toolParams.Env)
+	env := toolParams.Env
+	project := apps.Project{
+		Repo:            toolParams.Repo,
+		Branch:          toolParams.Branch,
+		Services:        toolParams.Services,
+		Routes:          toolParams.Routes,
+		ComposeFilename: toolParams.ComposeFilename,
+	}
 	payload, err := apps.CreatePayload(apps.CreateRequest{
-		AppName: toolParams.AppName,
-		Project: apps.Project{
-			Repo:            toolParams.Repo,
-			Branch:          toolParams.Branch,
-			Services:        toolParams.Services,
-			Routes:          toolParams.Routes,
-			ComposeFilename: toolParams.ComposeFilename,
-		},
-		Env:     env,
-		HeadSHA: toolParams.HeadSHA,
+		AppName:  appName,
+		Project:  project,
+		Env:      env,
+		HeadSHA:  toolParams.HeadSHA,
+		Visitors: toolParams.Visitors,
 	})
 	if err != nil {
 		return "", errors.ValidationError(t.name, "parameters", err.Error())
 	}
 
 	body, err := apps.Create(t.client, payload)
-	return createdResult(body, err, env)
+	return actionOrSuccess("created", body, err, env, apps.PublicValues(appName, project))
 }
 
 func (t *ApplicationTool) executeUpdate(params json.RawMessage) (string, error) {
@@ -207,17 +233,22 @@ func (t *ApplicationTool) executeUpdate(params json.RawMessage) (string, error) 
 			Routes          map[string]string `json:"routes,omitempty"`
 			ComposeFilename string            `json:"compose_filename,omitempty"`
 		} `json:"projects,omitempty"`
-		RemoveRepos []string   `json:"remove_repos,omitempty"`
-		Env         []envParam `json:"env,omitempty"`
+		RemoveRepos []string `json:"remove_repos,omitempty"`
+		// Env is read only to refuse it: core's PATCH ignores env vars, so
+		// accepting them would report a change that never happened
+		Env json.RawMessage `json:"env,omitempty"`
 	}
 	if err := json.Unmarshal(params, &toolParams); err != nil {
 		return "", errors.ValidationError(t.name, "parameters", "arguments are not valid JSON for this tool")
 	}
-	if err := validation.ValidateEnvironmentID(toolParams.ApplicationID); err != nil {
+	if err := validation.ValidateApplicationID(toolParams.ApplicationID); err != nil {
 		return "", errors.ValidationError(t.name, "application_id", err.Error())
 	}
+	if len(toolParams.Env) > 0 {
+		return "", errors.ValidationError(t.name, "env", "update_application does not set env vars: use put_env_vars")
+	}
 
-	req := apps.UpdateRequest{RemoveRepos: toolParams.RemoveRepos, Env: toEnvItems(toolParams.Env)}
+	req := apps.UpdateRequest{RemoveRepos: toolParams.RemoveRepos}
 	for i, p := range toolParams.Projects {
 		if err := validation.ValidateRepoName(p.Repo); err != nil {
 			return "", errors.ValidationError(t.name, "projects", fmt.Sprintf("projects[%d]: %v", i, err))
@@ -239,32 +270,28 @@ func (t *ApplicationTool) executeUpdate(params json.RawMessage) (string, error) 
 	}
 
 	body, err := apps.Update(t.client, toolParams.ApplicationID, payload)
-	if actionBody, ok := apps.ActionBody(err); ok {
-		return string(apps.RedactValues(actionBody, req.Env)), nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("%s", apps.RedactString(err.Error(), req.Env))
-	}
-	return successResult("updated", body, req.Env)
+	return actionOrSuccess("updated", body, err, nil, nil)
 }
 
-// createdResult turns core's create answer into the tool result: core's own
-// needs_action or already_exists body when it sent one, else status created.
-func createdResult(body []byte, err error, env []apps.EnvItem) (string, error) {
+// actionOrSuccess turns core's create or update answer into the tool result:
+// core's own needs_action, already_exists or creating body when it sent one,
+// else the given success status. public lists what the request sent in the
+// clear (apps.PublicValues), which redaction leaves alone.
+func actionOrSuccess(status string, body []byte, err error, env []apps.EnvItem, public []string) (string, error) {
 	if actionBody, ok := apps.ActionBody(err); ok {
-		return string(apps.RedactValues(actionBody, env)), nil
+		return string(apps.RedactValues(actionBody, env, public...)), nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("%s", apps.RedactString(err.Error(), env))
+		return "", apps.RedactError(err, env, public...)
 	}
-	// A 2xx can still carry a needs_action or already_exists status
+	// A 2xx can still carry a needs_action, already_exists or creating status
 	if apps.IsActionBody(body) {
-		return string(apps.RedactValues(body, env)), nil
+		return string(apps.RedactValues(body, env, public...)), nil
 	}
-	return successResult("created", body, env)
+	return successResult(status, body, env, public)
 }
 
-func successResult(status string, body []byte, env []apps.EnvItem) (string, error) {
+func successResult(status string, body []byte, env []apps.EnvItem, public []string) (string, error) {
 	var resp struct {
 		Data json.RawMessage `json:"data"`
 	}
@@ -273,7 +300,7 @@ func successResult(status string, body []byte, env []apps.EnvItem) (string, erro
 	}
 	result := map[string]any{
 		"status":      status,
-		"application": json.RawMessage(apps.RedactValues(resp.Data, env)),
+		"application": json.RawMessage(apps.RedactValues(resp.Data, env, public...)),
 	}
 	if len(env) > 0 {
 		result["env"] = envNames(env)

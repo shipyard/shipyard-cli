@@ -1,11 +1,14 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -71,7 +74,7 @@ func TestApplicationTools(t *testing.T) {
 			tool:       "plan_application",
 			args:       `{"repo":"example-org/app","branch":"main"}`,
 			status:     http.StatusOK,
-			response:   `{"status":"plan","repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web","api"],"env":[{"name":"API_KEY","kind":"runtime"}]}`,
+			response:   `{"status":"plan","repo":"example-org/app","branch":"main","head_sha":"abc123","services":[{"name":"web","enabled_by_default":true},{"name":"api","enabled_by_default":true}],"env":[{"name":"API_KEY","kind":"runtime"}]}`,
 			wantMethod: http.MethodPost,
 			wantPath:   "/application/plan",
 			wantResult: []string{`"status":"plan"`, `"head_sha":"abc123"`},
@@ -189,20 +192,49 @@ func TestApplicationTools(t *testing.T) {
 			wantErr:    "bad value [REDACTED]",
 		},
 		{
+			name:       "create needs_action quoting a value inside a message is masked",
+			tool:       "create_application",
+			args:       createArgs,
+			status:     http.StatusConflict,
+			response:   `{"status":"needs_action","next_step":{"kind":"fix_env","message":"value ` + secretValue + ` for API_KEY is invalid"}}`,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application",
+			wantResult: []string{`"message":"value [REDACTED] for API_KEY is invalid"`},
+		},
+		{
+			name:    "create rejects an env item without a value",
+			tool:    "create_application",
+			args:    `{"repo":"example-org/app","branch":"main","head_sha":"abc123","env":[{"name":"API_KEY"}]}`,
+			wantErr: "env[0].value is required",
+		},
+		{
+			name:    "create rejects an env item with an empty value",
+			tool:    "create_application",
+			args:    `{"repo":"example-org/app","branch":"main","head_sha":"abc123","env":[{"name":"API_KEY","value":""}]}`,
+			wantErr: "env[0].value is required",
+		},
+		{
+			// Without the plan's commit core would build whatever the branch holds now
+			name:    "create requires head_sha",
+			tool:    "create_application",
+			args:    `{"repo":"example-org/app","branch":"main"}`,
+			wantErr: "head_sha is required",
+		},
+		{
 			name:    "create rejects an unknown env kind",
 			tool:    "create_application",
-			args:    `{"repo":"example-org/app","branch":"main","env":[{"name":"A","value":"b","kind":"other"}]}`,
+			args:    `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web"],"env":[{"name":"A","value":"b","kind":"other"}]}`,
 			wantErr: "kind must be",
 		},
 		{
 			name:       "update",
 			tool:       "update_application",
-			args:       `{"application_id":"app-uuid-1","projects":[{"repo":"app","branch":"feature","routes":{"web":"/new"}}],"remove_repos":["old"],"env":[{"name":"API_KEY","value":"` + secretValue + `"}]}`,
+			args:       `{"application_id":"app-uuid-1","projects":[{"repo":"app","branch":"feature","routes":{"web":"/new"}}],"remove_repos":["old"]}`,
 			status:     http.StatusOK,
-			response:   `{"data":{"type":"application","id":"app-uuid-1","attributes":{"secrets":[{"name":"API_KEY","value":"` + secretValue + `"}]}}}`,
+			response:   `{"data":{"type":"application","id":"app-uuid-1","attributes":{"name":"app"}}}`,
 			wantMethod: http.MethodPatch,
 			wantPath:   "/application/app-uuid-1",
-			wantResult: []string{`"status":"updated"`, `"id":"app-uuid-1"`, `"name":"API_KEY"`},
+			wantResult: []string{`"status":"updated"`, `"id":"app-uuid-1"`},
 			checkBody: func(t *testing.T, body map[string]any) {
 				project := body["projects"].([]any)[0].(map[string]any)
 				if project["repo_name"] != "app" || project["branch"] != "feature" {
@@ -225,6 +257,128 @@ func TestApplicationTools(t *testing.T) {
 			wantMethod: http.MethodPatch,
 			wantPath:   "/application/app-uuid-1",
 			wantResult: []string{`"kind":"push_branch"`},
+		},
+		{
+			name:       "update 2xx needs_action passes through",
+			tool:       "update_application",
+			args:       `{"application_id":"app-uuid-1","projects":[{"repo":"app","branch":"gone"}]}`,
+			status:     http.StatusOK,
+			response:   `{"status":"needs_action","next_step":{"kind":"push_branch","message":"Push branch gone"}}`,
+			wantMethod: http.MethodPatch,
+			wantPath:   "/application/app-uuid-1",
+			wantResult: []string{`"kind":"push_branch"`},
+		},
+		{
+			name:       "update 2xx already_exists passes through",
+			tool:       "update_application",
+			args:       `{"application_id":"app-uuid-1","projects":[{"repo":"app","branch":"main"}]}`,
+			status:     http.StatusOK,
+			response:   alreadyExists,
+			wantMethod: http.MethodPatch,
+			wantPath:   "/application/app-uuid-1",
+			wantResult: []string{alreadyExists},
+		},
+		{
+			name:       "update 2xx creating passes through",
+			tool:       "update_application",
+			args:       `{"application_id":"app-uuid-1","projects":[{"repo":"app","branch":"main"}]}`,
+			status:     http.StatusOK,
+			response:   creating,
+			wantMethod: http.MethodPatch,
+			wantPath:   "/application/app-uuid-1",
+			wantResult: []string{creating},
+		},
+		{
+			name:       "update at the environment limit passes the next step through",
+			tool:       "update_application",
+			args:       `{"application_id":"app-uuid-1","projects":[{"repo":"app","branch":"main"}]}`,
+			status:     http.StatusConflict,
+			response:   limitReached,
+			wantMethod: http.MethodPatch,
+			wantPath:   "/application/app-uuid-1",
+			wantResult: []string{limitReached},
+		},
+		{
+			// Core's PATCH ignores secrets and build_args, so env would be dropped silently
+			name:    "update rejects env",
+			tool:    "update_application",
+			args:    `{"application_id":"app-uuid-1","env":[{"name":"API_KEY","value":"` + secretValue + `"}]}`,
+			wantErr: "put_env_vars",
+		},
+		{
+			name:       "update 2xx with only a next step passes through",
+			tool:       "update_application",
+			args:       `{"application_id":"app-uuid-1","projects":[{"repo":"app","branch":"main"}]}`,
+			status:     http.StatusOK,
+			response:   `{"data":{"id":"app-uuid-1"},"next_step":{"kind":"push_branch","message":"Push branch main"}}`,
+			wantMethod: http.MethodPatch,
+			wantPath:   "/application/app-uuid-1",
+			wantResult: []string{`"kind":"push_branch"`},
+		},
+		{
+			name:       "create error quoting a value at the start of its title is masked",
+			tool:       "create_application",
+			args:       `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web"],"env":[{"name":"API_KEY","value":"S3cret-Value-456"}]}`,
+			status:     http.StatusBadRequest,
+			response:   `{"errors":[{"title":"S3cret-Value-456 is not a valid key"}]}`,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application",
+			wantErr:    "[REDACTED] is not a valid key",
+		},
+		{
+			name:    "create requires services",
+			tool:    "create_application",
+			args:    `{"repo":"example-org/app","branch":"main","head_sha":"abc123"}`,
+			wantErr: "services is required",
+		},
+		{
+			// Core rejects a create with no name
+			name:       "create names the app after the repo by default, and sends visitors",
+			tool:       "create_application",
+			args:       `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web"],"visitors":["octocat"]}`,
+			status:     http.StatusCreated,
+			response:   `{"status":"created","data":{"id":"app-uuid-1"}}`,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application",
+			wantResult: []string{`"status":"created"`},
+			checkBody: func(t *testing.T, body map[string]any) {
+				if body["application_name"] != "app" {
+					t.Errorf("application_name = %v, want the repo name", body["application_name"])
+				}
+				if v, _ := body["visitors"].([]any); len(v) != 1 || v[0] != "octocat" {
+					t.Errorf("visitors = %v", body["visitors"])
+				}
+			},
+		},
+		{
+			name:       "create token inside a next step URL is masked, service names are kept",
+			tool:       "create_application",
+			args:       `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web","redis"],"env":[{"name":"REDIS_HOST","value":"redis"},{"name":"TOKEN","value":"` + secretValue + `"}]}`,
+			status:     http.StatusOK,
+			response:   `{"status":"already_exists","requested_vs_existing":{"services":["redis"]},"next_step":{"kind":"fix","url":"https://example.com/fix?token=` + secretValue + `"}}`,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application",
+			wantResult: []string{`"services":["redis"]`, `token=[REDACTED]`},
+		},
+		{
+			name:       "create 2xx with only a next step passes through",
+			tool:       "create_application",
+			args:       createArgs,
+			status:     http.StatusOK,
+			response:   `{"next_step":{"kind":"visitors_required","message":"Send visitors"}}`,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application",
+			wantResult: []string{`"kind":"visitors_required"`},
+		},
+		{
+			name:       "plan creating passes through",
+			tool:       "plan_application",
+			args:       `{"repo":"example-org/app","branch":"main"}`,
+			status:     http.StatusOK,
+			response:   creating,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application/plan",
+			wantResult: []string{creating},
 		},
 		{
 			name:    "update with nothing to change",
@@ -266,5 +420,33 @@ func TestApplicationTools(t *testing.T) {
 				tt.checkBody(t, got.body)
 			}
 		})
+	}
+}
+
+func TestUpdateApplicationIDErrorNamesField(t *testing.T) {
+	for _, args := range []string{`{"projects":[{"repo":"app"}]}`, `{"application_id":"x"}`} {
+		_, err := NewApplicationTool(client.Client{}, "update_application").Execute(context.Background(), json.RawMessage(args))
+		if err == nil || !strings.Contains(err.Error(), "application_id") || strings.Contains(err.Error(), "environment_id") {
+			t.Errorf("Execute(%s) err = %v, want an application_id error", args, err)
+		}
+	}
+}
+
+// Create and update params carry env values, so nothing they log may hold one.
+func TestApplicationToolsDoNotLogValues(t *testing.T) {
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	c, _ := newAppServer(t, http.StatusBadRequest, `{"errors":[{"title":"Bad value `+secretValue+`"}]}`)
+	for tool, args := range map[string]string{
+		"create_application": `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web"],"env":[{"name":"API_KEY","value":"` + secretValue + `"}]}`,
+		// An agent may send create's env to plan by mistake
+		"plan_application": `{"repo":"example-org/app","branch":"main","env":[{"name":"API_KEY","value":"` + secretValue + `"}]}`,
+	} {
+		_, _ = NewApplicationTool(c, tool).Execute(context.Background(), json.RawMessage(args))
+	}
+	if strings.Contains(logs.String(), secretValue) {
+		t.Errorf("logs hold an env value:\n%s", logs.String())
 	}
 }
