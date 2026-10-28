@@ -367,8 +367,8 @@ func (a *adder) confirm(prompt string, def bool) (bool, error) {
 	}
 }
 
-// printAction shows a needs_action or already_exists answer: what to do next
-// and, for an existing app, everything else core sent about it.
+// printAction shows a needs_action, already_exists or creating answer: what to
+// do next and, for an existing app, everything else core sent about it.
 func (a *adder) printAction(body []byte, env []apps.EnvItem) {
 	body = apps.RedactValues(body, env)
 	var resp map[string]json.RawMessage
@@ -385,6 +385,8 @@ func (a *adder) printAction(body []byte, env []apps.EnvItem) {
 			}
 			a.printf("%s:\n%s\n", key, indentJSON(resp[key]))
 		}
+	case apps.StatusCreating:
+		a.printf("This app is still being created by another request. Run this again in a minute to see it.\n")
 	default:
 		a.printf("Shipyard needs something done before it can create this app.\n")
 	}

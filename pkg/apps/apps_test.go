@@ -33,6 +33,7 @@ func TestIsActionBody(t *testing.T) {
 	for body, want := range map[string]bool{
 		`{"status":"needs_action"}`:                        true,
 		`{"status":"already_exists"}`:                      true,
+		`{"status":"creating"}`:                            true,
 		`{"errors":[],"next_step":{"kind":"push_branch"}}`: true,
 		`{"status":"plan"}`:                                false,
 		`{"errors":[{"title":"bad"}]}`:                     false,

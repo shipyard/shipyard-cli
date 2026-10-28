@@ -45,8 +45,9 @@ func newAppServer(t *testing.T, status int, body string) (client.Client, *captur
 func TestApplicationTools(t *testing.T) {
 	needsAction := `{"errors":[{"title":"Install the Shipyard GitHub app"}],"status":"needs_action",` +
 		`"next_step":{"kind":"install_github_app","url":"https://example.com/install","message":"Install the Shipyard GitHub app"}}`
-	alreadyExists := `{"status":"already_exists","existing_app":{"uuid":"app-uuid-1"},"diff":{"services":{"add":["api"]}},` +
-		`"next_step":{"kind":"already_exists","message":"Use update_application"}}`
+	alreadyExists := `{"status":"already_exists","requested_vs_existing":{"services":["api"]},"data":{"id":"app-uuid-1"}}`
+	creating := `{"status":"creating","message":"This application is still being created. Retry shortly."}`
+	limitReached := `{"status":"needs_action","next_step":{"kind":"plan_limit_reached","message":"Stop one or upgrade"}}`
 
 	createArgs := `{"repo":"example-org/app","branch":"main","app_name":"app","services":["web","api"],` +
 		`"routes":{"web":"/","api":"/api"},"head_sha":"abc123",` +
@@ -141,11 +142,41 @@ func TestApplicationTools(t *testing.T) {
 			name:       "create already_exists passes through",
 			tool:       "create_application",
 			args:       createArgs,
-			status:     http.StatusConflict,
+			status:     http.StatusOK,
 			response:   alreadyExists,
 			wantMethod: http.MethodPost,
 			wantPath:   "/application",
 			wantResult: []string{alreadyExists},
+		},
+		{
+			name:       "create creating passes through",
+			tool:       "create_application",
+			args:       createArgs,
+			status:     http.StatusOK,
+			response:   creating,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application",
+			wantResult: []string{creating},
+		},
+		{
+			name:       "create at the environment limit passes the next step through",
+			tool:       "create_application",
+			args:       createArgs,
+			status:     http.StatusConflict,
+			response:   limitReached,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application",
+			wantResult: []string{limitReached},
+		},
+		{
+			name:       "create during a GitHub outage is a retryable error",
+			tool:       "create_application",
+			args:       createArgs,
+			status:     http.StatusBadGateway,
+			response:   `{"errors":[{"status":502,"title":"Could not read the branch from GitHub. Try again shortly."}]}`,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application",
+			wantErr:    "could not read the branch from GitHub. Try again shortly.",
 		},
 		{
 			name:       "create error that echoes a value is masked",

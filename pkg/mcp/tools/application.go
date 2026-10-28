@@ -13,8 +13,12 @@ import (
 	"github.com/shipyard/shipyard-cli/pkg/mcp/validation"
 )
 
-const nextStepNote = "If the result has status needs_action or already_exists, tell the user next_step.message " +
-	"(and next_step.url, if any) and stop: do not retry until they have acted on it."
+const nextStepNote = "If the result has status needs_action, tell the user next_step.message " +
+	"(and next_step.url, if any) and stop: do not retry until they have acted on it. " +
+	"Status already_exists means an app is already on this repo and branch: data is that app and " +
+	"requested_vs_existing lists what this request asked for that it lacks; offer update_application for those. " +
+	"Status creating means another request is still creating this app: wait about 30 seconds and call " +
+	"create_application again with the same input."
 
 var applicationToolDefinitions = map[string]ToolDefinition{
 	"plan_application": {

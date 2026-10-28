@@ -36,6 +36,9 @@ const (
 	StatusPlan          = "plan"
 	StatusNeedsAction   = "needs_action"
 	StatusAlreadyExists = "already_exists"
+	// StatusCreating: another request is still creating this app; nothing was
+	// queued. Asking again shortly returns already_exists.
+	StatusCreating = "creating"
 )
 
 // NextStep is what core says to do about a needs_action or already_exists answer.
@@ -328,14 +331,15 @@ func ActionBody(err error) ([]byte, bool) {
 	return apiErr.Body, true
 }
 
-// IsActionBody reports whether body carries a needs_action or already_exists
-// status, or a next_step.
+// IsActionBody reports whether body carries a needs_action, already_exists or
+// creating status, or a next_step.
 func IsActionBody(body []byte) bool {
 	var r ActionResponse
 	if err := json.Unmarshal(body, &r); err != nil {
 		return false
 	}
-	return r.Status == StatusNeedsAction || r.Status == StatusAlreadyExists || r.NextStep != nil
+	return r.Status == StatusNeedsAction || r.Status == StatusAlreadyExists || r.Status == StatusCreating ||
+		r.NextStep != nil
 }
 
 // RedactValues returns body with every env value replaced, so a response or
