@@ -49,8 +49,10 @@ as the CLI.
    claude mcp add shipyard -- shipyard mcp serve
    ```
 
-   Claude Code, Codex and Kiro can also install the [Shipyard plugin](#installing-the-plugin),
-   which adds the server and a skill in one step. Other clients are covered in
+   Or, instead, install the [Shipyard plugin](#installing-the-plugin) in Claude
+   Code, Codex or Kiro, which adds the server and a skill in one step. Use one or
+   the other: if you already ran `claude mcp add`, run `claude mcp remove shipyard`
+   before installing the plugin. Other clients are covered in
    [Connecting a client](#connecting-a-client).
 
 4. **Try it.** Start a new session and ask "list my Shipyard environments".
@@ -86,8 +88,16 @@ the CLI on your `PATH` and `shipyard login`.
 | Codex | `codex plugin marketplace add shipyard/shipyard-plugins`, then `codex plugin add shipyard@shipyard` |
 | Kiro | In the Powers panel, install from the GitHub URL `https://github.com/shipyard/shipyard-plugins` |
 
-Restart the session afterwards. If you install the plugin, don't also add the
-server by hand as below, or the client runs two copies.
+Restart the session afterwards. Use the plugin or the manual setup below, not
+both:
+
+- **Claude Code** runs the plugin's server as `plugin:shipyard:shipyard`, next to
+  any `shipyard` server you added by hand. Run `claude mcp remove shipyard` first.
+- **Codex** names the plugin's server `shipyard`. A `[mcp_servers.shipyard]` entry
+  in `config.toml` replaces it, so you only need one when you want the
+  [Codex permission settings](#codex).
+- **Kiro** runs the power's server as `power-shipyard-plugins-shipyard`, next to
+  any `shipyard` entry in `mcp.json`. Remove or disable that entry first.
 
 ### Claude Code
 
@@ -274,7 +284,9 @@ overwrite state, or neither. Clients use this to decide what to ask you about.
 In an interactive session each client asks before a tool call, and you can
 approve as you go. For an assistant that runs on its own (a script, a CI job, a
 headless session), allow the read-only tools and nothing else. Each recipe below
-was checked: the read tools run, and a destructive call is refused.
+was checked: the read tools run, and a destructive call is refused. The recipes
+assume a server you added by hand. Where the [plugin](#installing-the-plugin)
+changes that, the client's section says so.
 
 The `get_*` rules don't match `port_forward`, which is read-only too; add it by
 name if you want it. An assistant that also starts environments to test against,
@@ -297,6 +309,9 @@ same rule to `claude -p --allowedTools`):
 
 Every other Shipyard tool still needs your approval, and a non-interactive
 session refuses it.
+
+With the plugin, the tools are named after the plugin's server, so allow
+`mcp__plugin_shipyard_shipyard__get_*` instead.
 
 #### Codex
 
@@ -321,6 +336,11 @@ approval_mode = "approve"
 [mcp_servers.shipyard.tools.get_environments]
 approval_mode = "approve"
 ```
+
+With the plugin installed, keep the whole `[mcp_servers.shipyard]` block,
+`command` and `args` included: it replaces the plugin's server rather than adding
+a second one. A block with only the approval setting is rejected (`invalid
+transport`).
 
 #### Cursor
 
@@ -372,6 +392,11 @@ environment to test against. Add those four too for a strictly read-only session
 you add it, so check the [table above](#what-each-tool-may-change) after
 upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
 `.kiro/settings/mcp.json` that defines `shipyard` wins over the user file.
+
+This recipe needs a server you added by hand. If the Shipyard power is installed,
+uninstall it from the Powers panel first: its server
+(`power-shipyard-plugins-shipyard`) isn't covered by this `disabledTools` list
+and would run alongside it.
 
 ## Tools
 
