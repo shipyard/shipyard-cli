@@ -54,6 +54,7 @@ and are never printed.`,
 		a := &adder{
 			client:     c,
 			git:        runGit,
+			ghLogin:    runGhLogin,
 			in:         bufio.NewReader(cmd.InOrStdin()),
 			out:        cmd.OutOrStdout(),
 			readSecret: secretReader(cmd.InOrStdin()),
@@ -84,6 +85,8 @@ type adder struct {
 	readSecret func(in *bufio.Reader) (string, error)
 	// visitors are GitHub logins who may open the environment (--visitor).
 	visitors []string
+	// ghLogin is the GitHub CLI's signed-in login, or "" (nil skips it).
+	ghLogin func() string
 }
 
 func secretReader(stdin io.Reader) func(in *bufio.Reader) (string, error) {
@@ -554,11 +557,12 @@ func (a *adder) askAppName(def, replaceable string) (string, error) {
 }
 
 // askVisitors asks for the GitHub logins who may open the environment, until
-// at least one is given.
+// at least one is given. The login found on this machine is the default.
 func (a *adder) askVisitors() ([]string, error) {
 	a.printf("This API token belongs to the org, not a user, so name who may open the environment.\n")
+	def := localGitHubLogin(a.git, a.ghLogin)
 	for {
-		answer, err := a.ask("GitHub logins, comma-separated", "")
+		answer, err := a.ask("GitHub logins, comma-separated", def)
 		if err != nil {
 			return nil, err
 		}

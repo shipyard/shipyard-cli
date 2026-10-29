@@ -175,6 +175,8 @@ func TestAdd(t *testing.T) {
 		// when set, fails the name lookup with that status.
 		takenNames       []string
 		nameLookupStatus int
+		// ghLogin is the GitHub CLI's signed-in login on this machine.
+		ghLogin string
 	}{
 		{
 			name:         "created with edited services, route and one env var",
@@ -248,6 +250,23 @@ func TestAdd(t *testing.T) {
 			checkBody: func(t *testing.T, body map[string]any) {
 				if v, _ := body["visitors"].([]any); len(v) != 2 || v[0] != "octocat" || v[1] != "hubot" {
 					t.Errorf("visitors = %v, want [octocat hubot]", body["visitors"])
+				}
+			},
+		},
+		{
+			// Enter accepts the login found on this machine
+			name:         "org token offers the local GitHub login as the visitor",
+			planStatus:   http.StatusOK,
+			planResp:     withPlanFields(planWithRoutes, `"visitors_required":true`),
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			ghLogin:      "octocat",
+			input:        "\n\n\ny\n",
+			wantOut:      []string{"GitHub logins, comma-separated [octocat]:"},
+			wantCreate:   true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				if v, _ := body["visitors"].([]any); len(v) != 1 || v[0] != "octocat" {
+					t.Errorf("visitors = %v, want [octocat]", body["visitors"])
 				}
 			},
 		},
@@ -773,6 +792,7 @@ func TestAdd(t *testing.T) {
 				in:       bufio.NewReader(strings.NewReader(tt.input)),
 				out:      &out,
 				visitors: tt.visitors,
+				ghLogin:  func() string { return tt.ghLogin },
 				readSecret: func(in *bufio.Reader) (string, error) {
 					line, err := in.ReadString('\n')
 					return strings.TrimSpace(line), err
@@ -908,5 +928,34 @@ func TestExistingAppLabel(t *testing.T) {
 		if got := existingAppLabel(json.RawMessage(raw)); got != want {
 			t.Errorf("existingAppLabel(%s) = %q, want %q", raw, got, want)
 		}
+	}
+}
+
+func TestLocalGitHubLogin(t *testing.T) {
+	tests := []struct {
+		name string
+		gh   string
+		git  map[string]string
+		want string
+	}{
+		{name: "GitHub CLI first", gh: "octocat", git: map[string]string{"config github.user": "hubot"}, want: "octocat"},
+		{name: "noreply email", git: map[string]string{"config user.email": "12345+Hubot@users.noreply.github.com"}, want: "Hubot"},
+		{name: "older noreply email", git: map[string]string{"config user.email": "hubot@users.noreply.github.com"}, want: "hubot"},
+		{name: "github.user", git: map[string]string{"config user.email": "jane@example.com", "config github.user": "jdoe"}, want: "jdoe"},
+		// A display name or a work email says nothing about the login
+		{name: "nothing usable", git: map[string]string{"config user.email": "jane@example.com", "config user.name": "Jane Doe"}, want: ""},
+		{name: "not a login is skipped", gh: "not a login!", git: map[string]string{"config github.user": "jdoe"}, want: "jdoe"},
+		{name: "too long", git: map[string]string{"config github.user": strings.Repeat("a", 40)}, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gh := func() string { return tt.gh }
+			if got := localGitHubLogin(fakeGit(tt.git), gh); got != tt.want {
+				t.Errorf("localGitHubLogin() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+	if got := localGitHubLogin(fakeGit(map[string]string{"config github.user": "jdoe"}), nil); got != "jdoe" {
+		t.Errorf("without gh = %q, want jdoe", got)
 	}
 }
