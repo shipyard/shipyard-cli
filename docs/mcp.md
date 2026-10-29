@@ -247,8 +247,8 @@ overwrite state, or neither. Clients use this to decide what to ask you about.
 
 | Kind | Tools |
 |---|---|
-| Read-only | `get_environments`, `get_environment`, `get_build_history`, `get_failure_details`, `get_build_logs`, `get_env_vars`, `get_logs`, `get_services`, `get_volumes`, `get_snapshots`, `get_orgs`, `get_org`, `port_forward` (returns a command, runs nothing) |
-| Destructive: overwrites, stops or removes something | `stop_environment`, `cancel_environment`, `rebuild_environment`, `update_branches`, `restart_service`, `put_env_vars`, `delete_env_var`, `reset_volume`, `load_snapshot`, `exec_service`, `set_org` (changes the org every later call targets), `telepresence_connect` (rewrites `~/.shipyard/kubeconfig` and your routes) |
+| Read-only | `get_environments`, `get_environment`, `get_build_history`, `get_failure_details`, `get_build_logs`, `get_env_vars`, `get_logs`, `get_services`, `get_volumes`, `get_snapshots`, `get_orgs`, `get_org`, `plan_application`, `port_forward` (returns a command, runs nothing) |
+| Destructive: overwrites, stops or removes something | `stop_environment`, `cancel_environment`, `rebuild_environment`, `update_branches`, `restart_service`, `put_env_vars`, `delete_env_var`, `reset_volume`, `load_snapshot`, `exec_service`, `set_org` (changes the org every later call targets), `telepresence_connect` (rewrites `~/.shipyard/kubeconfig` and your routes), `update_application` (overwrites an app's config and can unlink repos), `create_application` (replaces an earlier create whose first build never started) |
 | Adds state only | `restart_environment`, `revive_environment`, `deploy_detached`, `create_snapshot` |
 
 ### Letting an assistant read without asking
@@ -338,7 +338,7 @@ hints. Remove the destructive tools from the server with `disabledTools`:
         "stop_environment", "cancel_environment", "rebuild_environment",
         "update_branches", "restart_service", "put_env_vars", "delete_env_var",
         "reset_volume", "load_snapshot", "exec_service", "set_org",
-        "telepresence_connect"
+        "telepresence_connect", "update_application", "create_application"
       ]
     }
   }
@@ -379,6 +379,28 @@ upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
 | `delete_env_var` | Delete an environment variable by name |
 | `update_branches` | Change the branch of every repo in an environment |
 | `deploy_detached` | Deploy a detached environment cloned from an application build |
+
+### Applications
+
+| Tool | What it does |
+|---|---|
+| `plan_application` | Preview creating an app for a pushed GitHub branch: its compose file, services, suggested routes, the env vars the compose file needs set (`optional` when it has a default), any existing app, `app_name` (a name free in the org whose URL is free too) and `visitors_required` (true for an org API token). Changes nothing |
+| `create_application` | Create an app from a confirmed plan: services (at least one), routes and env vars. Requires the plan's `head_sha`, so Shipyard builds the commit you confirmed. Each env item needs the services the plan lists for it, so a value reaches only those services, or `[]` when the plan lists none (a variable the compose file interpolates, set for the whole app); values are sent to Shipyard but never returned. Pass the plan's `app_name`; without one Shipyard picks a free name the same way. A service behind a compose profile needs that profile in `selected_profiles`. With an org API token, pass `visitors` (GitHub logins) |
+| `update_application` | Reconfigure an app: a repo's branch, services, routes (`remove_routes` removes one) or `selected_profiles`, added or removed repos. Runtime env vars are set with `put_env_vars`, build args in the dashboard |
+
+When Shipyard needs something done first, such as installing the GitHub app,
+pushing the branch, adding a compose file or freeing an environment under your
+plan's limit, these return `status: needs_action` with a `next_step` (`kind`,
+`message`, and a `url` when there is one) instead of an error. The agent shows
+you the message and waits for you to act.
+
+A branch that already has an app returns `status: already_exists` with that app
+and `requested_vs_existing`, the services, routes and env names you asked for
+that it doesn't have yet; the agent can apply services and routes with
+`update_application`, runtime env vars with `put_env_vars`, and build args in
+the Shipyard dashboard. None of the request's env values are applied.
+If another request is still creating the same app, `create_application` returns
+`status: creating` and the agent tries again shortly.
 
 ### Failed builds
 

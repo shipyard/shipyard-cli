@@ -9,6 +9,7 @@ func TestAnnotationsNameDefinedTools(t *testing.T) {
 	for _, defs := range []map[string]ToolDefinition{
 		toolDefinitions, extendedToolDefinitions, orgToolDefinitions,
 		telepresenceToolDefinitions, serviceToolDefinitions, volumeToolDefinitions,
+		applicationToolDefinitions,
 	} {
 		for name := range defs {
 			defined[name] = true
