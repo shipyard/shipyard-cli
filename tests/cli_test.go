@@ -365,6 +365,78 @@ func TestDetachedDeploy(t *testing.T) {
 	}
 }
 
+func TestDetachedDelete(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		args   []string
+		output string
+		isErr  bool
+	}{
+		{
+			name:   "default org success",
+			args:   []string{"detached", "delete", "detached-1"},
+			output: "Detached environment \"ci-preview\" is being deleted (application UUID: detached-1).\n",
+		},
+		{
+			name:   "non default org success",
+			args:   []string{"detached", "delete", "detached-1", "--org", "pugs"},
+			output: "Detached environment \"ci-preview\" is being deleted (application UUID: detached-1).\n",
+		},
+		{
+			name:   "base environment is refused",
+			args:   []string{"detached", "delete", "default-1"},
+			output: "Command error: environment is not a detached environment\n",
+			isErr:  true,
+		},
+		{
+			name:   "unknown environment",
+			args:   []string{"detached", "delete", "missing-env"},
+			output: "Command error: environment not found\n",
+			isErr:  true,
+		},
+		{
+			name:   "invalid org",
+			args:   []string{"detached", "delete", "detached-1", "--org", "cats"},
+			output: "Command error: user org not found\n",
+			isErr:  true,
+		},
+		{
+			name:   "environment ID is required",
+			args:   []string{"detached", "delete"},
+			output: "Command error: accepts 1 arg(s), received 0\n",
+			isErr:  true,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			c := newCmd(test.args)
+			err := c.cmd.Run()
+			if test.isErr {
+				if err == nil {
+					t.Errorf("expected error %q but command succeeded", test.output)
+					return
+				}
+				if diff := cmp.Diff(c.stdErr.String(), test.output); diff != "" {
+					t.Error(diff)
+				}
+				return
+			}
+			if err != nil {
+				t.Logf("Detached delete failed: %v", err)
+				t.Logf("Stderr: %q", c.stdErr.String())
+				t.Fatalf("unexpected error")
+			}
+			if diff := cmp.Diff(c.stdOut.String(), test.output); diff != "" {
+				t.Error(diff)
+			}
+		})
+	}
+}
+
 // nolint:gosec // Bad arguments can't be passed in.
 func newCmd(args []string) *cmdWrapper {
 	c := cmdWrapper{

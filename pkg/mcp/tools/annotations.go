@@ -21,6 +21,7 @@ var annotations = map[string]ToolAnnotations{
 	"rebuild_environment": {Title: "Rebuild environment", DestructiveHint: true},
 	"revive_environment":  {Title: "Revive environment", IdempotentHint: true},
 	"deploy_detached":     {Title: "Deploy detached environment"},
+	"delete_detached":     {Title: "Delete detached environment", DestructiveHint: true, IdempotentHint: true},
 	"update_branches":     {Title: "Update environment branches", DestructiveHint: true, IdempotentHint: true},
 	"get_build_history":   {Title: "Get build history", ReadOnlyHint: true, IdempotentHint: true},
 

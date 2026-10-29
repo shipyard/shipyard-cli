@@ -248,7 +248,7 @@ overwrite state, or neither. Clients use this to decide what to ask you about.
 | Kind | Tools |
 |---|---|
 | Read-only | `get_environments`, `get_environment`, `get_build_history`, `get_failure_details`, `get_build_logs`, `get_env_vars`, `get_logs`, `get_services`, `get_volumes`, `get_snapshots`, `get_orgs`, `get_org`, `plan_application`, `port_forward` (returns a command, runs nothing) |
-| Destructive: overwrites, stops or removes something | `stop_environment`, `cancel_environment`, `rebuild_environment`, `update_branches`, `restart_service`, `put_env_vars`, `delete_env_var`, `reset_volume`, `load_snapshot`, `exec_service`, `set_org` (changes the org every later call targets), `telepresence_connect` (rewrites `~/.shipyard/kubeconfig` and your routes), `update_application` (overwrites an app's config and can unlink repos), `create_application` (replaces an earlier create whose first build never started) |
+| Destructive: overwrites, stops or removes something | `stop_environment`, `cancel_environment`, `rebuild_environment`, `update_branches`, `delete_detached`, `restart_service`, `put_env_vars`, `delete_env_var`, `reset_volume`, `load_snapshot`, `exec_service`, `set_org` (changes the org every later call targets), `telepresence_connect` (rewrites `~/.shipyard/kubeconfig` and your routes), `update_application` (overwrites an app's config and can unlink repos), `create_application` (replaces an earlier create whose first build never started) |
 | Adds state only | `restart_environment`, `revive_environment`, `deploy_detached`, `create_snapshot` |
 
 ### Letting an assistant read without asking
@@ -336,7 +336,7 @@ hints. Remove the destructive tools from the server with `disabledTools`:
       "args": ["mcp", "serve"],
       "disabledTools": [
         "stop_environment", "cancel_environment", "rebuild_environment",
-        "update_branches", "restart_service", "put_env_vars", "delete_env_var",
+        "update_branches", "delete_detached", "restart_service", "put_env_vars", "delete_env_var",
         "reset_volume", "load_snapshot", "exec_service", "set_org",
         "telepresence_connect", "update_application", "create_application"
       ]
@@ -379,6 +379,7 @@ upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
 | `delete_env_var` | Delete an environment variable by name |
 | `update_branches` | Change the branch of every repo in an environment |
 | `deploy_detached` | Deploy a detached environment cloned from an application build |
+| `delete_detached` | Delete a detached environment (base and pull request environments are refused) |
 
 ### Applications
 
