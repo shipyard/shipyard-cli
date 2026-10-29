@@ -179,6 +179,8 @@ func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 		"restart_service": true, "put_env_vars": true, "delete_env_var": true,
 		"update_branches": true, "reset_volume": true, "load_snapshot": true, "exec_service": true,
 		"set_org": true, "telepresence_connect": true, "update_application": true,
+		// create_application replaces an earlier create that never built
+		"create_application": true,
 	}
 	// Clients retry idempotent calls on their own. reset_volume and load_snapshot
 	// queue a new restore each call, and cancel_environment cancels whatever build

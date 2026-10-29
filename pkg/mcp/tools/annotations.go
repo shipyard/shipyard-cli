@@ -53,11 +53,12 @@ var annotations = map[string]ToolAnnotations{
 	"create_snapshot": {Title: "Create snapshot"},
 	"load_snapshot":   {Title: "Load snapshot", DestructiveHint: true},
 
-	// Applications. create_application only adds an app, and a retry finds the
-	// one the first call made (already_exists). update_application overwrites the
+	// Applications. A create retry finds the app the first call made
+	// (already_exists), but a create also replaces, and deletes, an earlier API
+	// create that never got its first build. update_application overwrites the
 	// app's config and can unlink repos.
 	"plan_application":   {Title: "Plan application", ReadOnlyHint: true, IdempotentHint: true},
-	"create_application": {Title: "Create application", IdempotentHint: true},
+	"create_application": {Title: "Create application", DestructiveHint: true, IdempotentHint: true},
 	"update_application": {Title: "Update application", DestructiveHint: true, IdempotentHint: true},
 
 	// Telepresence

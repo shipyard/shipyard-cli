@@ -248,8 +248,8 @@ overwrite state, or neither. Clients use this to decide what to ask you about.
 | Kind | Tools |
 |---|---|
 | Read-only | `get_environments`, `get_environment`, `get_build_history`, `get_failure_details`, `get_build_logs`, `get_env_vars`, `get_logs`, `get_services`, `get_volumes`, `get_snapshots`, `get_orgs`, `get_org`, `plan_application`, `port_forward` (returns a command, runs nothing) |
-| Destructive: overwrites, stops or removes something | `stop_environment`, `cancel_environment`, `rebuild_environment`, `update_branches`, `restart_service`, `put_env_vars`, `delete_env_var`, `reset_volume`, `load_snapshot`, `exec_service`, `set_org` (changes the org every later call targets), `telepresence_connect` (rewrites `~/.shipyard/kubeconfig` and your routes), `update_application` (overwrites an app's config and can unlink repos) |
-| Adds state only | `restart_environment`, `revive_environment`, `deploy_detached`, `create_snapshot`, `create_application` |
+| Destructive: overwrites, stops or removes something | `stop_environment`, `cancel_environment`, `rebuild_environment`, `update_branches`, `restart_service`, `put_env_vars`, `delete_env_var`, `reset_volume`, `load_snapshot`, `exec_service`, `set_org` (changes the org every later call targets), `telepresence_connect` (rewrites `~/.shipyard/kubeconfig` and your routes), `update_application` (overwrites an app's config and can unlink repos), `create_application` (replaces an earlier create whose first build never started) |
+| Adds state only | `restart_environment`, `revive_environment`, `deploy_detached`, `create_snapshot` |
 
 ### Letting an assistant read without asking
 
@@ -338,7 +338,7 @@ hints. Remove the destructive tools from the server with `disabledTools`:
         "stop_environment", "cancel_environment", "rebuild_environment",
         "update_branches", "restart_service", "put_env_vars", "delete_env_var",
         "reset_volume", "load_snapshot", "exec_service", "set_org",
-        "telepresence_connect", "update_application"
+        "telepresence_connect", "update_application", "create_application"
       ]
     }
   }
@@ -346,10 +346,9 @@ hints. Remove the destructive tools from the server with `disabledTools`:
 ```
 
 A disabled tool is not offered to the model at all. This leaves the read tools
-and the five that only add state (`restart_environment`, `revive_environment`,
-`deploy_detached`, `create_snapshot`, `create_application`) on, so the assistant
-can start a stopped environment to test against. Add those five too for a strictly
-read-only session.
+and the four that only add state (`restart_environment`, `revive_environment`,
+`deploy_detached`, `create_snapshot`) on, so the assistant can start a stopped
+environment to test against. Add those four too for a strictly read-only session.
 
 `disabledTools` is a block-list: a tool added in a later release is enabled until
 you add it, so check the [table above](#what-each-tool-may-change) after
@@ -386,8 +385,8 @@ upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
 | Tool | What it does |
 |---|---|
 | `plan_application` | Preview creating an app for a pushed GitHub branch: its compose file, services, suggested routes, the env var names it needs and any existing app. Changes nothing |
-| `create_application` | Create an app from a confirmed plan: services (at least one), routes and env vars. Requires the plan's `head_sha`, so Shipyard builds the commit you confirmed. Env values are sent to Shipyard but never returned, and each is scoped to the services the plan lists for it. A service behind a compose profile needs that profile in `selected_profiles`. With an org API token, pass `visitors` (GitHub logins) |
-| `update_application` | Reconfigure an app: a repo's branch, services or routes, added or removed repos. Env vars are set with `put_env_vars` |
+| `create_application` | Create an app from a confirmed plan: services (at least one), routes and env vars. Requires the plan's `head_sha`, so Shipyard builds the commit you confirmed. Each env item needs the services the plan lists for it, so a value reaches only those services; values are sent to Shipyard but never returned. The default name is `<repo>-<branch>`, since app names are unique per org. A service behind a compose profile needs that profile in `selected_profiles`. With an org API token, pass `visitors` (GitHub logins) |
+| `update_application` | Reconfigure an app: a repo's branch, services, routes (`remove_routes` removes one) or `selected_profiles`, added or removed repos. Runtime env vars are set with `put_env_vars`, build args in the dashboard |
 
 When Shipyard needs something done first, such as installing the GitHub app,
 pushing the branch, adding a compose file or freeing an environment under your
@@ -398,7 +397,8 @@ you the message and waits for you to act.
 A branch that already has an app returns `status: already_exists` with that app
 and `requested_vs_existing`, the services, routes and env names you asked for
 that it doesn't have yet; the agent can apply services and routes with
-`update_application` and env vars with `put_env_vars`.
+`update_application`, runtime env vars with `put_env_vars`, and build args in
+the Shipyard dashboard. None of the request's env values are applied.
 If another request is still creating the same app, `create_application` returns
 `status: creating` and the agent tries again shortly.
 

@@ -33,10 +33,11 @@ func envSchema() map[string]interface{} {
 					"enum":        []string{"runtime", "build_arg"},
 					"description": "runtime (default) or build_arg, as the plan's env list says",
 				},
-				"hidden":   map[string]interface{}{"type": "boolean", "description": "Mask the value in API responses"},
-				"services": stringArray("Optional service names to scope the variable to"),
+				"hidden": map[string]interface{}{"type": "boolean", "description": "Mask the value in API responses"},
+				"services": stringArray("Services the variable reaches: the plan's services for it. Without them a value reaches " +
+					"every service, so they are required"),
 			},
-			"required": []string{"name", "value"},
+			"required": []string{"name", "value", "services"},
 		},
 	}
 }
@@ -60,7 +61,7 @@ func CreateApplicationSchema() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"repo":     map[string]interface{}{"type": "string", "description": "GitHub repo as owner/name"},
 			"branch":   map[string]interface{}{"type": "string", "description": "Branch to build, already pushed"},
-			"app_name": map[string]interface{}{"type": "string", "description": "Application name (defaults to the repo name)"},
+			"app_name": map[string]interface{}{"type": "string", "description": "Application name, unique in the org (defaults to <repo>-<branch>)"},
 			"services": stringArray("Compose services to enable, at least one: the plan's services with enabled_by_default, " +
 				"plus any the user turns on"),
 			"visitors": stringArray("GitHub logins who may open the environment. Required with an org API token " +
@@ -99,11 +100,14 @@ func UpdateApplicationSchema() map[string]interface{} {
 						"services":         stringArray("Compose services to enable"),
 						"routes":           routesSchema(),
 						"compose_filename": map[string]interface{}{"type": "string", "description": "Compose file path"},
+						"remove_routes":    stringArray("Services whose route to remove"),
+						"selected_profiles": stringArray("Compose profiles to turn on: each enabled service whose " +
+							"enabled_by_default is false needs one of its profiles here"),
 					},
 					"required": []string{"repo"},
 				},
 			},
-			"remove_repos": stringArray("Repo names to unlink from the application"),
+			"remove_repos": stringArray("Bare repo names to unlink, as the app links them (not owner/name)"),
 		},
 		"required": []string{"application_id"},
 	}
