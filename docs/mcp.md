@@ -95,7 +95,8 @@ hand as below instead, with the absolute path from `which shipyard` as the
 command.
 
 Restart the session afterwards. Use the plugin or the manual setup below, not
-both:
+both. The one exception is Codex, where a manual entry replaces the plugin's
+server instead of running beside it:
 
 - **Claude Code** runs the plugin's server as `plugin:shipyard:shipyard`, next to
   any `shipyard` server you added by hand. Run `claude mcp remove shipyard` first.
