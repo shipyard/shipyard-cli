@@ -257,11 +257,13 @@ shipyard detached deploy {application_build_uuid} --build-on-commit-for web=alwa
 
 ### Delete a detached environment
 
-Only detached environments can be deleted this way; a base or pull request environment is refused.
-Deleting one that is already deleted succeeds again.
+Pass the environment UUID, or the UUID of any of its application builds (the one in the build
+detail page's URL). Only detached environments can be deleted this way; a base or pull request
+environment is refused. Deleting one that is already deleted succeeds again.
 
 ```bash
 shipyard detached delete {environment_uuid}
+shipyard detached delete {application_build_uuid}
 ```
 
 ### Get all services and exposed ports for an environment

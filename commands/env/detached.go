@@ -144,14 +144,18 @@ func deployDetached(cmd *cobra.Command, c client.Client, appBuildID string) erro
 
 func newDetachedDeleteCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "delete [environment ID]",
+		Use:   "delete [environment or application build ID]",
 		Short: "Delete a detached environment",
 		Long: `Queue the deletion of a detached environment.
 
-Only detached environments can be deleted this way: a base or pull request environment is
+Pass the environment ID, or the ID of any of its application builds (the one in the
+build detail page's URL). Only detached environments can be deleted this way: a base or pull request environment is
 refused. Deleting an environment that is already deleted, or being deleted, succeeds again.`,
 		Example: `  # Delete the detached environment 4d5e6f
-  shipyard detached delete 4d5e6f`,
+  shipyard detached delete 4d5e6f
+
+  # Delete the detached environment that application build 1a2b3c belongs to
+  shipyard detached delete 1a2b3c`,
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

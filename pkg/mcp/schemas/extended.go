@@ -106,7 +106,7 @@ func DeleteDetachedSchema() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"environment_id": map[string]interface{}{
 				"type":        "string",
-				"description": "ID (application UUID) of the detached environment to delete",
+				"description": "ID of the detached environment to delete, or of any of its application builds",
 			},
 		},
 		"required": []string{"environment_id"},
