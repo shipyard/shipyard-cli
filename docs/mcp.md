@@ -50,7 +50,7 @@ as the CLI.
    ```
 
    Or, instead, install the [Shipyard plugin](#installing-the-plugin) in Claude
-   Code, Codex or Kiro, which adds the server and a skill in one step. Use one or
+   Code, Codex, Cursor or Kiro, which adds the server and a skill in one step. Use one or
    the other: if you already ran `claude mcp add`, run `claude mcp remove shipyard`
    before installing the plugin. Other clients are covered in
    [Connecting a client](#connecting-a-client).
@@ -86,7 +86,12 @@ the CLI on your `PATH` and `shipyard login`.
 |---|---|
 | Claude Code | `claude plugin marketplace add shipyard/shipyard-plugins`, then `claude plugin install shipyard@shipyard` |
 | Codex | `codex plugin marketplace add shipyard/shipyard-plugins`, then `codex plugin add shipyard@shipyard` |
+| Cursor | `cursor-agent plugin marketplace add https://github.com/shipyard/shipyard-plugins`, then Cursor Settings, Plugins: install Shipyard |
 | Kiro | In the Powers panel, install from the GitHub URL `https://github.com/shipyard/shipyard-plugins` |
+
+**In Cursor, check Auto-Run first.** With Auto-Run on, Cursor runs Shipyard
+tools without asking, destructive ones included. See [Cursor](#cursor-1) under
+permissions.
 
 The plugin runs `shipyard` from the `PATH` the client sees, and you can't change
 that command. If the server fails to start with "command not found" (desktop apps
@@ -107,6 +112,9 @@ server instead of running beside it:
 - **Codex** names the plugin's server `shipyard`. A `[mcp_servers.shipyard]` entry
   in `config.toml` replaces it, so you only need one when you want the
   [Codex permission settings](#codex).
+- **Cursor** runs the plugin's server as `plugin-shipyard-shipyard`, a separate
+  name from a `shipyard` entry in `mcp.json`. Remove that entry first. The
+  plugin's server runs in the Cursor app only: `cursor-agent` doesn't load it.
 - **Kiro** runs the power's server as `power-shipyard-plugins-shipyard`, a
   separate name from a `shipyard` entry in `mcp.json`. Remove or disable that
   entry first.
@@ -170,7 +178,8 @@ project, and add:
 
 Drop the `env` block if the CLI is already configured. Reload the window, then
 check Settings → MCP, where Shipyard should list its tools and the `verify`
-prompt.
+prompt. Before using it, read [Cursor](#cursor-1) under permissions: with
+Auto-Run on, Cursor runs tools without asking.
 
 ### Codex CLI
 
@@ -357,6 +366,15 @@ transport`).
 
 #### Cursor
 
+**The Cursor app decides from its Auto-Run setting, not from the tool hints.**
+With Auto-Run on and MCP Tools Protection off, Cursor 3.27.22 ran
+`stop_environment` on a real environment without asking, and retried it when
+the first call failed. Before you connect Shipyard, open Cursor Settings,
+Auto-Run, and either choose **Ask Every Time**, or turn on **MCP Tools
+Protection**. Then check that a destructive call asks you before you rely on it.
+Use **Run Everything** only with an org API key for an org you can afford to
+have changed.
+
 The Cursor agent CLI (`cursor-agent -p`) doesn't use the tool hints. Allow the
 read tools in `.cursor/cli.json`, or `~/.cursor/cli-config.json` for every
 project:
@@ -368,6 +386,9 @@ project:
   }
 }
 ```
+
+This needs a server you added by hand in `mcp.json`: `cursor-agent` doesn't load
+the plugin's server.
 
 Cursor also asks you to approve the server itself the first time, and again
 whenever its `command` changes, for example after an upgrade moves the binary.
@@ -746,9 +767,11 @@ session starts, once the CLI's daily update check has seen the new release. It
 isn't told when `CI` is set or update checks are off. Codex doesn't show them.
 
 To update the [plugin](#installing-the-plugin): `claude plugin update shipyard@shipyard`,
-or `codex plugin marketplace upgrade shipyard`. In Kiro, uninstall the power and
-import it from GitHub again, because Kiro's own update check can fail with "No
-name was provided for author".
+or `codex plugin marketplace upgrade shipyard`. In Cursor, run
+`cursor-agent plugin marketplace update shipyard`, then reinstall the plugin from
+Cursor Settings, Plugins. In Kiro, uninstall the power and import it from GitHub
+again, because Kiro's own update check can fail with "No name was provided for
+author".
 
 If the upgrade changed the binary's path, update the `command` in the client's
 config. Cursor asks you to approve the server again, and a per-app firewall needs
@@ -767,7 +790,9 @@ Remove the server from the client:
 | Kiro | Delete the `shipyard` entry from `~/.kiro/settings/mcp.json` or `.kiro/settings/mcp.json`, or set `"disabled": true` to keep it for later |
 
 If you installed the plugin, remove it instead: `claude plugin uninstall shipyard@shipyard`,
-`codex plugin remove shipyard@shipyard`, or uninstall the power from Kiro's Powers panel.
+`codex plugin remove shipyard@shipyard`, uninstall it from Cursor Settings, Plugins (and
+run `cursor-agent plugin marketplace remove shipyard`), or uninstall the power from Kiro's
+Powers panel.
 
 To remove the CLI and its token as well: `brew uninstall shipyard` for a Homebrew
 install, otherwise delete the binary (`which shipyard`). There is no logout
