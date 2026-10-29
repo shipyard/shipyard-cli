@@ -214,7 +214,7 @@ func (a *adder) run() error {
 	// that never got its first build, which the plan also shows, so the choice
 	// is the user's.
 	if len(plan.ExistingApp) > 0 && string(plan.ExistingApp) != "null" {
-		a.printf("An app already exists for this repo and branch: %s\n", compactJSON(withoutBypassToken(plan.ExistingApp)))
+		a.printf("An app already exists for this repo and branch: %s\n", existingAppLabel(plan.ExistingApp))
 		ok, err := a.confirm("Create anyway? Shipyard replaces it only if its first build never started", false)
 		if err != nil {
 			return err
@@ -229,7 +229,19 @@ func (a *adder) run() error {
 		return fmt.Errorf("the plan found no services in the compose file: add one, push, and run shipyard add again")
 	}
 
-	name, err := a.askAppName(apps.DefaultAppName(co.Repo, co.Branch), existingAppName(plan.ExistingApp))
+	// An org token has no user to let in: ask who may visit before the rest, not
+	// after every prompt when core refuses the create
+	if plan.VisitorsRequired && len(a.visitors) == 0 {
+		if a.visitors, err = a.askVisitors(); err != nil {
+			return err
+		}
+	}
+	// Core's suggestion is free in the org and gives the app a readable URL
+	defName := plan.AppName
+	if defName == "" {
+		defName = apps.DefaultAppName(co.Repo, co.Branch)
+	}
+	name, err := a.askAppName(defName, existingAppName(plan.ExistingApp))
 	if err != nil {
 		return err
 	}
@@ -377,7 +389,11 @@ func (a *adder) printPlan(plan apps.PlanResponse, org string) {
 	if len(plan.Env) > 0 {
 		a.printf("Env vars:\n")
 		for _, e := range plan.Env {
-			a.printf("  %s (%s)\n", e.Name, kindLabel(e.Kind))
+			if e.Optional {
+				a.printf("  %s (%s, optional)\n", e.Name, kindLabel(e.Kind))
+			} else {
+				a.printf("  %s (%s)\n", e.Name, kindLabel(e.Kind))
+			}
 		}
 	}
 }
@@ -535,6 +551,44 @@ func (a *adder) askAppName(def, replaceable string) (string, error) {
 		}
 		return name, nil
 	}
+}
+
+// askVisitors asks for the GitHub logins who may open the environment, until
+// at least one is given.
+func (a *adder) askVisitors() ([]string, error) {
+	a.printf("This API token belongs to the org, not a user, so name who may open the environment.\n")
+	for {
+		answer, err := a.ask("GitHub logins, comma-separated", "")
+		if err != nil {
+			return nil, err
+		}
+		var logins []string
+		for _, login := range strings.Split(answer, ",") {
+			if login = strings.TrimSpace(login); login != "" {
+				logins = append(logins, login)
+			}
+		}
+		if len(logins) > 0 {
+			return logins, nil
+		}
+		a.printf("At least one GitHub login is required.\n")
+	}
+}
+
+// existingAppLabel is "name (uuid)" for the plan's existing_app, or its JSON
+// when it has neither.
+func existingAppLabel(raw json.RawMessage) string {
+	var app struct {
+		Name string `json:"name"`
+		UUID string `json:"uuid"`
+	}
+	if json.Unmarshal(raw, &app) != nil || (app.Name == "" && app.UUID == "") {
+		return compactJSON(withoutBypassToken(raw))
+	}
+	if app.UUID == "" {
+		return app.Name
+	}
+	return fmt.Sprintf("%s (%s)", app.Name, app.UUID)
 }
 
 // existingAppName is the name in the plan's existing_app, or "".

@@ -61,7 +61,7 @@ func CreateApplicationSchema() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"repo":     map[string]interface{}{"type": "string", "description": "GitHub repo as owner/name"},
 			"branch":   map[string]interface{}{"type": "string", "description": "Branch to build, already pushed"},
-			"app_name": map[string]interface{}{"type": "string", "description": "Application name, unique in the org (defaults to <repo>-<branch>)"},
+			"app_name": map[string]interface{}{"type": "string", "description": "Application name, unique in the org: pass the plan's app_name unless the user chose another (defaults to <repo>-<branch>)"},
 			"services": stringArray("Compose services to enable, at least one: the plan's services with enabled_by_default, " +
 				"plus any the user turns on"),
 			"visitors": stringArray("GitHub logins who may open the environment. Required with an org API token " +

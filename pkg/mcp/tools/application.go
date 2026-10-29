@@ -3,8 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"log"
+	"net/http"
 	"slices"
 
 	"github.com/shipyard/shipyard-cli/pkg/apps"
@@ -12,6 +14,7 @@ import (
 	"github.com/shipyard/shipyard-cli/pkg/mcp/errors"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/schemas"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/validation"
+	"github.com/shipyard/shipyard-cli/pkg/requests"
 )
 
 const needsActionNote = "If the result has status needs_action, tell the user next_step.message " +
@@ -41,8 +44,11 @@ var applicationToolDefinitions = map[string]ToolDefinition{
 		Name: "plan_application",
 		Description: "Preview what creating a Shipyard app for a pushed GitHub branch would do, without changing anything: " +
 			"the compose file and its services, suggested routes (routes, route_candidates), the env var names it needs " +
-			"(kind runtime or build_arg, and the services that use each), head_sha, and any existing app for the repo. " +
-			"Call it before create_application and confirm services, routes and env names with the user. " +
+			"(kind runtime or build_arg, optional when the file has a default, and the services that use each), head_sha, " +
+			"any existing app for the repo, app_name (a free name to create with) and visitors_required (an org token: " +
+			"ask the user for GitHub logins to pass as visitors). Call it before create_application, show the user the " +
+			"plan (app name, services, routes, env names) and wait for their yes before creating, even when they already " +
+			"asked you to create the app. " +
 			untrustedPlanNote + nextStepNote,
 		InputSchema: schemas.PlanApplicationSchema(),
 	},
@@ -50,7 +56,9 @@ var applicationToolDefinitions = map[string]ToolDefinition{
 		Name: "create_application",
 		Description: "Create a Shipyard app for a pushed GitHub branch, from a plan_application result the user confirmed. " +
 			"head_sha is required: pass the plan's, so Shipyard builds the commit the user confirmed. " +
-			"Env values are sent to Shipyard but never returned: the result lists env names only. " +
+			"Pass the plan's app_name unless the user chose another. " +
+			"Env values are sent to Shipyard but never returned: the result lists env names only. Never repeat an env " +
+			"value back to the user, in chat or anywhere else. " +
 			"Set each env item's services to the plan's, so a value reaches only the services that use it. " +
 			"Enabling a service whose enabled_by_default is false needs its profile in selected_profiles. " +
 			untrustedPlanNote + bypassTokenNote + "Returns status created with the new app, or " + nextStepNote,
@@ -212,7 +220,7 @@ func (t *ApplicationTool) executeCreate(params json.RawMessage) (string, error) 
 	if len(toolParams.Services) == 0 {
 		return "", errors.ValidationError(t.name, "services", "services is required: pass the plan's services to enable")
 	}
-	// Core rejects a create without a name
+	// Older cores reject a create without a name; the plan's app_name is the one to pass
 	appName := toolParams.AppName
 	if appName == "" {
 		appName = apps.DefaultAppName(toolParams.Repo, toolParams.Branch)
@@ -305,6 +313,10 @@ func (t *ApplicationTool) executeUpdate(params json.RawMessage) (string, error) 
 	}
 
 	body, err := apps.Update(t.client, toolParams.ApplicationID, payload)
+	var apiErr *requests.APIError
+	if stderrors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+		return "", errors.NotFoundError(t.name, "application", toolParams.ApplicationID)
+	}
 	return actionOrSuccess("updated", body, err, nil, nil)
 }
 
@@ -339,8 +351,9 @@ func successResult(status string, body []byte, env []apps.EnvItem, public []stri
 			"to see whether the app was %s before retrying", status)
 	}
 	result := map[string]any{
-		"status":      status,
-		"application": json.RawMessage(apps.RedactValues(resp.Data, env, public...)),
+		"status": status,
+		// "data", as in core's already_exists answer, so both read the same way
+		"data": json.RawMessage(apps.RedactValues(resp.Data, env, public...)),
 	}
 	if len(env) > 0 {
 		result["env"] = envNames(env)

@@ -384,8 +384,8 @@ upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
 
 | Tool | What it does |
 |---|---|
-| `plan_application` | Preview creating an app for a pushed GitHub branch: its compose file, services, suggested routes, the env var names it needs and any existing app. Changes nothing |
-| `create_application` | Create an app from a confirmed plan: services (at least one), routes and env vars. Requires the plan's `head_sha`, so Shipyard builds the commit you confirmed. Each env item needs the services the plan lists for it, so a value reaches only those services; values are sent to Shipyard but never returned. The default name is `<repo>-<branch>`, since app names are unique per org. A service behind a compose profile needs that profile in `selected_profiles`. With an org API token, pass `visitors` (GitHub logins) |
+| `plan_application` | Preview creating an app for a pushed GitHub branch: its compose file, services, suggested routes, the env vars the compose file needs set (`optional` when it has a default), any existing app, `app_name` (a name free in the org whose URL is free too) and `visitors_required` (true for an org API token). Changes nothing |
+| `create_application` | Create an app from a confirmed plan: services (at least one), routes and env vars. Requires the plan's `head_sha`, so Shipyard builds the commit you confirmed. Each env item needs the services the plan lists for it, so a value reaches only those services; values are sent to Shipyard but never returned. Pass the plan's `app_name`; without one the name is `<repo>-<branch>`, since app names are unique per org. A service behind a compose profile needs that profile in `selected_profiles`. With an org API token, pass `visitors` (GitHub logins) |
 | `update_application` | Reconfigure an app: a repo's branch, services, routes (`remove_routes` removes one) or `selected_profiles`, added or removed repos. Runtime env vars are set with `put_env_vars`, build args in the dashboard |
 
 When Shipyard needs something done first, such as installing the GitHub app,

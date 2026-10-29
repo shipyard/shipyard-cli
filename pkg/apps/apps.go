@@ -62,6 +62,8 @@ type EnvName struct {
 	// Services are the services the compose file gives the variable to; a
 	// value set without them reaches every service.
 	Services []string `json:"services,omitempty"`
+	// Optional is true when the compose file has a default for the variable.
+	Optional bool `json:"optional,omitempty"`
 }
 
 // Route is a service's route in a plan.
@@ -124,7 +126,12 @@ type PlanResponse struct {
 	RouteCandidates []RouteCandidate `json:"route_candidates"`
 	Env             []EnvName        `json:"env"`
 	ExistingApp     json.RawMessage  `json:"existing_app,omitempty"`
-	NextStep        *NextStep        `json:"next_step,omitempty"`
+	// AppName is a name core says create can take: free in the org, with a free
+	// URL. Older cores don't send it.
+	AppName string `json:"app_name,omitempty"`
+	// VisitorsRequired is true for an org token, which has no user to let in.
+	VisitorsRequired bool      `json:"visitors_required,omitempty"`
+	NextStep         *NextStep `json:"next_step,omitempty"`
 }
 
 // ActionResponse is the part of a create or update answer that says whether

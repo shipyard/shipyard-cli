@@ -150,6 +150,11 @@ const planWithRoutes = `{"status":"plan","org":"example-org","head_sha":"` + sha
 	"routes":[{"service":"web","route":"/","source":"compose"},{"service":"api","route":"/api","source":"compose"},{"service":"api","route":"/v2","source":"compose"}],
 	"route_candidates":[],"env":[]}`
 
+// withPlanFields adds fields to a plan body.
+func withPlanFields(plan, fields string) string {
+	return strings.TrimSuffix(strings.TrimSpace(plan), "}") + "," + fields + "}"
+}
+
 func TestAdd(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -213,6 +218,48 @@ func TestAdd(t *testing.T) {
 					t.Errorf("NPM_TOKEN was declined but sent: %v", body["build_args"])
 				}
 			},
+		},
+		{
+			// Core suggests a name that is free in the org and as a URL
+			name:         "plan's app_name is the default name",
+			planStatus:   http.StatusOK,
+			planResp:     withPlanFields(planWithRoutes, `"app_name":"app-suggested"`),
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app-suggested"}}}`,
+			input:        "\n\ny\n",
+			wantOut:      []string{"App name [app-suggested]:"},
+			wantCreate:   true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				if body["application_name"] != "app-suggested" {
+					t.Errorf("application_name = %v, want app-suggested", body["application_name"])
+				}
+			},
+		},
+		{
+			// An org token has no user to let in: asked before any other prompt
+			name:         "org token asks for visitors first",
+			planStatus:   http.StatusOK,
+			planResp:     withPlanFields(planWithRoutes, `"visitors_required":true`),
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			input:        "\noctocat, hubot\n\n\ny\n",
+			wantOut:      []string{"belongs to the org, not a user", "At least one GitHub login is required."},
+			wantCreate:   true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				if v, _ := body["visitors"].([]any); len(v) != 2 || v[0] != "octocat" || v[1] != "hubot" {
+					t.Errorf("visitors = %v, want [octocat hubot]", body["visitors"])
+				}
+			},
+		},
+		{
+			name:         "optional env var marked",
+			planStatus:   http.StatusOK,
+			planResp:     strings.Replace(planWithRoutes, `"env":[]`, `"env":[{"name":"LOG_LEVEL","kind":"runtime","services":["web"],"optional":true}]`, 1),
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			input:        "\n\nn\ny\n",
+			wantOut:      []string{"LOG_LEVEL (runtime, optional)"},
+			wantCreate:   true,
 		},
 		{
 			name:       "plan needs action",
@@ -848,5 +895,18 @@ func TestAddStopsOnPreflight(t *testing.T) {
 	}
 	if err := a.run(); err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
 		t.Fatalf("err = %v, want the uncommitted changes refusal", err)
+	}
+}
+
+func TestExistingAppLabel(t *testing.T) {
+	tests := map[string]string{
+		`{"name":"app","uuid":"app-uuid-1"}`:     "app (app-uuid-1)",
+		`{"name":"app"}`:                         "app",
+		`{"id":"x","bypass_token":"tok-secret"}`: `{"id":"x"}`,
+	}
+	for raw, want := range tests {
+		if got := existingAppLabel(json.RawMessage(raw)); got != want {
+			t.Errorf("existingAppLabel(%s) = %q, want %q", raw, got, want)
+		}
 	}
 }

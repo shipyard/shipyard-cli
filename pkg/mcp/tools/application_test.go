@@ -610,3 +610,46 @@ func TestPlanDataMarkedUntrusted(t *testing.T) {
 		}
 	}
 }
+
+// created and already_exists both put the app under "data", so an agent reads
+// either answer the same way.
+func TestCreateApplicationResultUsesData(t *testing.T) {
+	c, _ := newAppServer(t, http.StatusCreated, `{"status":"created","data":{"id":"app-uuid-1"}}`)
+	args := `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web"]}`
+	out, err := NewApplicationTool(c, "create_application").Execute(context.Background(), json.RawMessage(args))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := result["data"]; !ok {
+		t.Errorf("result = %s, want the app under data", out)
+	}
+	if _, ok := result["application"]; ok {
+		t.Errorf("result = %s, still has application", out)
+	}
+}
+
+func TestUpdateApplicationNotFoundNamesTheApp(t *testing.T) {
+	c, _ := newAppServer(t, http.StatusNotFound, `{"errors":[{"status":404,"title":"Application not found"}]}`)
+	args := `{"application_id":"app-uuid-404","projects":[{"repo":"app","branch":"main"}]}`
+	_, err := NewApplicationTool(c, "update_application").Execute(context.Background(), json.RawMessage(args))
+	if err == nil || !strings.Contains(err.Error(), "application 'app-uuid-404' not found") {
+		t.Errorf("err = %v, want it to name the application", err)
+	}
+}
+
+// The QA end-to-end run had an agent create without confirming and echo the
+// value it was given; the descriptions say not to.
+func TestApplicationToolsConfirmAndNeverEchoValues(t *testing.T) {
+	plan := applicationToolDefinitions["plan_application"].Description
+	if !strings.Contains(plan, "wait for their yes") || !strings.Contains(plan, "app_name") || !strings.Contains(plan, "visitors_required") {
+		t.Errorf("plan_application description = %q", plan)
+	}
+	create := applicationToolDefinitions["create_application"].Description
+	if !strings.Contains(create, "Never repeat an env value") || !strings.Contains(create, "app_name") {
+		t.Errorf("create_application description = %q", create)
+	}
+}
