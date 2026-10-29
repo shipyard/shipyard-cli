@@ -80,6 +80,18 @@ echo "=== Shipyard Vulnerability Scan ==="
 "$GOVULNCHECK" -version 2>&1 | sed 's/^/  /'
 echo ""
 
+# is_stripped <binary>: true when the binary has no symbol table. `go tool nm`
+# fails with "no symbols" on a stripped ELF or PE binary; a stripped Mach-O
+# binary keeps only its undefined (U) dynamic imports.
+is_stripped() {
+    local out
+    if ! out=$(go tool nm "$1" 2>&1); then
+        [[ "$out" == *"no symbols"* ]]
+        return
+    fi
+    ! awk '$(NF-1) != "U" { found = 1; exit } END { exit !found }' <<< "$out"
+}
+
 CLEAN=0
 VULNERABLE=0
 ERRORED=0
@@ -93,9 +105,9 @@ for BINARY in "$@"; do
 
     # An unstripped build lets govulncheck clear modules whose vulnerable
     # symbols it sees are never called, so it would pass what this gate exists
-    # to catch. Go records the link flags in the binary; require -s among them.
-    LDFLAGS=$(go version -m "$BINARY" 2>/dev/null | awk -F'\t' '$2 == "build" && $3 ~ /^-ldflags=/ { print $3 }')
-    if [[ " ${LDFLAGS//[\"=]/ } " != *" -s "* ]]; then
+    # to catch. Require a stripped (-ldflags -s) binary. Check the binary
+    # itself: Go doesn't record -ldflags in a -trimpath build (go.dev/issue/52372).
+    if ! is_stripped "$BINARY"; then
         echo "ERROR: $BINARY was not built with -ldflags -s, so its scan would under-report"
         ERRORED=$((ERRORED + 1))
         continue

@@ -56,6 +56,22 @@ The check names the tag, not its commit. A withdrawn release's attestations aren
 released again under the same tag, its withdrawn binaries still pass. To pin the commit as well, add
 `--source-digest <commit SHA>` with the commit the tag points to.
 
+### Rebuilding a release
+
+Releases after 1.10.0 are reproducible: building the release tag again, with the same Go and GoReleaser versions,
+gives byte-identical binaries in any directory. The versions are `GO_VERSION` and `GORELEASER_VERSION` in that tag's
+`.github/workflows/release.yaml`. With those installed:
+
+```bash
+git clone https://github.com/shipyard/shipyard-cli && cd shipyard-cli
+git checkout vX.Y.Z
+goreleaser release --clean --skip=publish,sbom
+grep " shipyard-linux-amd64$" dist/checksums.txt
+```
+
+The digest should match the same line in the release's `checksums.txt`. The release workflow checks this on every
+release commit before it builds the release (`scripts/check-reproducible.sh`). SBOMs aren't reproducible: they record when they were generated.
+
 ## Upgrading
 
 ```bash

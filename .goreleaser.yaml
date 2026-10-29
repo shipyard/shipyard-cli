@@ -14,6 +14,16 @@ builds:
       - amd64
       - arm64
     binary: shipyard
+    # Reproducible builds: -trimpath keeps the checkout path out of the binary,
+    # -buildvcs=false keeps Go's git stamp out (it differs between a clone, a
+    # worktree and a source tarball; the commit is in GitCommit below), and
+    # mod_timestamp sets every file's mtime to the commit time. Rebuilding a tag
+    # with the Go and GoReleaser versions in release.yaml gives the same bytes
+    # wherever it runs; scripts/check-reproducible.sh checks this.
+    flags:
+      - -trimpath
+      - -buildvcs=false
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
       - -X github.com/shipyard/shipyard-cli/version.GitCommit={{.ShortCommit}}
