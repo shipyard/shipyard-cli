@@ -99,6 +99,20 @@ func DeleteEnvVarSchema() map[string]interface{} {
 	}
 }
 
+// DeleteDetachedSchema is the input for delete_detached.
+func DeleteDetachedSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"environment_id": map[string]interface{}{
+				"type":        "string",
+				"description": "ID of the detached environment to delete, or of any of its application builds",
+			},
+		},
+		"required": []string{"environment_id"},
+	}
+}
+
 // RestartServiceSchema is the input for restart_service.
 func RestartServiceSchema() map[string]interface{} {
 	return map[string]interface{}{

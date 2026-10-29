@@ -67,6 +67,12 @@ var extendedToolDefinitions = map[string]ToolDefinition{
 		Description: "Deploy a detached environment by cloning an existing application build. Optional display_name, project_branch_overrides, and build_on_commit.",
 		InputSchema: schemas.DeployDetachedSchema(),
 	},
+	"delete_detached": {
+		Name: "delete_detached",
+		Description: "Delete a detached environment. Only detached environments can be deleted: a base or pull " +
+			"request environment is refused. Deleting one that is already deleted, or being deleted, succeeds again.",
+		InputSchema: schemas.DeleteDetachedSchema(),
+	},
 	"update_branches": {
 		Name:        "update_branches",
 		Description: "Change branches for an environment. You must include every repo in projects (repo_name + branch); partial lists fail.",
@@ -122,6 +128,8 @@ func (t *ExtendedTool) Execute(ctx context.Context, params json.RawMessage) (str
 		return t.executeRestartService(params)
 	case "deploy_detached":
 		return t.executeDeployDetached(params)
+	case "delete_detached":
+		return t.executeDeleteDetached(params)
 	case "update_branches":
 		return t.executeUpdateBranches(params)
 	default:
@@ -349,6 +357,29 @@ func (t *ExtendedTool) executeDeployDetached(params json.RawMessage) (string, er
 		uri.CreateResourceURI("", "application-build", toolParams.ApplicationBuildID, "detached-app-build", t.orgParams()),
 		"application/json",
 		payload,
+	)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+func (t *ExtendedTool) executeDeleteDetached(params json.RawMessage) (string, error) {
+	var toolParams struct {
+		EnvironmentID string `json:"environment_id"`
+	}
+	if err := json.Unmarshal(params, &toolParams); err != nil {
+		return "", errors.ValidationError("delete_detached", "parameters", err.Error())
+	}
+	if err := validation.ValidateEnvironmentID(toolParams.EnvironmentID); err != nil {
+		return "", errors.ValidationError("delete_detached", "environment_id", err.Error())
+	}
+
+	body, err := t.client.Requester.Do(
+		http.MethodDelete,
+		uri.CreateResourceURI("", "environment", toolParams.EnvironmentID, "detached", t.orgParams()),
+		"application/json",
+		nil,
 	)
 	if err != nil {
 		return "", err

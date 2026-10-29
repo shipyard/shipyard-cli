@@ -27,6 +27,15 @@ type detachedDeployResponse struct {
 	} `json:"data"`
 }
 
+// detachedDeleteResponse models the JSON returned by the external
+// DELETE /api/v1/environment/<uuid>/detached endpoint.
+type detachedDeleteResponse struct {
+	Data struct {
+		ApplicationUUID string `json:"application_uuid"`
+		DisplayName     string `json:"display_name"`
+	} `json:"data"`
+}
+
 func NewDetachedCmd(c client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "detached",
@@ -36,6 +45,7 @@ func NewDetachedCmd(c client.Client) *cobra.Command {
 	}
 
 	cmd.AddCommand(newDetachedDeployCmd(c))
+	cmd.AddCommand(newDetachedDeleteCmd(c))
 
 	return cmd
 }
@@ -127,6 +137,58 @@ func deployDetached(cmd *cobra.Command, c client.Client, appBuildID string) erro
 
 	display.Println(fmt.Sprintf(
 		"Detached environment %q deployed (application UUID: %s).",
+		resp.Data.DisplayName, resp.Data.ApplicationUUID,
+	))
+	return nil
+}
+
+func newDetachedDeleteCmd(c client.Client) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete [environment or application build ID]",
+		Short: "Delete a detached environment",
+		Long: `Queue the deletion of a detached environment.
+
+Pass the environment ID, or the ID of any of its application builds (the one in the
+build detail page's URL). Only detached environments can be deleted this way: a base or pull request environment is
+refused. Deleting an environment that is already deleted, or being deleted, succeeds again.`,
+		Example: `  # Delete the detached environment 4d5e6f
+  shipyard detached delete 4d5e6f
+
+  # Delete the detached environment that application build 1a2b3c belongs to
+  shipyard detached delete 1a2b3c`,
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return deleteDetached(c, args[0])
+		},
+	}
+
+	return cmd
+}
+
+func deleteDetached(c client.Client, environmentID string) error {
+	params := make(map[string]string)
+	if org := c.OrgLookupFn(); org != "" {
+		params["org"] = org
+	}
+
+	body, err := c.Requester.Do(
+		http.MethodDelete,
+		uri.CreateResourceURI("", "environment", environmentID, "detached", params),
+		"application/json",
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	var resp detachedDeleteResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("could not parse response: %w", err)
+	}
+
+	display.Println(fmt.Sprintf(
+		"Detached environment %q is being deleted (application UUID: %s).",
 		resp.Data.DisplayName, resp.Data.ApplicationUUID,
 	))
 	return nil
