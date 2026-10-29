@@ -98,13 +98,18 @@ Restart the session afterwards. Use the plugin or the manual setup below, not
 both. The one exception is Codex, where a manual entry replaces the plugin's
 server instead of running beside it:
 
-- **Claude Code** runs the plugin's server as `plugin:shipyard:shipyard`, next to
-  any `shipyard` server you added by hand. Run `claude mcp remove shipyard` first.
+- **Claude Code** runs the plugin's server as `plugin:shipyard:shipyard`. If you
+  already added a server that runs the same command (`shipyard mcp serve`),
+  Claude Code skips the plugin's server and keeps yours, so the plugin's
+  [permission rule](#claude-code-1) doesn't match. If your command differs, for
+  example an absolute path, both run. Either way, run `claude mcp remove shipyard`
+  first.
 - **Codex** names the plugin's server `shipyard`. A `[mcp_servers.shipyard]` entry
   in `config.toml` replaces it, so you only need one when you want the
   [Codex permission settings](#codex).
-- **Kiro** runs the power's server as `power-shipyard-plugins-shipyard`, next to
-  any `shipyard` entry in `mcp.json`. Remove or disable that entry first.
+- **Kiro** runs the power's server as `power-shipyard-plugins-shipyard`, a
+  separate name from a `shipyard` entry in `mcp.json`. Remove or disable that
+  entry first.
 
 ### Claude Code
 
@@ -318,7 +323,8 @@ Every other Shipyard tool still needs your approval, and a non-interactive
 session refuses it.
 
 With the plugin, the tools are named after the plugin's server, so allow
-`mcp__plugin_shipyard_shipyard__get_*` instead.
+`mcp__plugin_shipyard_shipyard__get_*` instead. That holds only if you haven't
+also added the server by hand; see [Installing the plugin](#installing-the-plugin).
 
 #### Codex
 
@@ -401,9 +407,8 @@ upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
 `.kiro/settings/mcp.json` that defines `shipyard` wins over the user file.
 
 This recipe needs a server you added by hand. If the Shipyard power is installed,
-uninstall it from the Powers panel first: its server
-(`power-shipyard-plugins-shipyard`) isn't covered by this `disabledTools` list
-and would run alongside it.
+uninstall it from the Powers panel first: this `disabledTools` list doesn't cover
+its server (`power-shipyard-plugins-shipyard`).
 
 ## Tools
 
