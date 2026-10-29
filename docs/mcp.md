@@ -227,12 +227,13 @@ Any MCP client that can launch a stdio server works. Configure it to run
 
 These were run against a Shipyard org on 2026-10-09 and 2026-10-15, each with
 a read-only session (list orgs, list environments) and a check that destructive
-tools stay blocked:
+tools stay blocked. Claude Code and Codex were run again on 2026-10-29 with CLI
+1.10.0 and the plugin, using the permission settings below:
 
 | Client | Version tested |
 |---|---|
-| Claude Code | 2.1.284 |
-| Codex CLI | 0.162.0 |
+| Claude Code | 2.1.284; 2.1.312 with the plugin |
+| Codex CLI | 0.162.0, also with the plugin |
 | Cursor | 3.24.9, and its CLI `cursor-agent` 2026.10.01 |
 | Kiro | 1.2.56, and its CLI `kiro-cli` 2.28.0 |
 
