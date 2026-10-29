@@ -4,6 +4,8 @@ package apps
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/requests"
@@ -148,22 +151,51 @@ type Project struct {
 	Branch          string
 	Services        []string
 	ComposeFilename string
-	// Routes maps a service to its shipyard.route label value.
-	Routes map[string]string
+	// Routes maps a service to its shipyard.route label value. A nil value
+	// removes the label.
+	Routes map[string]*string
 	// SelectedProfiles are the compose profiles to turn on. Core rejects an
 	// enabled service whose profiles are all unselected.
 	SelectedProfiles []string
 }
 
-// appNameRE matches the characters core does not allow in an app name.
-var appNameRE = regexp.MustCompile(`[^- _a-zA-Z0-9]+`)
+// appNameChars is core's rule for an app name: letters, digits, dashes,
+// underscores and spaces, at most maxAppNameLen of them.
+const (
+	appNameChars  = `- _a-zA-Z0-9`
+	maxAppNameLen = 255
+)
 
-// DefaultAppName is the repo name with the characters core rejects in an app
-// name (anything but letters, digits, dashes, underscores and spaces) turned
-// into dashes, so "my.site" becomes "my-site".
-func DefaultAppName(repo string) string {
+var (
+	// appNameRE matches the characters core does not allow in an app name.
+	appNameRE  = regexp.MustCompile(`[^` + appNameChars + `]+`)
+	validAppRE = regexp.MustCompile(`^[` + appNameChars + `]+$`)
+)
+
+// ValidAppName reports whether core accepts name as an app name.
+func ValidAppName(name string) bool {
+	return len(name) <= maxAppNameLen && validAppRE.MatchString(name)
+}
+
+// DefaultAppName is "<repo name>-<branch>", since app names are unique per org
+// and another branch of the repo may already have an app. Characters core
+// rejects become dashes, and then a short hash of the original keeps
+// feature/x and feature-x apart; the name is cut to core's length limit.
+func DefaultAppName(repo, branch string) string {
 	_, name, _ := SplitRepo(repo)
-	return appNameRE.ReplaceAllString(name, "-")
+	if branch != "" {
+		name += "-" + branch
+	}
+	clean := appNameRE.ReplaceAllString(name, "-")
+	suffix := ""
+	if clean != name || len(clean) > maxAppNameLen {
+		sum := sha256.Sum256([]byte(name))
+		suffix = "-" + hex.EncodeToString(sum[:3])
+	}
+	if len(clean)+len(suffix) > maxAppNameLen {
+		clean = clean[:maxAppNameLen-len(suffix)]
+	}
+	return clean + suffix
 }
 
 // CreateRequest is the input of Create.
@@ -197,7 +229,10 @@ func PublicValues(appName string, projects ...Project) []string {
 		}
 		public = append(public, p.Services...)
 		for svc, route := range p.Routes {
-			public = append(public, svc, route)
+			public = append(public, svc)
+			if route != nil {
+				public = append(public, *route)
+			}
 		}
 	}
 	return public
@@ -241,24 +276,30 @@ func projectPayload(p Project, requireOwner bool) (map[string]any, error) {
 	if p.ComposeFilename != "" {
 		out["compose_filename"] = p.ComposeFilename
 	}
-	if len(p.SelectedProfiles) > 0 {
+	// nil leaves the profiles alone; an empty list turns them all off
+	if p.SelectedProfiles != nil {
 		out["selectedProfiles"] = p.SelectedProfiles
 	}
 	if len(p.Routes) > 0 {
 		labels := make(map[string]any, len(p.Routes))
 		for svc, route := range p.Routes {
-			labels[svc] = map[string]string{RouteLabel: route}
+			var value any // null removes the label
+			if route != nil {
+				value = *route
+			}
+			labels[svc] = map[string]any{RouteLabel: value}
 		}
 		out["serviceLabels"] = labels
 	}
 	return out, nil
 }
 
-// envPayload splits env items into core's secrets and build_args lists.
-func envPayload(items []EnvItem) (secrets, buildArgs []map[string]any, err error) {
+// addEnv splits env items into core's secrets and build_args lists.
+func addEnv(payload map[string]any, items []EnvItem) error {
+	var secrets, buildArgs []map[string]any
 	for i, v := range items {
 		if v.Name == "" {
-			return nil, nil, fmt.Errorf("env[%d].name is required", i)
+			return fmt.Errorf("env[%d].name is required", i)
 		}
 		entry := map[string]any{"name": v.Name, "value": v.Value}
 		if v.Hidden != nil {
@@ -273,16 +314,8 @@ func envPayload(items []EnvItem) (secrets, buildArgs []map[string]any, err error
 		case KindBuildArg:
 			buildArgs = append(buildArgs, entry)
 		default:
-			return nil, nil, fmt.Errorf("env[%d].kind must be %s or %s, got %q", i, KindRuntime, KindBuildArg, v.Kind)
+			return fmt.Errorf("env[%d].kind must be %s or %s, got %q", i, KindRuntime, KindBuildArg, v.Kind)
 		}
-	}
-	return secrets, buildArgs, nil
-}
-
-func addEnv(payload map[string]any, items []EnvItem) error {
-	secrets, buildArgs, err := envPayload(items)
-	if err != nil {
-		return err
 	}
 	if secrets != nil {
 		payload["secrets"] = secrets
@@ -333,6 +366,17 @@ func UpdatePayload(r UpdateRequest) (map[string]any, error) {
 		payload["projects"] = projects
 	}
 	if len(r.RemoveRepos) > 0 {
+		// Core matches linked repos by name only and never sees an owner, so
+		// dropping one could unlink another owner's repo of the same name
+		for _, repo := range r.RemoveRepos {
+			owner, _, err := SplitRepo(repo)
+			if err != nil {
+				return nil, fmt.Errorf("remove_repos: %w", err)
+			}
+			if owner != "" {
+				return nil, fmt.Errorf("remove_repos: pass the bare repo name as the app links it, not %q", repo)
+			}
+		}
 		payload["remove_repos"] = r.RemoveRepos
 	}
 	if len(payload) == 0 {
@@ -360,6 +404,26 @@ func Plan(c client.Client, repo, branch string) ([]byte, error) {
 		"application/json",
 		map[string]string{"repo": repo, "branch": branch},
 	)
+}
+
+// NameTaken reports whether a live environment in the org already uses name,
+// which core refuses on create. The listing is cached and covers only the
+// environment types it shows, so core's own check stays authoritative.
+func NameTaken(c client.Client, name string) (bool, error) {
+	params := orgParams(c)
+	params["name"] = name
+	params["page_size"] = "1"
+	body, err := c.Requester.Do(http.MethodGet, uri.CreateResourceURI("", "environment", "", "", params), "application/json", nil)
+	if err != nil {
+		return false, err
+	}
+	var list struct {
+		Data []json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &list); err != nil {
+		return false, fmt.Errorf("reading environments: %w", err)
+	}
+	return len(list.Data) > 0, nil
 }
 
 // Create posts a CreatePayload body.
@@ -423,7 +487,9 @@ func RedactValues(body []byte, items []EnvItem, public ...string) []byte {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 	var v any
-	if err := dec.Decode(&v); err != nil {
+	// Anything after the first JSON value goes unread, as in a plain-text
+	// "400 bad request: ..." that decodes as the number 400: mask it as text
+	if err := dec.Decode(&v); err != nil || len(bytes.TrimSpace(body[dec.InputOffset():])) > 0 {
 		return []byte(r.mask(string(body)))
 	}
 	// A bare JSON string or number has no object to walk
@@ -443,9 +509,8 @@ func RedactValues(body []byte, items []EnvItem, public ...string) []byte {
 
 // RedactString masks every sent env value found in s, including its
 // JSON-escaped form, which is how a value with a newline or quote appears in a
-// raw error body. Values shorter than four characters ("1", "on") are left
-// alone: masking them inside free text would garble the message without hiding
-// anything secret.
+// raw error body. Values shorter than minSubstringLen are left alone inside
+// text: masking them would garble the message without hiding anything secret.
 func RedactString(s string, items []EnvItem, public ...string) string {
 	return newRedactor(items, public).mask(s)
 }
@@ -458,7 +523,7 @@ func RedactError(err error, items []EnvItem, public ...string) error {
 	if err == nil {
 		return nil
 	}
-	if apiErr, ok := err.(*requests.APIError); ok {
+	if apiErr, ok := requests.AsAPIError(err); ok {
 		return requests.NewAPIError(apiErr.StatusCode, RedactValues(apiErr.Body, items, public...))
 	}
 	return errors.New(RedactString(err.Error(), items, public...))
@@ -469,11 +534,42 @@ const redacted = "[REDACTED]"
 type redactor struct {
 	// exact holds every sent value, matched against whole JSON leaves.
 	exact map[string]bool
-	// long holds the values masked inside longer text, longest first so a
-	// value that contains another is masked whole.
-	long []string
-	// escaped holds the JSON-escaped forms of long values that differ from them.
-	escaped []string
+	// patterns holds the values masked inside longer text and their
+	// JSON-escaped forms, all in one list longest first: a value that contains
+	// another value, or another value's escaped form, is masked whole.
+	patterns []string
+}
+
+// minSubstringLen is the shortest value masked inside longer text. Shorter
+// values are everyday words ("https", "8080", "true") that would garble URLs
+// and ids without hiding anything secret; a whole field equal to one is still
+// masked.
+const minSubstringLen = 8
+
+// escapedForms are the ways a JSON encoder can write v inside a string: Go's
+// (non-ASCII kept) and Python's default (non-ASCII as \uXXXX), which core uses.
+func escapedForms(v string) []string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil
+	}
+	b := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+	plain := string(b[1 : len(b)-1])
+	var ascii strings.Builder
+	for _, r := range plain {
+		switch {
+		case r < 0x80:
+			ascii.WriteRune(r)
+		case r > 0xFFFF:
+			r1, r2 := utf16.EncodeRune(r)
+			fmt.Fprintf(&ascii, "\\u%04x\\u%04x", r1, r2)
+		default:
+			fmt.Fprintf(&ascii, "\\u%04x", r)
+		}
+	}
+	return []string{plain, ascii.String()}
 }
 
 func newRedactor(items []EnvItem, public []string) redactor {
@@ -488,35 +584,23 @@ func newRedactor(items []EnvItem, public []string) redactor {
 			continue
 		}
 		r.exact[v] = true
-		if len(v) < 4 {
+		if len(v) < minSubstringLen {
 			continue
 		}
-		r.long = append(r.long, v)
-		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(v); err == nil {
-			b := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
-			if e := string(b[1 : len(b)-1]); e != v {
-				r.escaped = append(r.escaped, e)
+		for _, form := range append([]string{v}, escapedForms(v)...) {
+			if !slices.Contains(r.patterns, form) {
+				r.patterns = append(r.patterns, form)
 			}
 		}
 	}
-	byLength := func(s []string) {
-		sort.Slice(s, func(i, j int) bool { return len(s[i]) > len(s[j]) })
-	}
-	byLength(r.long)
-	byLength(r.escaped)
+	sort.SliceStable(r.patterns, func(i, j int) bool { return len(r.patterns[i]) > len(r.patterns[j]) })
 	return r
 }
 
 // mask replaces the long values in s and their escaped forms. A decoded JSON
 // string can still hold an escaped form when it carries serialized JSON.
 func (r redactor) mask(s string) string {
-	for _, v := range r.escaped {
-		s = strings.ReplaceAll(s, v, redacted)
-	}
-	for _, v := range r.long {
+	for _, v := range r.patterns {
 		s = strings.ReplaceAll(s, v, redacted)
 	}
 	return s
