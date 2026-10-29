@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -38,10 +39,11 @@ func fakeGit(answers map[string]string) gitRunner {
 func cleanCheckout() map[string]string {
 	return map[string]string{
 		"remote get-url origin":                       "git@github.com:example-org/app.git",
-		"rev-parse --abbrev-ref HEAD":                 "feature",
+		"symbolic-ref -q HEAD":                        "refs/heads/feature",
 		"ls-remote --heads origin refs/heads/feature": sha + "\trefs/heads/feature",
 		"rev-parse HEAD":                              sha,
 		"status --porcelain --untracked-files=normal --ignore-submodules=none": "",
+		"ls-files -v": "H main.go",
 	}
 }
 
@@ -53,19 +55,29 @@ func TestPreflight(t *testing.T) {
 		wantErr string
 	}{
 		{name: "clean pushed branch"},
-		{name: "no origin", drop: "remote get-url origin", wantErr: "no git remote named origin"},
+		// git's own reason (no remote, not a repo, safe.directory) is shown
+		{name: "no origin", drop: "remote get-url origin", wantErr: "fatal: not configured"},
 		{name: "origin not on GitHub", change: map[string]string{"remote get-url origin": "https://gitlab.com/example-org/app.git"}, wantErr: "not a GitHub repo"},
 		{name: "origin credentials are not printed", change: map[string]string{"remote get-url origin": "https://user:tok123@gitlab.com/example-org/app.git"}, wantErr: "https://gitlab.com/example-org/app.git"},
-		{name: "detached HEAD", change: map[string]string{"rev-parse --abbrev-ref HEAD": "HEAD"}, wantErr: "detached"},
+		{name: "detached HEAD", drop: "symbolic-ref -q HEAD", wantErr: "detached"},
 		{name: "branch not on origin", change: map[string]string{"ls-remote --heads origin refs/heads/feature": ""}, wantErr: "not on origin"},
 		{
 			// The suggested push command must be safe to paste whatever the branch is called
 			name:    "branch name is quoted in the push hint",
-			change:  map[string]string{"rev-parse --abbrev-ref HEAD": "fix;id", "ls-remote --heads origin refs/heads/fix;id": ""},
+			change:  map[string]string{"symbolic-ref -q HEAD": "refs/heads/fix;id", "ls-remote --heads origin refs/heads/fix;id": ""},
 			wantErr: "git push -u origin 'fix;id'",
+		},
+		{
+			// ls-remote matches the pattern as a suffix, so another ref can end the same way
+			name: "only the exact remote ref counts",
+			change: map[string]string{"ls-remote --heads origin refs/heads/feature": "3333333333333333333333333333333333333333\trefs/heads/x/refs/heads/feature\n" +
+				sha + "\trefs/heads/feature"},
 		},
 		{name: "local HEAD differs from origin", change: map[string]string{"rev-parse HEAD": "2222222222222222222222222222222222222222"}, wantErr: "differs from origin"},
 		{name: "modified tracked file", change: map[string]string{"status --porcelain --untracked-files=normal --ignore-submodules=none": " M main.go"}, wantErr: "uncommitted changes"},
+		// git status hides edits to these files, which Shipyard would not build
+		{name: "skip-worktree file", change: map[string]string{"ls-files -v": "H main.go\nS compose.yml"}, wantErr: "compose.yml"},
+		{name: "assume-unchanged file", change: map[string]string{"ls-files -v": "h main.go"}, wantErr: "main.go"},
 		{name: "untracked file", change: map[string]string{"status --porcelain --untracked-files=normal --ignore-submodules=none": "?? notes.txt"}, wantErr: "uncommitted changes"},
 	}
 	for _, tt := range tests {
@@ -154,6 +166,10 @@ func TestAdd(t *testing.T) {
 		wantCreate  bool
 		checkBody   func(t *testing.T, body map[string]any)
 		visitors    []string
+		// takenNames are app names already used in the org; nameLookupStatus,
+		// when set, fails the name lookup with that status.
+		takenNames       []string
+		nameLookupStatus int
 	}{
 		{
 			name:         "created with edited services, route and one env var",
@@ -163,7 +179,7 @@ func TestAdd(t *testing.T) {
 			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"my-app","url":"https://app.example.com"}}}`,
 			// name, all services?, which services, main route, API_KEY?, value, NPM_TOKEN?, create?
 			input:      "my-app\nn\nweb,api\napi\ny\n" + secretVal + "\nn\ny\n",
-			wantOut:    []string{"Org: example-org", `Create app "my-app" in org example-org`, "Services: web, api, db", "API_KEY (runtime)", "NPM_TOKEN (build arg)", "Created app my-app (app-uuid-1)", "URL: https://app.example.com"},
+			wantOut:    []string{"Org: example-org", `Create app "my-app" in org example-org`, "Set API_KEY (runtime) for api now?", "Services: web, api, db", "API_KEY (runtime)", "NPM_TOKEN (build arg)", "Created app my-app (app-uuid-1)", "URL: https://app.example.com"},
 			wantCreate: true,
 			checkBody: func(t *testing.T, body map[string]any) {
 				if body["application_name"] != "my-app" || body["head_sha"] != sha {
@@ -184,6 +200,10 @@ func TestAdd(t *testing.T) {
 				secrets := body["secrets"].([]any)
 				if len(secrets) != 1 || secrets[0].(map[string]any)["value"] != secretVal {
 					t.Errorf("secrets = %v", secrets)
+				}
+				// A value the user typed is stored hidden
+				if secrets[0].(map[string]any)["hidden"] != true {
+					t.Errorf("secret hidden = %v, want true", secrets[0].(map[string]any)["hidden"])
 				}
 				// API_KEY is set only on the service the compose file gives it to
 				if s, _ := secrets[0].(map[string]any)["services"].([]any); len(s) != 1 || s[0] != "api" {
@@ -215,9 +235,9 @@ func TestAdd(t *testing.T) {
 			planResp:     planBody,
 			createStatus: http.StatusOK,
 			createResp:   `{"status":"already_exists","requested_vs_existing":{"services":["db"]},"data":{"id":"app-uuid-1"}}`,
-			input:        "\n\n\ny\n" + secretVal + "\nn\n\n",
+			input:        "\n\n\ny\n" + secretVal + "\nn\ny\n",
 			wantErr:      errStopped,
-			wantOut:      []string{"already exists", "requested_vs_existing:", `"db"`, "data:", `"app-uuid-1"`},
+			wantOut:      []string{"already exists", "requested_vs_existing:", `"db"`, "data:", `"app-uuid-1"`, "Not set: API_KEY"},
 			wantCreate:   true,
 		},
 		{
@@ -226,7 +246,7 @@ func TestAdd(t *testing.T) {
 			planResp:     planBody,
 			createStatus: http.StatusOK,
 			createResp:   `{"status":"creating","message":"This application is still being created. Retry shortly.","data":{"id":"app-uuid-1"}}`,
-			input:        "\n\n\ny\n" + secretVal + "\nn\n\n",
+			input:        "\n\n\ny\n" + secretVal + "\nn\ny\n",
 			wantErr:      errStopped,
 			wantOut:      []string{"still being created by another request"},
 			wantCreate:   true,
@@ -237,7 +257,7 @@ func TestAdd(t *testing.T) {
 			planResp:     planBody,
 			createStatus: http.StatusConflict,
 			createResp:   `{"status":"needs_action","next_step":{"kind":"plan_limit_reached","message":"This organization is at its limit of 2 running environments."}}`,
-			input:        "\n\n\ny\n" + secretVal + "\nn\n\n",
+			input:        "\n\n\ny\n" + secretVal + "\nn\ny\n",
 			wantErr:      errStopped,
 			wantOut:      []string{"Next step: This organization is at its limit of 2 running environments."},
 			wantCreate:   true,
@@ -255,7 +275,7 @@ func TestAdd(t *testing.T) {
 			planResp:     planBody,
 			createStatus: http.StatusConflict,
 			createResp:   `{"status":"needs_action","next_step":{"kind":"fix_env","message":"value ` + secretVal + ` for API_KEY is invalid"}}`,
-			input:        "\n\n\ny\n" + secretVal + "\nn\n\n",
+			input:        "\n\n\ny\n" + secretVal + "\nn\ny\n",
 			wantErr:      errStopped,
 			wantOut:      []string{"Next step: value [REDACTED] for API_KEY is invalid"},
 			wantCreate:   true,
@@ -266,7 +286,7 @@ func TestAdd(t *testing.T) {
 			planResp:     planBody,
 			createStatus: http.StatusBadRequest,
 			createResp:   `{"errors":[{"title":"Bad value ` + secretVal + `"}]}`,
-			input:        "\n\n\ny\n" + secretVal + "\nn\n\n",
+			input:        "\n\n\ny\n" + secretVal + "\nn\ny\n",
 			wantErrText:  "bad value [REDACTED]",
 			wantCreate:   true,
 		},
@@ -312,7 +332,7 @@ func TestAdd(t *testing.T) {
 			planResp:     strings.Replace(planBody, `"head_sha":"`+sha+`",`, "", 1),
 			createStatus: http.StatusCreated,
 			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
-			input:        "\n\n\nn\nn\n\n",
+			input:        "\n\n\nn\nn\ny\n",
 			wantOut:      []string{"Created app app (app-uuid-1)"},
 			wantCreate:   true,
 			checkBody: func(t *testing.T, body map[string]any) {
@@ -337,7 +357,7 @@ func TestAdd(t *testing.T) {
 			createStatus: http.StatusCreated,
 			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
 			// name, enable web, api?, route, API_KEY?, NPM_TOKEN?, create?
-			input:      "\n\n\nn\nn\n\n",
+			input:      "\n\n\nn\nn\ny\n",
 			wantOut:    []string{"db (off by default)", "Enable web, api?"},
 			wantCreate: true,
 			checkBody: func(t *testing.T, body map[string]any) {
@@ -354,7 +374,7 @@ func TestAdd(t *testing.T) {
 			createStatus: http.StatusCreated,
 			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
 			// API_KEY? y, then an empty value, then the value
-			input:      "\n\n\ny\n\n" + secretVal + "\nn\n\n",
+			input:      "\n\n\ny\n\n" + secretVal + "\nn\ny\n",
 			wantOut:    []string{"A value is required"},
 			wantCreate: true,
 			checkBody: func(t *testing.T, body map[string]any) {
@@ -390,7 +410,7 @@ func TestAdd(t *testing.T) {
 			planResp:     planBody,
 			createStatus: http.StatusOK,
 			createResp:   `{"next_step":{"kind":"visitors_required","message":"Send visitors"}}`,
-			input:        "\n\n\nn\nn\n\n",
+			input:        "\n\n\nn\nn\ny\n",
 			wantErr:      errStopped,
 			wantOut:      []string{"Next step: Send visitors"},
 			wantCreate:   true,
@@ -404,7 +424,7 @@ func TestAdd(t *testing.T) {
 			createStatus: http.StatusCreated,
 			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
 			// name, enable web, api?, create?
-			input:      "\n\n\n",
+			input:      "\n\ny\n",
 			wantOut:    []string{"/v2 -> api"},
 			wantCreate: true,
 			checkBody: func(t *testing.T, body map[string]any) {
@@ -415,11 +435,158 @@ func TestAdd(t *testing.T) {
 			},
 		},
 		{
-			name:       "an existing app on the branch stops before any prompt",
+			name:       "an existing app on the branch asks first, default no",
 			planStatus: http.StatusOK,
-			planResp:   strings.Replace(planBody, `"routes":[]`, `"existing_app":{"id":"app-uuid-1"},"routes":[]`, 1),
+			planResp:   strings.Replace(planBody, `"routes":[]`, `"existing_app":{"uuid":"app-uuid-1","name":"app"},"routes":[]`, 1),
+			input:      "\n",
+			wantOut:    []string{"An app already exists for this repo and branch", "app-uuid-1", "Nothing was created."},
+		},
+		{
+			// Core replaces an API create that stopped before its first build
+			name:         "an existing app on the branch can be created over",
+			planStatus:   http.StatusOK,
+			planResp:     strings.Replace(planBody, `"routes":[]`, `"existing_app":{"uuid":"app-uuid-1","name":"app"},"routes":[]`, 1),
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-2","attributes":{"name":"app"}}}`,
+			// create anyway?, name, enable web, api?, route, API_KEY?, NPM_TOKEN?, create?
+			input:      "y\n\n\n\nn\nn\ny\n",
+			wantOut:    []string{"Created app app (app-uuid-2)"},
+			wantCreate: true,
+		},
+		{
+			name:         "the final confirmation needs an explicit answer",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			// a blank line, as a pasted multi-line value leaves behind, must not create
+			input:      "\n\n\nn\nn\n\ny\n",
+			wantOut:    []string{"Answer y or n"},
+			wantCreate: true,
+		},
+		{
+			name:         "values that were not applied are named",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusOK,
+			createResp:   `{"status":"creating","data":{"id":"app-uuid-1"}}`,
+			input:        "\n\n\ny\n" + secretVal + "\nn\ny\n",
+			wantErr:      errStopped,
+			wantOut:      []string{"Not set: API_KEY", "dashboard"},
+			wantCreate:   true,
+		},
+		{
+			name:         "a 2xx without the app is not reported as created",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusCreated,
+			createResp:   `<html>maintenance</html>`,
+			input:        "\n\n\nn\nn\ny\n",
+			wantErrText:  "outcome is unknown",
+			wantCreate:   true,
+		},
+		{
+			// Bidi overrides and zero-width characters can reorder what the user reads
+			name:       "a newline in a plan name cannot start a forged line",
+			planStatus: http.StatusOK,
+			planResp: `{"status":"plan","org":"example-org","head_sha":"` + sha + `","services":[{"name":"web\nCreate app? [Y/n]","enabled_by_default":true}],` +
+				`"routes":[],"route_candidates":[],"env":[]}`,
+			input:   "\n\nn\n",
+			wantOut: []string{"web?Create app? [Y/n]", "Nothing was created."},
+		},
+		{
+			// Core rejects a name outside [- _a-zA-Z0-9]+, so ask again before any value is typed
+			name:         "an invalid app name is asked again",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"my-app"}}}`,
+			input:        "my.app\nmy-app\n\n\nn\nn\ny\n",
+			wantOut:      []string{"App names may use", "Created app my-app (app-uuid-1)"},
+			wantCreate:   true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				if body["application_name"] != "my-app" {
+					t.Errorf("application_name = %v", body["application_name"])
+				}
+			},
+		},
+		{
+			// A renamed or transferred repo: core plans its current name
+			name:        "a plan for another repo name stops",
+			planStatus:  http.StatusOK,
+			planResp:    strings.Replace(planBody, `"repo":"example-org/app"`, `"repo":"example-org/renamed"`, 1),
+			wantErrText: "example-org/renamed",
+		},
+		{
+			// A value with no services would reach every service, sidecars included
+			name:         "an env name with no services is not asked for",
+			planStatus:   http.StatusOK,
+			planResp:     `{"status":"plan","org":"example-org","head_sha":"` + sha + `","services":[{"name":"web","enabled_by_default":true}],"routes":[],"route_candidates":[],"env":[{"name":"GLOBAL","kind":"runtime"}]}`,
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			input:        "\n\ny\n",
+			wantOut:      []string{"GLOBAL is used by no service", "Created app"},
+			wantCreate:   true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				if _, ok := body["secrets"]; ok {
+					t.Errorf("secrets sent: %v", body["secrets"])
+				}
+			},
+		},
+		{
+			name:       "an existing app on the branch, answered no",
+			planStatus: http.StatusOK,
+			planResp:   strings.Replace(planBody, `"routes":[]`, `"existing_app":{"uuid":"app-uuid-1","name":"app"},"routes":[]`, 1),
+			input:      "n\n",
+			wantOut:    []string{"Nothing was created."},
+		},
+		{
+			name:        "an existing app on the branch, input ends",
+			planStatus:  http.StatusOK,
+			planResp:    strings.Replace(planBody, `"routes":[]`, `"existing_app":{"uuid":"app-uuid-1","name":"app"},"routes":[]`, 1),
+			input:       "",
+			wantErrText: "input ended",
+		},
+		{
+			// A blank line then the end of input never creates
+			name:        "the final confirmation with a blank line and then no input",
+			planStatus:  http.StatusOK,
+			planResp:    planBody,
+			input:       "\n\n\nn\nn\n\n",
+			wantErrText: "input ended",
+		},
+		{
+			name:         "the created app is printed redacted",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app","url":"https://example.com/?k=` + secretVal + `"}}}`,
+			input:        "\n\n\ny\n" + secretVal + "\nn\ny\n",
+			wantOut:      []string{"Created app app (app-uuid-1)", "[REDACTED]"},
+			wantCreate:   true,
+		},
+		{
+			// An action answer is shown even when its other fields don't fit a plan
+			name:       "a needs_action plan with odd fields still shows its next step",
+			planStatus: http.StatusOK,
+			planResp:   `{"status":"needs_action","services":"none","next_step":{"kind":"add_compose_file","message":"Add a compose file"}}`,
 			wantErr:    errStopped,
-			wantOut:    []string{"An app already exists for this repo and branch", "app-uuid-1"},
+			wantOut:    []string{"Next step: Add a compose file"},
+		},
+		{
+			name:       "an existing app's bypass token in the plan is not printed",
+			planStatus: http.StatusOK,
+			planResp:   strings.Replace(planBody, `"routes":[]`, `"existing_app":{"uuid":"app-uuid-1","bypass_token":"bt-secret-9"},"routes":[]`, 1),
+			input:      "\n",
+			wantOut:    []string{"app-uuid-1", "Nothing was created."},
+		},
+		{
+			name:       "format characters from the plan are not printed",
+			planStatus: http.StatusOK,
+			planResp: `{"status":"plan","org":"example-org","head_sha":"` + sha + `","services":[{"name":"web` + "\xe2\x80\xae" + `x","enabled_by_default":true}],` +
+				`"routes":[],"route_candidates":[],"env":[]}`,
+			input:   "\n\nn\n",
+			wantOut: []string{"Nothing was created."},
 		},
 		{
 			name:        "a plan with no services stops before any prompt",
@@ -435,7 +602,7 @@ func TestAdd(t *testing.T) {
 			createStatus: http.StatusCreated,
 			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
 			// name, enable web, api? n, services, route, API_KEY?, NPM_TOKEN?, create?
-			input:      "\nn\nweb,db\n\nn\nn\n\n",
+			input:      "\nn\nweb,db\n\nn\nn\ny\n",
 			wantCreate: true,
 			checkBody: func(t *testing.T, body map[string]any) {
 				project := body["projects"].([]any)[0].(map[string]any)
@@ -450,7 +617,7 @@ func TestAdd(t *testing.T) {
 			planResp:     planBody,
 			createStatus: http.StatusOK,
 			createResp:   `{"status":"already_exists","data":{"id":"app-uuid-1","attributes":{"bypass_token":"bt-secret-9"}}}`,
-			input:        "\n\n\nn\nn\n\n",
+			input:        "\n\n\nn\nn\ny\n",
 			wantErr:      errStopped,
 			wantOut:      []string{"already exists", "app-uuid-1"},
 			wantCreate:   true,
@@ -463,11 +630,56 @@ func TestAdd(t *testing.T) {
 			createStatus: http.StatusCreated,
 			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
 			visitors:     []string{"octocat"},
-			input:        "\n\n\nn\nn\n\n",
+			input:        "\n\n\nn\nn\ny\n",
 			wantCreate:   true,
 			checkBody: func(t *testing.T, body map[string]any) {
 				if v, _ := body["visitors"].([]any); len(v) != 1 || v[0] != "octocat" {
 					t.Errorf("visitors = %v", body["visitors"])
+				}
+			},
+		},
+		{
+			// Core rejects a duplicate name only after every value was typed
+			name:         "a name already used in the org is asked again",
+			planStatus:   http.StatusOK,
+			planResp:     planBody,
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"mine"}}}`,
+			takenNames:   []string{"taken"},
+			input:        "taken\nmine\n\n\nn\nn\ny\n",
+			wantOut:      []string{`An app named "taken" already exists in this org`},
+			wantCreate:   true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				if body["application_name"] != "mine" {
+					t.Errorf("application_name = %v, want mine", body["application_name"])
+				}
+			},
+		},
+		{
+			// Core's own check still runs, so a failed lookup does not stop add
+			name:             "a failed name lookup does not stop add",
+			planStatus:       http.StatusOK,
+			planResp:         planBody,
+			createStatus:     http.StatusCreated,
+			createResp:       `{"data":{"id":"app-uuid-1","attributes":{"name":"mine"}}}`,
+			nameLookupStatus: http.StatusInternalServerError,
+			input:            "mine\n\n\nn\nn\ny\n",
+			wantCreate:       true,
+		},
+		{
+			// The plan's existing app is the one core may replace, so its name is not taken
+			name:         "the existing app's own name is allowed",
+			planStatus:   http.StatusOK,
+			planResp:     strings.Replace(planBody, `"env":[`, `"existing_app":{"uuid":"app-uuid-0","name":"taken"},"env":[`, 1),
+			createStatus: http.StatusCreated,
+			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"taken"}}}`,
+			takenNames:   []string{"taken"},
+			// create anyway?, name, all services?, route, API_KEY?, NPM_TOKEN?, create?
+			input:      "y\ntaken\n\n\nn\nn\ny\n",
+			wantCreate: true,
+			checkBody: func(t *testing.T, body map[string]any) {
+				if body["application_name"] != "taken" {
+					t.Errorf("application_name = %v, want taken", body["application_name"])
 				}
 			},
 		},
@@ -488,6 +700,16 @@ func TestAdd(t *testing.T) {
 				case "/application":
 					w.WriteHeader(tt.createStatus)
 					_, _ = w.Write([]byte(tt.createResp))
+				case "/environment":
+					if tt.nameLookupStatus != 0 {
+						w.WriteHeader(tt.nameLookupStatus)
+						return
+					}
+					if slices.Contains(tt.takenNames, r.URL.Query().Get("name")) {
+						_, _ = w.Write([]byte(`{"data":[{"id":"other-app","type":"application"}]}`))
+						return
+					}
+					_, _ = w.Write([]byte(`{"data":[]}`))
 				default:
 					w.WriteHeader(http.StatusNotFound)
 				}
@@ -520,7 +742,7 @@ func TestAdd(t *testing.T) {
 			if err != nil && strings.Contains(err.Error(), secretVal) {
 				t.Fatalf("error prints an env value: %v", err)
 			}
-			if strings.ContainsAny(out.String(), "\x1b\x07\r") {
+			if strings.ContainsAny(out.String(), "\x1b\x07\r") || strings.ContainsRune(out.String(), 0x202E) {
 				t.Fatalf("output holds a control character: %q", out.String())
 			}
 			if strings.Contains(out.String(), "bt-secret-9") {
@@ -538,12 +760,14 @@ func TestAdd(t *testing.T) {
 			if len(calls) == 0 || calls[0].path != "/application/plan" || calls[0].body["repo"] != "example-org/app" || calls[0].body["branch"] != "feature" {
 				t.Fatalf("first call = %+v, want the plan for example-org/app@feature", calls)
 			}
-			created := len(calls) > 1 && calls[1].method == http.MethodPost && calls[1].path == "/application"
-			if created != tt.wantCreate {
+			createAt := slices.IndexFunc(calls, func(c apiCall) bool {
+				return c.method == http.MethodPost && c.path == "/application"
+			})
+			if created := createAt >= 0; created != tt.wantCreate {
 				t.Fatalf("create called = %v, want %v", created, tt.wantCreate)
 			}
 			if tt.checkBody != nil {
-				tt.checkBody(t, calls[1].body)
+				tt.checkBody(t, calls[createAt].body)
 			}
 		})
 	}
@@ -576,6 +800,8 @@ func TestWithoutCredentials(t *testing.T) {
 		// url.Parse rejects the port, so the fallback must still drop the token
 		"https://user:tok123@gitlab.com:bad/o/r.git": "https://gitlab.com:bad/o/r.git",
 		"git@gitlab.com:o/r.git":                     "git@gitlab.com:o/r.git",
+		// git's stderr quotes the URL inside a sentence
+		"fatal: unable to access 'https://u:tok123@github.com/o/r.git/': 403": "fatal: unable to access 'https://github.com/o/r.git/': 403",
 	} {
 		if got := withoutCredentials(remote); got != want {
 			t.Errorf("withoutCredentials(%q) = %q, want %q", remote, got, want)

@@ -22,8 +22,8 @@ import (
 	"github.com/shipyard/shipyard-cli/pkg/client"
 )
 
-// errStopped is returned when the user declines or core needs an action first;
-// the reason has already been printed.
+// errStopped is returned when core answers needs_action, already_exists or
+// creating; the reason has already been printed. Declining exits cleanly.
 var errStopped = errors.New("no app was created")
 
 // mainRoute is the route the user picks a service for.
@@ -115,9 +115,14 @@ func readPassword(fd int) (string, error) {
 	}()
 	go func() {
 		select {
-		case <-sigs:
+		case sig := <-sigs:
 			_ = term.Restore(fd, state)
-			os.Exit(130)
+			// 128 + the signal number, as shells report it (130 for Ctrl-C)
+			code := 130
+			if sig == syscall.SIGTERM {
+				code = 143
+			}
+			os.Exit(code)
 		case <-done:
 		}
 	}()
@@ -131,16 +136,30 @@ func readPassword(fd int) (string, error) {
 func (a *adder) printf(format string, args ...any) {
 	for i, arg := range args {
 		if s, ok := arg.(string); ok {
-			args[i] = withoutControl(s)
+			args[i] = oneLine(s)
 		}
 	}
 	_, _ = fmt.Fprintf(a.out, format, args...)
 }
 
-// withoutControl replaces control characters other than newline and tab.
+// printBlock writes a multi-line block, such as indented JSON, keeping its
+// newlines but replacing other control and format characters.
+func (a *adder) printBlock(s string) {
+	_, _ = io.WriteString(a.out, withoutControl(s))
+}
+
+// oneLine replaces control and format characters, newlines included: a name
+// from the compose file must not break a prompt onto a forged line.
+func oneLine(s string) string {
+	return strings.ReplaceAll(withoutControl(s), "\n", "?")
+}
+
+// withoutControl replaces control and format characters other than newline
+// and tab.
 func withoutControl(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r != '\n' && r != '\t' && unicode.IsControl(r) {
+		// Format characters (bidi overrides, zero-width) can reorder what is read
+		if r != '\n' && r != '\t' && (unicode.IsControl(r) || unicode.Is(unicode.Cf, r)) {
 			return '?'
 		}
 		return r
@@ -162,14 +181,15 @@ func (a *adder) run() error {
 	if err != nil {
 		return err
 	}
-	var plan apps.PlanResponse
-	if err := json.Unmarshal(body, &plan); err != nil {
-		return fmt.Errorf("reading the plan: %w", err)
-	}
-	// A plan can answer creating or already_exists too: stop before any prompt
+	// Checked before decoding: an action answer need not fit a plan's fields,
+	// and its next step must still be shown
 	if apps.IsActionBody(body) {
 		a.printAction(body, nil, nil)
 		return errStopped
+	}
+	var plan apps.PlanResponse
+	if err := json.Unmarshal(body, &plan); err != nil {
+		return fmt.Errorf("reading the plan: %w", err)
 	}
 	// Core plans the branch head it reads from GitHub. If that is not the
 	// commit preflight checked, stop rather than build a commit the user does
@@ -180,19 +200,36 @@ func (a *adder) run() error {
 			co.Branch, short(plan.HeadSHA), short(co.HeadSHA))
 	}
 
+	// Core plans the repo under the name GitHub uses now; a renamed or
+	// transferred repo still answers at the old name through a redirect
+	if plan.Repo != "" && !strings.EqualFold(plan.Repo, co.Repo) {
+		return fmt.Errorf("GitHub knows this repo as %s, but origin points at %s: update origin "+
+			"(git remote set-url origin ...) and run shipyard add again", plan.Repo, co.Repo)
+	}
+
 	org := a.orgName(plan)
 	a.printPlan(plan, org)
-	// Stop before asking for any value when the create cannot succeed: core
-	// would answer already_exists without applying them, or reject no services
+	// Ask before any value is typed when core would likely answer
+	// already_exists and apply none of them. It replaces an earlier API create
+	// that never got its first build, which the plan also shows, so the choice
+	// is the user's.
 	if len(plan.ExistingApp) > 0 && string(plan.ExistingApp) != "null" {
 		a.printf("An app already exists for this repo and branch: %s\n", compactJSON(withoutBypassToken(plan.ExistingApp)))
-		return errStopped
+		ok, err := a.confirm("Create anyway? Shipyard replaces it only if its first build never started", false)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			a.printf("Nothing was created.\n")
+			return nil
+		}
 	}
+	// Core rejects a create with no service
 	if len(plan.Services) == 0 {
 		return fmt.Errorf("the plan found no services in the compose file: add one, push, and run shipyard add again")
 	}
 
-	name, err := a.ask("App name", apps.DefaultAppName(co.Repo))
+	name, err := a.askAppName(apps.DefaultAppName(co.Repo, co.Branch), existingAppName(plan.ExistingApp))
 	if err != nil {
 		return err
 	}
@@ -210,7 +247,9 @@ func (a *adder) run() error {
 	}
 
 	a.printf("\n")
-	ok, err := a.confirm(fmt.Sprintf("Create app %q in org %s from %s@%s with services %s?", name, org, co.Repo, co.Branch, orNone(services)), true)
+	// No default: a blank line left over from a pasted multi-line value must
+	// not create the app
+	ok, err := a.confirmExplicit(fmt.Sprintf("Create app %q in org %s from %s@%s with services %s?", name, org, co.Repo, co.Branch, orNone(services)))
 	if err != nil {
 		return err
 	}
@@ -252,8 +291,7 @@ func (a *adder) run() error {
 		a.printAction(body, env, public)
 		return errStopped
 	}
-	a.printCreated(body)
-	return nil
+	return a.printCreated(body, env, public)
 }
 
 // profilesFor lists the compose profiles the chosen services need: core
@@ -361,9 +399,6 @@ func orNone(items []string) string {
 // chooseServices offers the services core enables by default, those not behind
 // a compose profile, and lets the user pick another set.
 func (a *adder) chooseServices(plan []apps.PlanService) ([]string, error) {
-	if len(plan) == 0 {
-		return nil, nil
-	}
 	var planned, defaults []string
 	for _, s := range plan {
 		planned = append(planned, s.Name)
@@ -408,13 +443,13 @@ func (a *adder) chooseServices(plan []apps.PlanService) ([]string, error) {
 
 // chooseRoutes keeps the plan's routes for enabled services and, when core
 // offered route candidates, lets the user pick which one serves the main route.
-func (a *adder) chooseRoutes(plan apps.PlanResponse, services []string) (map[string]string, error) {
+func (a *adder) chooseRoutes(plan apps.PlanResponse, services []string) (map[string]*string, error) {
 	// The plan's routes come from the compose file's labels, named ones
 	// included, and apply already: sending them back as shipyard.route would
 	// duplicate them. Core offers candidates only when the file has no route.
 	var candidates []string
 	for _, c := range plan.RouteCandidates {
-		if s := string(c); s != "" && (services == nil || slices.Contains(services, s)) {
+		if s := string(c); s != "" && slices.Contains(services, s) {
 			candidates = append(candidates, s)
 		}
 	}
@@ -430,7 +465,8 @@ func (a *adder) chooseRoutes(plan apps.PlanResponse, services []string) (map[str
 			a.printf("Choose one of %s\n", strings.Join(candidates, ", "))
 			continue
 		}
-		return map[string]string{answer: mainRoute}, nil
+		route := mainRoute
+		return map[string]*string{answer: &route}, nil
 	}
 }
 
@@ -439,7 +475,12 @@ func (a *adder) chooseRoutes(plan apps.PlanResponse, services []string) (map[str
 func (a *adder) chooseEnv(names []apps.EnvName) ([]apps.EnvItem, error) {
 	var items []apps.EnvItem
 	for _, e := range names {
-		ok, err := a.confirm(fmt.Sprintf("Set %s (%s) now?", e.Name, kindLabel(e.Kind)), false)
+		// A value set with no services reaches every service, sidecars included
+		if len(e.Services) == 0 {
+			a.printf("%s is used by no service in the plan, so it is not asked for: set it in the Shipyard dashboard.\n", e.Name)
+			continue
+		}
+		ok, err := a.confirm(fmt.Sprintf("Set %s (%s) for %s now?", e.Name, kindLabel(e.Kind), strings.Join(e.Services, ", ")), false)
 		if err != nil {
 			return nil, err
 		}
@@ -449,11 +490,11 @@ func (a *adder) chooseEnv(names []apps.EnvName) ([]apps.EnvItem, error) {
 		// An empty value would clear the variable; answer n above to skip it
 		var value string
 		for value == "" {
-			a.printf("Value for %s (not shown): ", e.Name)
+			a.printf("Value for %s (one line, not shown): ", e.Name)
 			value, err = a.readSecret(a.in)
 			a.printf("\n")
 			if err != nil {
-				return nil, fmt.Errorf("reading the value of %s: %w", e.Name, err)
+				return nil, fmt.Errorf("reading the value of %q: %w", e.Name, err)
 			}
 			if value == "" {
 				a.printf("A value is required.\n")
@@ -463,9 +504,48 @@ func (a *adder) chooseEnv(names []apps.EnvName) ([]apps.EnvItem, error) {
 		if kind == "" {
 			kind = apps.KindRuntime
 		}
-		items = append(items, apps.EnvItem{Name: e.Name, Value: value, Kind: kind, Services: e.Services})
+		// Stored hidden, so the value is not readable back through the API or dashboard
+		hidden := true
+		items = append(items, apps.EnvItem{Name: e.Name, Value: value, Kind: kind, Hidden: &hidden, Services: e.Services})
 	}
 	return items, nil
+}
+
+// askAppName asks for the app name until core would accept it, before any env
+// value is typed: a rejected name would otherwise cost the user every value.
+// replaceable is the plan's existing app, whose name core frees when it
+// replaces that app.
+func (a *adder) askAppName(def, replaceable string) (string, error) {
+	for {
+		name, err := a.ask("App name", def)
+		if err != nil {
+			return "", err
+		}
+		if !apps.ValidAppName(name) {
+			a.printf("App names may use letters, digits, dashes, underscores and spaces (at most 255)\n")
+			continue
+		}
+		if name == replaceable {
+			return name, nil
+		}
+		// A failed lookup is not a reason to stop: core checks again on create
+		if taken, err := apps.NameTaken(a.client, name); err == nil && taken {
+			a.printf("An app named %q already exists in this org: choose another name\n", name)
+			continue
+		}
+		return name, nil
+	}
+}
+
+// existingAppName is the name in the plan's existing_app, or "".
+func existingAppName(raw json.RawMessage) string {
+	var app struct {
+		Name string `json:"name"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &app) != nil {
+		return ""
+	}
+	return app.Name
 }
 
 func (a *adder) ask(prompt, def string) (string, error) {
@@ -488,9 +568,20 @@ func (a *adder) ask(prompt, def string) (string, error) {
 }
 
 func (a *adder) confirm(prompt string, def bool) (bool, error) {
-	hint := "y/N"
-	if def {
+	return a.yesNo(prompt, &def)
+}
+
+// confirmExplicit asks until the answer is y or n: an empty line is asked again.
+func (a *adder) confirmExplicit(prompt string) (bool, error) {
+	return a.yesNo(prompt, nil)
+}
+
+func (a *adder) yesNo(prompt string, def *bool) (bool, error) {
+	hint := "y/n"
+	if def != nil && *def {
 		hint = "Y/n"
+	} else if def != nil {
+		hint = "y/N"
 	}
 	for {
 		a.printf("%s [%s]: ", prompt, hint)
@@ -503,7 +594,9 @@ func (a *adder) confirm(prompt string, def bool) (bool, error) {
 		}
 		switch strings.ToLower(strings.TrimSpace(line)) {
 		case "":
-			return def, nil
+			if def != nil {
+				return *def, nil
+			}
 		case "y", "yes":
 			return true, nil
 		case "n", "no":
@@ -529,7 +622,8 @@ func (a *adder) printAction(body []byte, env []apps.EnvItem, public []string) {
 			if key == "status" || key == "next_step" || key == "errors" {
 				continue
 			}
-			a.printf("%s:\n%s\n", key, indentJSON(resp[key]))
+			a.printf("%s:\n", key)
+			a.printBlock(indentJSON(resp[key]) + "\n")
 		}
 	case apps.StatusCreating:
 		a.printf("This app is still being created by another request. Run this again in a minute to see it.\n")
@@ -544,9 +638,20 @@ func (a *adder) printAction(body []byte, env []apps.EnvItem, public []string) {
 			a.printf("Open: %s\n", ns.URL)
 		}
 	}
+	// Core applies none of this request's values on these answers
+	if len(env) > 0 && (action.Status == apps.StatusAlreadyExists || action.Status == apps.StatusCreating) {
+		names := make([]string, 0, len(env))
+		for _, e := range env {
+			names = append(names, e.Name)
+		}
+		a.printf("Not set: %s. Set them on the app in the Shipyard dashboard.\n", strings.Join(names, ", "))
+	}
 }
 
-func (a *adder) printCreated(body []byte) {
+// printCreated shows the created app. A 2xx without the app, such as a proxy
+// page, is no evidence of a create, so it is an error.
+func (a *adder) printCreated(body []byte, env []apps.EnvItem, public []string) error {
+	body = withoutBypassToken(apps.RedactValues(body, env, public...))
 	var resp struct {
 		Data struct {
 			ID         string `json:"id"`
@@ -556,11 +661,14 @@ func (a *adder) printCreated(body []byte) {
 			} `json:"attributes"`
 		} `json:"data"`
 	}
-	_ = json.Unmarshal(body, &resp)
+	if err := json.Unmarshal(body, &resp); err != nil || resp.Data.ID == "" {
+		return fmt.Errorf("shipyard's answer has no app, so the outcome is unknown: check the dashboard before running shipyard add again")
+	}
 	a.printf("Created app %s (%s). Its first build is starting.\n", resp.Data.Attributes.Name, resp.Data.ID)
 	if resp.Data.Attributes.URL != "" {
 		a.printf("URL: %s\n", resp.Data.Attributes.URL)
 	}
+	return nil
 }
 
 func indentJSON(raw json.RawMessage) string {
