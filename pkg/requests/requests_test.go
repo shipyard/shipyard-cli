@@ -68,3 +68,21 @@ func TestUserAgentTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestBearerTokenReplacesTheConfiguredToken(t *testing.T) {
+	t.Setenv("SHIPYARD_API_TOKEN", "configured-token")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer exchanged-token" {
+			t.Errorf("Authorization = %q", got)
+		}
+		if got := r.Header.Get("x-api-token"); got != "" {
+			t.Errorf("x-api-token = %q, want none", got)
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	if _, err := NewWithBearerToken("mcp-hosted", "exchanged-token").Do("GET", server.URL, "application/json", nil); err != nil {
+		t.Fatal(err)
+	}
+}

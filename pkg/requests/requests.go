@@ -24,6 +24,9 @@ type Requester interface {
 
 type HTTPClient struct {
 	userAgentType string
+	// bearerToken, when set, is sent as Authorization: Bearer in place of the
+	// CLI's configured API token. The hosted MCP server uses it for exchanged tokens.
+	bearerToken string
 }
 
 func New() HTTPClient {
@@ -34,13 +37,21 @@ func NewWithUserAgent(userAgentType string) HTTPClient {
 	return HTTPClient{userAgentType: userAgentType}
 }
 
+// NewWithBearerToken sends token as a bearer token instead of reading the CLI's
+// configured API token.
+func NewWithBearerToken(userAgentType, token string) HTTPClient {
+	return HTTPClient{userAgentType: userAgentType, bearerToken: token}
+}
+
 func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error) {
-	var token string
-	var err error
-	// TODO: refactor the CLI initialization process this to make the client not depend on global state.
-	token, err = auth.APIToken()
-	if err != nil {
-		return nil, err
+	token := c.bearerToken
+	if token == "" {
+		var err error
+		// TODO: refactor the CLI initialization process this to make the client not depend on global state.
+		token, err = auth.APIToken()
+		if err != nil {
+			return nil, err
+		}
 	}
 	start := time.Now()
 	defer func() {
@@ -71,7 +82,11 @@ func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error
 
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-%s-%s-%s", "shipyard-"+c.userAgentType, version.Version, runtime.GOOS, runtime.GOARCH))
-	req.Header.Set("x-api-token", token)
+	if c.bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else {
+		req.Header.Set("x-api-token", token)
+	}
 
 	var netClient http.Client
 	resp, err := netClient.Do(req)

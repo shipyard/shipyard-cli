@@ -59,7 +59,7 @@ The application uses a dependency injection pattern:
 - **MCP Server**: `shipyard mcp serve` - Starts Model Context Protocol server for AI assistant integration
 - **Location**: `pkg/mcp/` - Contains MCP server implementation with tools, resources, and transport layers
 - **Tools**: Environment ops, service management, logging, volume operations
-- **Transport**: stdio-based communication for AI assistants
+- **Transport**: stdio-based communication for AI assistants; `shipyard mcp host` (`pkg/mcp/hosted/`) serves the hosted tool set over stateless Streamable HTTP with OAuth and token exchange
 
 ### Testing
 
