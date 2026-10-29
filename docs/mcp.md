@@ -88,6 +88,12 @@ the CLI on your `PATH` and `shipyard login`.
 | Codex | `codex plugin marketplace add shipyard/shipyard-plugins`, then `codex plugin add shipyard@shipyard` |
 | Kiro | In the Powers panel, install from the GitHub URL `https://github.com/shipyard/shipyard-plugins` |
 
+The plugin runs `shipyard` from the `PATH` the client sees, and you can't change
+that command. If the server fails to start with "command not found" (desktop apps
+opened from the Dock or Start menu may not see your shell's `PATH`), set it up by
+hand as below instead, with the absolute path from `which shipyard` as the
+command.
+
 Restart the session afterwards. Use the plugin or the manual setup below, not
 both:
 
