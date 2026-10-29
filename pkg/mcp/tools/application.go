@@ -59,7 +59,8 @@ var applicationToolDefinitions = map[string]ToolDefinition{
 			"Pass the plan's app_name unless the user chose another. " +
 			"Env values are sent to Shipyard but never returned: the result lists env names only. Never repeat an env " +
 			"value back to the user, in chat or anywhere else. " +
-			"Set each env item's services to the plan's, so a value reaches only the services that use it. " +
+			"Set each env item's services to the plan's, so a value reaches only the services that use it; " +
+			"[] when the plan lists none (a variable the compose file interpolates, set for the whole app). " +
 			"Enabling a service whose enabled_by_default is false needs its profile in selected_profiles. " +
 			untrustedPlanNote + bypassTokenNote + "Returns status created with the new app, or " + nextStepNote,
 		InputSchema: schemas.CreateApplicationSchema(),
@@ -119,15 +120,17 @@ func (t *ApplicationTool) Execute(ctx context.Context, params json.RawMessage) (
 // checkEnvItems rejects an env item without a value or without services. The
 // schema requires both, but nothing enforces the schema: an empty value would
 // clear a working variable (delete_env_var removes one on purpose), and core
-// gives a value with no services to every service, sidecars included.
+// gives a value with no services to every service, sidecars included. An
+// explicit [] is allowed: the plan lists a ${VAR} the file interpolates with
+// no services, as it is set for the whole app.
 func checkEnvItems(tool string, items []apps.EnvItem) error {
 	for i, item := range items {
 		if item.Value == "" {
 			return errors.ValidationError(tool, "env", fmt.Sprintf("env[%d].value is required", i))
 		}
-		if len(item.Services) == 0 || slices.Contains(item.Services, "") {
+		if item.Services == nil || slices.Contains(item.Services, "") {
 			return errors.ValidationError(tool, "env",
-				fmt.Sprintf("env[%d].services is required: pass the services the plan lists for it", i))
+				fmt.Sprintf("env[%d].services is required: pass the services the plan lists for it, [] when it lists none", i))
 		}
 	}
 	return nil

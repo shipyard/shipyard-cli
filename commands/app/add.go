@@ -494,12 +494,13 @@ func (a *adder) chooseRoutes(plan apps.PlanResponse, services []string) (map[str
 func (a *adder) chooseEnv(names []apps.EnvName) ([]apps.EnvItem, error) {
 	var items []apps.EnvItem
 	for _, e := range names {
-		// A value set with no services reaches every service, sidecars included
-		if len(e.Services) == 0 {
-			a.printf("%s is used by no service in the plan, so it is not asked for: set it in the Shipyard dashboard.\n", e.Name)
-			continue
+		// No services is a ${VAR} the compose file interpolates: core fills it
+		// from the app's variables, so it is set for the whole app
+		scope := "the whole app"
+		if len(e.Services) > 0 {
+			scope = strings.Join(e.Services, ", ")
 		}
-		ok, err := a.confirm(fmt.Sprintf("Set %s (%s) for %s now?", e.Name, kindLabel(e.Kind), strings.Join(e.Services, ", ")), false)
+		ok, err := a.confirm(fmt.Sprintf("Set %s (%s) for %s now?", e.Name, kindLabel(e.Kind), scope), false)
 		if err != nil {
 			return nil, err
 		}

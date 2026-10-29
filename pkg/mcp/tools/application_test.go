@@ -235,6 +235,24 @@ func TestApplicationTools(t *testing.T) {
 			wantErr: "env[0].services is required",
 		},
 		{
+			// The plan lists a variable the compose file interpolates with no
+			// services: [] sets it for the whole app
+			name:       "create sends an explicit empty services list for an interpolated variable",
+			tool:       "create_application",
+			args:       `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web"],"env":[{"name":"API_KEY","value":"v1234","services":[]}]}`,
+			status:     http.StatusCreated,
+			response:   `{"data":{"type":"application","id":"app-uuid-1","attributes":{"name":"app"}}}`,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application",
+			wantResult: []string{`"status":"created"`},
+			checkBody: func(t *testing.T, body map[string]any) {
+				secret := body["secrets"].([]any)[0].(map[string]any)
+				if s, ok := secret["services"].([]any); !ok || len(s) != 0 {
+					t.Errorf("secret services = %v, want []", secret["services"])
+				}
+			},
+		},
+		{
 			// A proxy page or an errors-only body is no evidence of a created app
 			name:       "create 2xx without the app is not reported as created",
 			tool:       "create_application",

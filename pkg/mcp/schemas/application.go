@@ -34,7 +34,8 @@ func envSchema() map[string]interface{} {
 					"description": "runtime (default) or build_arg, as the plan's env list says",
 				},
 				"hidden": map[string]interface{}{"type": "boolean", "description": "Mask the value in API responses"},
-				"services": stringArray("Services the variable reaches: the plan's services for it. Without them a value reaches " +
+				"services": stringArray("Services the variable reaches: the plan's services for it, or [] when the plan lists " +
+					"none (a variable the compose file interpolates, set for the whole app). Without them a value reaches " +
 					"every service, so they are required"),
 			},
 			"required": []string{"name", "value", "services"},

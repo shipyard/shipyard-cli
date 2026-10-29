@@ -60,7 +60,8 @@ type EnvName struct {
 	Name string `json:"name"`
 	Kind string `json:"kind"`
 	// Services are the services the compose file gives the variable to; a
-	// value set without them reaches every service.
+	// value set without them reaches every service. None means the file
+	// interpolates it (${VAR}), so it is set for the whole app.
 	Services []string `json:"services,omitempty"`
 	// Optional is true when the compose file has a default for the variable.
 	Optional bool `json:"optional,omitempty"`

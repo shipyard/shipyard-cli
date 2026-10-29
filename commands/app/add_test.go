@@ -584,18 +584,25 @@ func TestAdd(t *testing.T) {
 			wantErrText: "example-org/renamed",
 		},
 		{
-			// A value with no services would reach every service, sidecars included
-			name:         "an env name with no services is not asked for",
+			// A ${VAR} the file interpolates: core fills it from the app's
+			// variables, so the plan gives it no services and it is set app-wide
+			name:         "an interpolated env name is asked for and set for the whole app",
 			planStatus:   http.StatusOK,
-			planResp:     `{"status":"plan","org":"example-org","head_sha":"` + sha + `","services":[{"name":"web","enabled_by_default":true}],"routes":[],"route_candidates":[],"env":[{"name":"GLOBAL","kind":"runtime"}]}`,
+			planResp:     `{"status":"plan","org":"example-org","head_sha":"` + sha + `","services":[{"name":"web","enabled_by_default":true}],"routes":[],"route_candidates":[],"env":[{"name":"GLOBAL","kind":"runtime","services":[]}]}`,
 			createStatus: http.StatusCreated,
 			createResp:   `{"data":{"id":"app-uuid-1","attributes":{"name":"app"}}}`,
-			input:        "\n\ny\n",
-			wantOut:      []string{"GLOBAL is used by no service", "Created app"},
-			wantCreate:   true,
+			// name, enable web, GLOBAL?, value, create?
+			input:      "\n\ny\n" + secretVal + "\ny\n",
+			wantOut:    []string{"Set GLOBAL (runtime) for the whole app now?", "Created app"},
+			wantCreate: true,
 			checkBody: func(t *testing.T, body map[string]any) {
-				if _, ok := body["secrets"]; ok {
-					t.Errorf("secrets sent: %v", body["secrets"])
+				secrets, _ := body["secrets"].([]any)
+				if len(secrets) != 1 || secrets[0].(map[string]any)["value"] != secretVal {
+					t.Fatalf("secrets = %v", body["secrets"])
+				}
+				// Core reads no services and [] alike: every service
+				if s, _ := secrets[0].(map[string]any)["services"].([]any); len(s) != 0 {
+					t.Errorf("secret services = %v, want none (the whole app)", s)
 				}
 			},
 		},
