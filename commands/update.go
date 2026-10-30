@@ -10,6 +10,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"github.com/shipyard/shipyard-cli/config"
 	"github.com/shipyard/shipyard-cli/pkg/selfupdate"
 	"github.com/shipyard/shipyard-cli/version"
 )
@@ -24,7 +25,10 @@ its release notes.
 
 A Homebrew install is upgraded with 'brew upgrade shipyard'. Any other install
 downloads the release binary, verifies it against the release's checksums.txt,
-and replaces the running binary.`,
+and replaces the running binary.
+
+With self_update: false in the config file, or SHIPYARD_SELF_UPDATE=false, it
+refuses without contacting GitHub.`,
 		Example: `  # Upgrade to the latest stable release
   shipyard upgrade
 
@@ -42,7 +46,15 @@ and replaces the running binary.`,
 	return cmd
 }
 
+// errSelfUpdateOff is what upgrade returns when self_update is off, as on a
+// self-hosted install whose CLI comes with its Shipyard release.
+var errSelfUpdateOff = errors.New("self-update is turned off (self_update: false or SHIPYARD_SELF_UPDATE=false); " +
+	"get new versions of the CLI from whoever manages your Shipyard install")
+
 func runUpgrade(cmd *cobra.Command, _ []string) error {
+	if !config.SelfUpdateEnabled() {
+		return errSelfUpdateOff
+	}
 	force, _ := cmd.Flags().GetBool("force")
 	includePrerelease, _ := cmd.Flags().GetBool("prerelease")
 

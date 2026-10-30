@@ -752,7 +752,7 @@ so the Codex `writes` setting above stops offering the read tools without asking
   the server tells the assistant so on startup, and the assistant can suggest
   the upgrade. Terminal commands run that check, and so does the server, in the
   background at most once a day, for the next session. `SHIPYARD_NO_UPDATE_CHECK`,
-  `CI`, or `update_check: false` turns both off.
+  `CI`, `update_check: false` or `self_update: false` turns both off.
 - **`exec_service` says it's disabled.** Set `SHIPYARD_MCP_ALLOW_EXEC=true` in the
   client's `env` block, or `mcp.allow_exec: true` in the config file, then
   restart the client.

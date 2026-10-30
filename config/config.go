@@ -73,3 +73,12 @@ func Save(values map[string]any) error {
 
 	return nil
 }
+
+// SelfUpdateEnabled reports whether the CLI may update itself from GitHub: the
+// update notice, the MCP server's background check and `shipyard upgrade`.
+// It's on unless self_update is false, in the config file or as
+// SHIPYARD_SELF_UPDATE. An install that can't reach GitHub, such as one whose
+// CLI comes with a self-hosted Shipyard release, turns it off.
+func SelfUpdateEnabled() bool {
+	return !viper.IsSet("self_update") || viper.GetBool("self_update")
+}
