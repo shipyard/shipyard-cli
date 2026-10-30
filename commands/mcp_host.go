@@ -40,22 +40,27 @@ It is configured from the environment only, so the client secret never lands in 
 		// run on a read-only filesystem.
 		Annotations: map[string]string{envOnlyAnnotation: "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := hostConfigFromEnv()
-			handler, err := hosted.Handler(cfg)
-			if err != nil {
-				return fmt.Errorf("the hosted MCP server is not configured: %w", err)
-			}
-			if err := hosted.CheckConfig(cmd.Context(), cfg); err != nil {
-				return fmt.Errorf("the hosted MCP server is misconfigured: %w", err)
-			}
-			// The tools build API URLs from api_url; it has to be the API the
-			// exchanged tokens are for. Set in memory only, never written back.
-			viper.Set("api_url", strings.TrimSuffix(cfg.SiteURL, "/")+"/api/v1")
-			return serveHosted(cmd.Context(), listen, handler)
+			return runHost(cmd.Context(), listen, hostConfigFromEnv(), serveHosted)
 		},
 	}
 	cmd.Flags().StringVar(&listen, "listen", ":8080", "address to listen on")
 	return cmd
+}
+
+// runHost checks cfg and hands the server's handler to serve.
+func runHost(ctx context.Context, listen string, cfg hosted.Config,
+	serve func(context.Context, string, http.Handler) error) error {
+	handler, err := hosted.Handler(cfg)
+	if err != nil {
+		return fmt.Errorf("the hosted MCP server is not configured: %w", err)
+	}
+	if err := hosted.CheckConfig(ctx, cfg); err != nil {
+		return fmt.Errorf("the hosted MCP server is misconfigured: %w", err)
+	}
+	// The tools build API URLs from api_url; it has to be the API the
+	// exchanged tokens are for. Set in memory only, never written back.
+	viper.Set("api_url", strings.TrimSuffix(cfg.SiteURL, "/")+"/api/v1")
+	return serve(ctx, listen, handler)
 }
 
 func hostConfigFromEnv() hosted.Config {
@@ -82,7 +87,9 @@ func serveHosted(ctx context.Context, listen string, handler http.Handler) error
 		Addr:              listen,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
+		// A bearer token over 4KB is refused anyway; this bounds what's read first.
+		MaxHeaderBytes: 64 << 10,
+		ReadTimeout:    30 * time.Second,
 		// A tool call can take a 10 second token exchange, then a log read that
 		// times out at 20 seconds, waits 10 and tries again.
 		WriteTimeout: 90 * time.Second,

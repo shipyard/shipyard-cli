@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -300,6 +301,12 @@ func TestCoreUnavailableIsAToolErrorNotA401(t *testing.T) {
 			_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
 		},
 		"no token": func(w http.ResponseWriter, _ map[string]string) { _, _ = w.Write([]byte(`{}`)) },
+		"no expiry": func(w http.ResponseWriter, _ map[string]string) {
+			_, _ = fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":0,"scope":"envs:read"}`, coreToken)
+		},
+		"not a bearer token": func(w http.ResponseWriter, _ map[string]string) {
+			_, _ = fmt.Fprintf(w, `{"access_token":%q,"token_type":"mac","expires_in":300,"scope":"envs:read"}`, coreToken)
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			core := newFakeCore(t)
@@ -394,24 +401,36 @@ func TestARedirectFromCoreIsNotFollowed(t *testing.T) {
 }
 
 func TestConcurrentExchangesForOneTokenAreCoalesced(t *testing.T) {
-	core := newFakeCore(t)
-	exchange := core.exchange
-	core.exchange = func(w http.ResponseWriter, form map[string]string) {
-		time.Sleep(50 * time.Millisecond)
-		exchange(w, form)
-	}
-	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	// Core holds every exchange until the test releases it, so all callers
+	// overlap: shared, they make one exchange; not shared, one each.
+	var arrived atomic.Int32
+	release := make(chan struct{})
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		arrived.Add(1)
+		<-release
+		_, _ = fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":300,"scope":"envs:read"}`, coreToken)
+	}))
+	t.Cleanup(core.Close)
+	e := newExchanger(core.URL+"/oauth/token", core.URL+"/api", "host", secret)
+
+	const callers = 10
 	var wg sync.WaitGroup
-	for range 10 {
+	for range callers {
 		wg.Go(func() {
 			if _, err := e.exchange(t.Context(), clientToken); err != nil {
 				t.Error(err)
 			}
 		})
 	}
+	// Wait for every caller's exchange to reach core, or long enough for all of
+	// them to have joined the first one.
+	for deadline := time.Now().Add(500 * time.Millisecond); arrived.Load() < callers && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(release)
 	wg.Wait()
-	if core.exchanges != 1 {
-		t.Errorf("exchanges = %d, want 1", core.exchanges)
+	if n := arrived.Load(); n != 1 {
+		t.Errorf("exchanges = %d, want 1", n)
 	}
 }
 
@@ -550,6 +569,124 @@ func TestCheckConfig(t *testing.T) {
 			})
 			if (err != nil) != tc.wantErr {
 				t.Errorf("err = %v, want error %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestAnOversizedTokenIs401WithoutAskingCore(t *testing.T) {
+	// Core rate-limits a token request over 8KB as if it came from anyone, so a
+	// junk token that size must never reach it.
+	core := newFakeCore(t)
+	srv := newHost(t, core)
+	if res := initialize(t, srv, strings.Repeat("x", maxTokenBytes+1)); res.status != http.StatusUnauthorized {
+		t.Fatalf("status = %d", res.status)
+	}
+	if core.exchanges != 0 {
+		t.Errorf("exchanges = %d, want 0", core.exchanges)
+	}
+}
+
+func TestARefusalForOneTokenDoesNotPauseOthers(t *testing.T) {
+	// A 4xx is about the request a client chose to send, not about core: it
+	// mustn't stop everyone else's exchanges.
+	core := newFakeCore(t)
+	exchange := core.exchange
+	core.exchange = func(w http.ResponseWriter, form map[string]string) {
+		if form["subject_token"] == "junk" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		exchange(w, form)
+	}
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	if _, err := e.exchange(t.Context(), "junk"); !errors.Is(err, errUnavailable) {
+		t.Fatalf("err = %v, want errUnavailable", err)
+	}
+	if _, err := e.exchange(t.Context(), clientToken); err != nil {
+		t.Errorf("a 429 for one token paused another: %v", err)
+	}
+}
+
+func TestACachedTokenIsUsedUntilItExpiresWhileCoreIsDown(t *testing.T) {
+	core := newFakeCore(t)
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	now := time.Now()
+	e.now = func() time.Time { return now }
+	if _, err := e.exchange(t.Context(), clientToken); err != nil {
+		t.Fatal(err)
+	}
+	core.exchange = func(w http.ResponseWriter, _ map[string]string) { w.WriteHeader(http.StatusBadGateway) }
+	// Inside the margin, so it's exchanged again; core is down, and the token
+	// still has a minute left.
+	now = now.Add(4 * time.Minute)
+	for range 2 { // the second is during the pause
+		got, err := e.exchange(t.Context(), clientToken)
+		if err != nil || got.token != coreToken {
+			t.Fatalf("got %+v, %v; want the cached token", got, err)
+		}
+	}
+	now = now.Add(time.Minute)
+	if _, err := e.exchange(t.Context(), clientToken); !errors.Is(err, errUnavailable) {
+		t.Errorf("err = %v after the token expired, want errUnavailable", err)
+	}
+}
+
+func TestOnlyAPOSTBuildsTheServer(t *testing.T) {
+	// Stateless Streamable HTTP answers anything but a POST with 405. GET is a
+	// client opening a stream, often on every reconnect.
+	core := newFakeCore(t)
+	srv := newHost(t, core)
+	before := serversBuilt.Load()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/mcp", nil)
+	req.Header.Set("Authorization", "Bearer "+clientToken)
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", resp.StatusCode)
+	}
+	if built := serversBuilt.Load() - before; built != 0 {
+		t.Errorf("servers built for a GET = %d, want 0", built)
+	}
+}
+
+func TestResourceURLPaths(t *testing.T) {
+	for _, tc := range []struct{ resource, endpoint, metadata string }{
+		{"https://mcp.example.test/", "/", "https://mcp.example.test/.well-known/oauth-protected-resource"},
+		{"https://mcp.example.test/mcp", "/mcp", "https://mcp.example.test/.well-known/oauth-protected-resource/mcp"},
+		{"https://mcp.example.test/mcp/", "/mcp/", "https://mcp.example.test/.well-known/oauth-protected-resource/mcp"},
+	} {
+		t.Run(tc.resource, func(t *testing.T) {
+			core := newFakeCore(t)
+			handler, err := Handler(Config{ResourceURL: tc.resource, SiteURL: core.server.URL, ClientID: "host", ClientSecret: secret})
+			if err != nil {
+				t.Fatal(err)
+			}
+			srv := httptest.NewServer(handler)
+			t.Cleanup(srv.Close)
+
+			req, _ := http.NewRequest(http.MethodPost, srv.URL+tc.endpoint, strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if want := `Bearer resource_metadata="` + tc.metadata + `"`; resp.Header.Get("WWW-Authenticate") != want {
+				t.Errorf("WWW-Authenticate = %q, want %q", resp.Header.Get("WWW-Authenticate"), want)
+			}
+			metaPath := strings.TrimPrefix(tc.metadata, "https://mcp.example.test")
+			resp, err = http.Get(srv.URL + metaPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("GET %s = %d", metaPath, resp.StatusCode)
 			}
 		})
 	}

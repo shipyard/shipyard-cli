@@ -691,7 +691,8 @@ local server.
   exchanges it at Shipyard's token endpoint (RFC 8693) for a short-lived API
   token, reused until shortly before it expires. If Shipyard can't be reached,
   tool calls fail with a retry hint rather than a 401, which would send the
-  client back through sign-in.
+  client back through sign-in; a cached token keeps working until it expires.
+  A token over 4KB is refused with a 401 without asking Shipyard.
 - **Tools.** Only the tools in `pkg/mcp/tools/scopes.go` are hosted, each behind
   the scope it needs: `plan_application`, `create_application`
   (`apps:create`), `update_application` (`apps:update`), and
@@ -719,7 +720,7 @@ shipyard mcp host --listen :8080
 At startup it checks its client id, secret and URLs with Shipyard's token
 endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
 it starts anyway. It never reads or creates a CLI config file, so it runs on a
-read-only filesystem. Its own messages go to stderr; the tools' request logs,
+read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr; the tools' request logs,
 which carry users' parameters, appear only with `--verbose`.
 
 `GET /healthz` answers `ok` for load balancer checks.

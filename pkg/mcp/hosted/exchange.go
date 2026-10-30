@@ -30,9 +30,13 @@ const (
 	// tenth closest to expiry.
 	maxCached = 10000
 	// unavailableBackoff is how long a token that isn't cached waits for core
-	// after an exchange failed for a reason that isn't the token, instead of
-	// every request asking core again while it's down.
+	// after core was down or refused this server, instead of every request
+	// asking core again meanwhile.
 	unavailableBackoff = 5 * time.Second
+	// maxTokenBytes is the longest token sent to core. Core gives this server
+	// its own rate limit only for token requests under 8KB; a longer one counts
+	// against the limit for everyone from this server's address.
+	maxTokenBytes = 4096
 )
 
 // errUnavailable means the exchange couldn't be completed for a reason that
@@ -44,6 +48,11 @@ var errUnavailable = errors.New("token exchange unavailable")
 // errMisconfigured is the part of errUnavailable this server has to fix: core
 // refused its client credentials or the resource it asked for.
 var errMisconfigured = errors.New("this server's OAuth client or URLs don't match core's")
+
+// errCoreDown is the part of errUnavailable that holds for every token: core
+// couldn't be reached, failed, or refused this server. Only it pauses the
+// exchanges. Any other refusal is about the one request a client chose to send.
+var errCoreDown = errors.New("core is down or refused this server")
 
 // exchanged is a core API token obtained for one client token.
 type exchanged struct {
@@ -91,6 +100,9 @@ func newExchanger(tokenURL, resource, clientID, clientSecret string) *exchanger 
 // auth.ErrInvalidToken when the subject token itself is no good, and
 // errUnavailable otherwise.
 func (e *exchanger) exchange(ctx context.Context, subject string) (exchanged, error) {
+	if len(subject) > maxTokenBytes {
+		return exchanged{}, fmt.Errorf("%w: the token is too long", auth.ErrInvalidToken)
+	}
 	key := sha256.Sum256([]byte(subject))
 	e.mu.Lock()
 	hit, ok := e.cache[key]
@@ -99,7 +111,12 @@ func (e *exchanger) exchange(ctx context.Context, subject string) (exchanged, er
 	if ok && e.now().Before(hit.expires.Add(-expiryMargin)) {
 		return hit, nil
 	}
+	// While core can't exchange again, a cached token is good until it expires.
+	usable := ok && e.now().Before(hit.expires)
 	if backoff {
+		if usable {
+			return hit, nil
+		}
 		return exchanged{}, fmt.Errorf("%w: core was unavailable moments ago", errUnavailable)
 	}
 
@@ -109,12 +126,15 @@ func (e *exchanger) exchange(ctx context.Context, subject string) (exchanged, er
 		return e.request(context.WithoutCancel(ctx), subject)
 	})
 	if err != nil {
-		e.forget(subject)
-		if errors.Is(err, errUnavailable) {
+		if errors.Is(err, errCoreDown) {
 			e.mu.Lock()
 			e.unavailableUntil = e.now().Add(unavailableBackoff)
 			e.mu.Unlock()
 		}
+		if usable && !errors.Is(err, auth.ErrInvalidToken) {
+			return hit, nil
+		}
+		e.forget(subject)
 		return exchanged{}, err
 	}
 	got := result.(exchanged)
@@ -172,7 +192,7 @@ func (e *exchanger) request(ctx context.Context, subject string) (exchanged, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return exchanged{}, fmt.Errorf("%w: %v", errUnavailable, err)
+		return exchanged{}, fmt.Errorf("%w: %w: %v", errUnavailable, errCoreDown, err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -180,12 +200,12 @@ func (e *exchanger) request(ctx context.Context, subject string) (exchanged, err
 	start := e.now()
 	resp, err := e.http.Do(req)
 	if err != nil {
-		return exchanged{}, fmt.Errorf("%w: %v", errUnavailable, err)
+		return exchanged{}, fmt.Errorf("%w: %w: %v", errUnavailable, errCoreDown, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
-		return exchanged{}, fmt.Errorf("%w: reading the response: %v", errUnavailable, err)
+		return exchanged{}, fmt.Errorf("%w: %w: reading the response: %v", errUnavailable, errCoreDown, err)
 	}
 
 	var payload struct {
@@ -206,9 +226,11 @@ func (e *exchanger) request(ctx context.Context, subject string) (exchanged, err
 			return exchanged{}, fmt.Errorf("%w: the token was refused (%s)", auth.ErrInvalidToken, payload.Error)
 		// Core checks this server's client and resource before the subject token.
 		case payload.Error == "invalid_client" || payload.Error == "unauthorized_client" || payload.Error == "invalid_target":
-			return exchanged{}, fmt.Errorf("%w: %w: core answered %d %s", errUnavailable, errMisconfigured, resp.StatusCode, payload.Error)
+			return exchanged{}, fmt.Errorf("%w: %w: %w: core answered %d %s", errUnavailable, errCoreDown, errMisconfigured, resp.StatusCode, payload.Error)
+		case resp.StatusCode >= http.StatusInternalServerError:
+			return exchanged{}, fmt.Errorf("%w: %w: core answered %d", errUnavailable, errCoreDown, resp.StatusCode)
 		}
-		// Anything else (a 5xx, a redirect) is ours to fix too.
+		// Anything else (a 429, a redirect) is unavailable for this request only.
 		return exchanged{}, fmt.Errorf("%w: core answered %d %s", errUnavailable, resp.StatusCode, payload.Error)
 	}
 	if payload.AccessToken == "" || payload.ExpiresIn <= 0 || !strings.EqualFold(payload.TokenType, "bearer") {

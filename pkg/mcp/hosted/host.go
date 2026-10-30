@@ -150,9 +150,14 @@ func CheckConfig(ctx context.Context, cfg Config) error {
 type serverKey struct{}
 
 // withServer builds the request's MCP server once. The SDK asks for it more
-// than once per request, and each build makes every tool again.
+// than once per request, and each build makes every tool again. Only a POST
+// needs one: stateless, the SDK answers anything else with 405.
 func (h *host) withServer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			next.ServeHTTP(w, req)
+			return
+		}
 		if server := h.server(req); server != nil {
 			req = req.WithContext(context.WithValue(req.Context(), serverKey{}, server))
 		}
