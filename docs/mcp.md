@@ -716,6 +716,12 @@ config file:
 shipyard mcp host --listen :8080
 ```
 
+At startup it checks its client id, secret and URLs with Shipyard's token
+endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
+it starts anyway. It never reads or creates a CLI config file, so it runs on a
+read-only filesystem. Its own messages go to stderr; the tools' request logs,
+which carry users' parameters, appear only with `--verbose`.
+
 `GET /healthz` answers `ok` for load balancer checks.
 
 ## Updating, uninstalling and rolling back

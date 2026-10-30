@@ -2,7 +2,9 @@ package hosted
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -277,13 +279,14 @@ func TestCachedTokenIsExchangedAgainBeforeItExpires(t *testing.T) {
 	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
 	now := time.Now()
 	e.now = func() time.Time { return now }
-	for _, step := range []time.Duration{0, 4 * time.Minute, 30 * time.Second} {
+	for _, step := range []time.Duration{0, 3 * time.Minute, 30 * time.Second} {
 		now = now.Add(step)
 		if _, err := e.exchange(t.Context(), clientToken); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// The second call is inside the token's life; the third is within the margin of its end.
+	// The second call has 2 minutes of the token left; the third has 90 seconds,
+	// less than a tool call that retries a slow log read can take.
 	if core.exchanges != 2 {
 		t.Errorf("exchanges = %d, want 2", core.exchanges)
 	}
@@ -341,14 +344,213 @@ func TestConfigIsValidated(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*Config){
-		"no resource": func(c *Config) { c.ResourceURL = "" },
-		"no site":     func(c *Config) { c.SiteURL = "example.test" },
-		"no secret":   func(c *Config) { c.ClientSecret = "" },
+		"no resource":  func(c *Config) { c.ResourceURL = "" },
+		"no site":      func(c *Config) { c.SiteURL = "example.test" },
+		"no secret":    func(c *Config) { c.ClientSecret = "" },
+		"no client id": func(c *Config) { c.ClientID = "" },
 	} {
 		cfg := good
 		mutate(&cfg)
 		if _, err := Handler(cfg); err == nil {
 			t.Errorf("%s: no error", name)
 		}
+	}
+}
+
+func TestInvalidScopeIs401(t *testing.T) {
+	// Core refuses a token with no scope to exchange. Signing in again is what fixes it.
+	core := newFakeCore(t)
+	core.exchange = func(w http.ResponseWriter, _ map[string]string) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_scope"}`))
+	}
+	srv := newHost(t, core)
+	if res := initialize(t, srv, clientToken); res.status != http.StatusUnauthorized {
+		t.Fatalf("status = %d", res.status)
+	}
+}
+
+func TestARedirectFromCoreIsNotFollowed(t *testing.T) {
+	// The exchange's body holds the client secret and the user's token; a 307 or
+	// 308 would send it again to wherever the redirect points.
+	var leaked bool
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		leaked = r.PostForm.Get("client_secret") != "" || r.PostForm.Get("subject_token") != ""
+	}))
+	t.Cleanup(elsewhere.Close)
+	core := newFakeCore(t)
+	core.exchange = func(w http.ResponseWriter, _ map[string]string) {
+		w.Header().Set("Location", elsewhere.URL+"/oauth/token")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	if _, err := e.exchange(t.Context(), clientToken); !errors.Is(err, errUnavailable) {
+		t.Errorf("err = %v, want errUnavailable", err)
+	}
+	if leaked {
+		t.Error("the exchange was sent on to the redirect's target")
+	}
+}
+
+func TestConcurrentExchangesForOneTokenAreCoalesced(t *testing.T) {
+	core := newFakeCore(t)
+	exchange := core.exchange
+	core.exchange = func(w http.ResponseWriter, form map[string]string) {
+		time.Sleep(50 * time.Millisecond)
+		exchange(w, form)
+	}
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Go(func() {
+			if _, err := e.exchange(t.Context(), clientToken); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	if core.exchanges != 1 {
+		t.Errorf("exchanges = %d, want 1", core.exchanges)
+	}
+}
+
+func TestCoreIsNotAskedAgainRightAfterItWasUnavailable(t *testing.T) {
+	core := newFakeCore(t)
+	core.exchange = func(w http.ResponseWriter, _ map[string]string) { w.WriteHeader(http.StatusBadGateway) }
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	now := time.Now()
+	e.now = func() time.Time { return now }
+	for _, subject := range []string{clientToken, "another-token"} {
+		if _, err := e.exchange(t.Context(), subject); !errors.Is(err, errUnavailable) {
+			t.Fatalf("err = %v, want errUnavailable", err)
+		}
+	}
+	if core.exchanges != 1 {
+		t.Errorf("exchanges during the backoff = %d, want 1", core.exchanges)
+	}
+	now = now.Add(unavailableBackoff)
+	_, _ = e.exchange(t.Context(), clientToken)
+	if core.exchanges != 2 {
+		t.Errorf("exchanges after the backoff = %d, want 2", core.exchanges)
+	}
+}
+
+func TestAFullCacheEvictsExpiredEntriesFirst(t *testing.T) {
+	core := newFakeCore(t)
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	now := time.Now()
+	e.now = func() time.Time { return now }
+	expired := sha256.Sum256([]byte("expired"))
+	soonest := sha256.Sum256([]byte("soonest"))
+	e.cache[expired] = exchanged{expires: now.Add(-time.Second)}
+	e.cache[soonest] = exchanged{expires: now.Add(time.Minute)}
+	fillCache(e, now)
+	if _, err := e.exchange(t.Context(), clientToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.cache[expired]; ok {
+		t.Error("an expired entry was kept")
+	}
+	if _, ok := e.cache[soonest]; !ok {
+		t.Error("a live entry was dropped while an expired one made room")
+	}
+}
+
+func TestAFullCacheOfLiveTokensEvictsTheSoonestToExpire(t *testing.T) {
+	core := newFakeCore(t)
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	now := time.Now()
+	e.now = func() time.Time { return now }
+	soonest := sha256.Sum256([]byte("soonest"))
+	latest := sha256.Sum256([]byte("latest"))
+	e.cache[soonest] = exchanged{expires: now.Add(time.Minute)}
+	e.cache[latest] = exchanged{expires: now.Add(time.Hour)}
+	fillCache(e, now)
+	if _, err := e.exchange(t.Context(), clientToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.cache[soonest]; ok {
+		t.Error("the entry closest to expiry was kept")
+	}
+	if _, ok := e.cache[latest]; !ok {
+		t.Error("the entry furthest from expiry was dropped")
+	}
+	if len(e.cache) >= maxCached {
+		t.Errorf("cache size = %d, want under %d", len(e.cache), maxCached)
+	}
+}
+
+// fillCache fills e's cache to maxCached with tokens that expire in 2 minutes.
+func fillCache(e *exchanger, now time.Time) {
+	for i := len(e.cache); i < maxCached; i++ {
+		e.cache[sha256.Sum256(fmt.Appendf(nil, "live-%d", i))] = exchanged{expires: now.Add(2 * time.Minute)}
+	}
+}
+
+func TestOtherAPIErrorsKeepTheConnection(t *testing.T) {
+	for _, status := range []int{http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			core := newFakeCore(t)
+			core.apiStatus = status
+			srv := newHost(t, core)
+			res := call(t, srv, clientToken, "tools/call", map[string]any{"name": "get_environments", "arguments": map[string]any{}})
+			text, isError := toolText(t, res)
+			if !isError || text == reconnectMessage || text == unavailableMessage {
+				t.Errorf("result = %q (isError %v)", text, isError)
+			}
+			call(t, srv, clientToken, "tools/list", map[string]any{})
+			if core.exchanges != 1 {
+				t.Errorf("exchanges = %d, want 1: the cached token was dropped", core.exchanges)
+			}
+		})
+	}
+}
+
+func TestTheServerIsBuiltOncePerRequest(t *testing.T) {
+	core := newFakeCore(t)
+	srv := newHost(t, core)
+	before := serversBuilt.Load()
+	call(t, srv, clientToken, "tools/list", map[string]any{})
+	if built := serversBuilt.Load() - before; built != 1 {
+		t.Errorf("servers built = %d, want 1", built)
+	}
+}
+
+func TestCheckConfig(t *testing.T) {
+	for name, tc := range map[string]struct {
+		respond func(http.ResponseWriter, map[string]string)
+		wantErr bool
+	}{
+		// Core checks the client and the resource before the subject token, so
+		// refusing a token that can't exist means both are right.
+		"invalid_grant": {respond: func(w http.ResponseWriter, _ map[string]string) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+		}},
+		"invalid_client": {wantErr: true, respond: func(w http.ResponseWriter, _ map[string]string) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+		}},
+		"invalid_target": {wantErr: true, respond: func(w http.ResponseWriter, _ map[string]string) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_target"}`))
+		}},
+		// Core being down mustn't stop the server: it answers with a retry hint until core is back.
+		"core down": {respond: func(w http.ResponseWriter, _ map[string]string) { w.WriteHeader(http.StatusBadGateway) }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			core := newFakeCore(t)
+			core.exchange = tc.respond
+			err := CheckConfig(t.Context(), Config{
+				ResourceURL:  "https://mcp.example.test/mcp",
+				SiteURL:      core.server.URL,
+				ClientID:     "host",
+				ClientSecret: secret,
+			})
+			if (err != nil) != tc.wantErr {
+				t.Errorf("err = %v, want error %v", err, tc.wantErr)
+			}
+		})
 	}
 }

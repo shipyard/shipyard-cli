@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -37,11 +36,17 @@ It is configured from the environment only, so the client secret never lands in 
   SHIPYARD_MCP_CLIENT_ID      this server's OAuth client id (default shipyard-mcp-host)
   SHIPYARD_MCP_CLIENT_SECRET  this server's OAuth client secret (required)`,
 		Args: cobra.NoArgs,
+		// It never reads the CLI's config file, nor creates one: the image may
+		// run on a read-only filesystem.
+		Annotations: map[string]string{envOnlyAnnotation: "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := hostConfigFromEnv()
 			handler, err := hosted.Handler(cfg)
 			if err != nil {
 				return fmt.Errorf("the hosted MCP server is not configured: %w", err)
+			}
+			if err := hosted.CheckConfig(cmd.Context(), cfg); err != nil {
+				return fmt.Errorf("the hosted MCP server is misconfigured: %w", err)
 			}
 			// The tools build API URLs from api_url; it has to be the API the
 			// exchanged tokens are for. Set in memory only, never written back.
@@ -70,17 +75,17 @@ func hostConfigFromEnv() hosted.Config {
 }
 
 func serveHosted(ctx context.Context, listen string, handler http.Handler) error {
-	// A server's logs are for its operator, whatever --verbose says.
-	log.SetOutput(os.Stderr)
-	log.SetFlags(log.LstdFlags | log.LUTC)
-
+	// The server's own messages go to hosted.Logger. The tools' request logs
+	// carry users' params and API error bodies, so they follow --verbose.
+	logger := hosted.Logger
 	srv := &http.Server{
 		Addr:              listen,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		// Tool calls wait on the API, which gives up after 20 seconds.
-		WriteTimeout: 60 * time.Second,
+		// A tool call can take a 10 second token exchange, then a log read that
+		// times out at 20 seconds, waits 10 and tries again.
+		WriteTimeout: 90 * time.Second,
 		IdleTimeout:  2 * time.Minute,
 	}
 
@@ -92,7 +97,7 @@ func serveHosted(ctx context.Context, listen string, handler http.Handler) error
 
 	errs := make(chan error, 1)
 	go func() {
-		log.Printf("hosted MCP server listening on %s", listen)
+		logger.Printf("hosted MCP server listening on %s", listen)
 		errs <- srv.ListenAndServe()
 	}()
 
@@ -101,10 +106,17 @@ func serveHosted(ctx context.Context, listen string, handler http.Handler) error
 		return err
 	case <-ctx.Done():
 	}
-	log.Println("hosted MCP server shutting down")
+	logger.Println("hosted MCP server shutting down")
 	shutdown, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(shutdown); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	err := srv.Shutdown(shutdown)
+	if errors.Is(err, context.DeadlineExceeded) {
+		// A routine stop, with a tool call still running: end it rather than
+		// fail the process.
+		logger.Println("hosted MCP server closing requests still running")
+		err = srv.Close()
+	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil

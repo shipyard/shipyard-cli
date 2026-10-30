@@ -115,7 +115,14 @@ func setupCommands() {
 	rootCmd.AddCommand(NewMCPCmd(mcpClient))
 }
 
+// envOnlyAnnotation marks a command configured from the environment only: no
+// config file is read, or created.
+const envOnlyAnnotation = "shipyard.env-only"
+
 func initConfig() {
+	if cmd, _, err := rootCmd.Find(os.Args[1:]); err == nil && cmd.Annotations[envOnlyAnnotation] == "true" {
+		return
+	}
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 		if err := viper.ReadInConfig(); err != nil {

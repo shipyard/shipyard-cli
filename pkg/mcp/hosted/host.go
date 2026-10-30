@@ -14,8 +14,10 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -31,6 +33,13 @@ import (
 
 //go:embed instructions.md
 var instructions string
+
+// serversBuilt counts the MCP servers built, one per request.
+var serversBuilt atomic.Int64
+
+// Logger is the hosted server's own log, for its operator. The tools' request
+// logs follow --verbose: they carry users' params and the API's error bodies.
+var Logger = log.New(os.Stderr, "", log.LstdFlags|log.LUTC)
 
 const (
 	protectedResourcePath = "/.well-known/oauth-protected-resource"
@@ -97,7 +106,7 @@ func Handler(cfg Config) (http.Handler, error) {
 		BearerMethodsSupported: []string{"header"},
 	})
 
-	streamable := mcp.NewStreamableHTTPHandler(h.server, &mcp.StreamableHTTPOptions{
+	streamable := mcp.NewStreamableHTTPHandler(requestServer, &mcp.StreamableHTTPOptions{
 		Stateless:           true,
 		JSONResponse:        true,
 		MaxRequestBodyBytes: 1 << 20,
@@ -113,8 +122,47 @@ func Handler(cfg Config) (http.Handler, error) {
 	})
 	mux.Handle(mcpPath, auth.RequireBearerToken(h.verify, &auth.RequireBearerTokenOptions{
 		ResourceMetadataURL: metadataURL,
-	})(streamable))
+	})(h.withServer(streamable)))
 	return mux, nil
+}
+
+// CheckConfig asks core to exchange a token that can't exist. Core checks this
+// server's client and resource before the subject token, so it refuses the
+// token itself only when both are right. Core being unreachable isn't an error:
+// the server answers with a retry hint until it's back.
+func CheckConfig(ctx context.Context, cfg Config) error {
+	if err := cfg.validate(); err != nil {
+		return err
+	}
+	site := strings.TrimSuffix(cfg.SiteURL, "/")
+	_, err := newExchanger(site+"/oauth/token", site+"/api", cfg.ClientID, cfg.ClientSecret).
+		request(ctx, "shipyard-mcp-host-config-check")
+	switch {
+	case err == nil, errors.Is(err, auth.ErrInvalidToken):
+		return nil
+	case errors.Is(err, errMisconfigured):
+		return err
+	}
+	Logger.Printf("MCP hosted: couldn't check the configuration with core: %v", err)
+	return nil
+}
+
+type serverKey struct{}
+
+// withServer builds the request's MCP server once. The SDK asks for it more
+// than once per request, and each build makes every tool again.
+func (h *host) withServer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if server := h.server(req); server != nil {
+			req = req.WithContext(context.WithValue(req.Context(), serverKey{}, server))
+		}
+		next.ServeHTTP(w, req)
+	})
+}
+
+func requestServer(req *http.Request) *mcp.Server {
+	server, _ := req.Context().Value(serverKey{}).(*mcp.Server)
+	return server
 }
 
 type host struct {
@@ -129,19 +177,28 @@ func (h *host) verify(ctx context.Context, token string, _ *http.Request) (*auth
 	switch {
 	case errors.Is(err, auth.ErrInvalidToken):
 		return nil, err
+	case errors.Is(err, errMisconfigured):
+		Logger.Printf("MCP hosted: misconfigured, every request will fail until it's fixed: %v", err)
+		return unavailableInfo(), nil
 	case err != nil:
-		log.Printf("MCP hosted: %v", err)
-		return &auth.TokenInfo{
-			Scopes:     tools.KnownScopes,
-			Expiration: time.Now().Add(time.Minute),
-			Extra:      map[string]any{extraUnavailable: true},
-		}, nil
+		Logger.Printf("MCP hosted: %v", err)
+		return unavailableInfo(), nil
 	}
 	return &auth.TokenInfo{
 		Scopes:     got.scopes,
 		Expiration: got.expires,
 		Extra:      map[string]any{extraCoreToken: got.token, extraSubject: token},
 	}, nil
+}
+
+// unavailableInfo lets a request through when the exchange couldn't be done,
+// so its tool calls answer with a retry hint rather than a 401.
+func unavailableInfo() *auth.TokenInfo {
+	return &auth.TokenInfo{
+		Scopes:     tools.KnownScopes,
+		Expiration: time.Now().Add(time.Minute),
+		Extra:      map[string]any{extraUnavailable: true},
+	}
 }
 
 // server builds the MCP server for one request: the hosted tools the token's
@@ -151,6 +208,7 @@ func (h *host) server(req *http.Request) *mcp.Server {
 	if info == nil {
 		return nil
 	}
+	serversBuilt.Add(1)
 	server := mcp.NewServer(&mcp.Implementation{Name: "shipyard-mcp-server", Version: version.Version},
 		&mcp.ServerOptions{Instructions: strings.TrimSpace(instructions)})
 
@@ -192,10 +250,10 @@ func (h *host) toolError(name, subject string, err error) string {
 		// revoked the connection. The next request exchanges again, and gets the
 		// 401 that sends the client to sign in.
 		h.exchanger.forget(subject)
-		log.Printf("MCP hosted: %s: the API refused the exchanged token", name)
+		Logger.Printf("MCP hosted: %s: the API refused the exchanged token", name)
 		return reconnectMessage
 	}
-	log.Printf("MCP hosted: %s failed", name)
+	Logger.Printf("MCP hosted: %s failed", name)
 	var mcpErr *mcperrors.MCPError
 	if !errors.As(err, &mcpErr) {
 		mcpErr = mcperrors.ParseHTTPError(name, err, "")
