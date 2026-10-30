@@ -97,10 +97,30 @@ The message goes to stderr, and only when stderr is a terminal. It's never shown
 identify themselves (Claude Code, Codex, Cursor's agent, Gemini CLI), or for `shipyard mcp serve`. To turn it off, set
 `SHIPYARD_NO_UPDATE_CHECK=1` or add `update_check: false` to `~/.shipyard/config.yaml`.
 
+### Turning off self-update
+
+On a self-hosted Shipyard that can't reach GitHub, the CLI comes with your Shipyard release instead. Turn off
+self-update there with `self_update: false` in `~/.shipyard/config.yaml`, or `SHIPYARD_SELF_UPDATE=false`. The CLI then
+never contacts GitHub: no update notice, no background check from `shipyard mcp serve`, and `shipyard upgrade` refuses
+with a message saying self-update is off. `update_check: false` only turns off the notice and background check.
+
 ## Login
 
 Run `shipyard login` to initialize the CLI. This will prompt you to log in to Shipyard in the browser. The CLI will then
 save your API token in a local config. You're ready to start running commands.
+
+### Self-hosted Shipyard
+
+To use a self-hosted Shipyard, point the CLI at its API in `~/.shipyard/config.yaml` (or with `SHIPYARD_API_URL`)
+before logging in:
+
+```yaml
+api_url: https://shipyard.example.internal/api/v1
+self_update: false
+```
+
+`shipyard login` then opens that host's login page, and every command calls that API. Set `self_update: false` if the
+install can't reach GitHub (see [Turning off self-update](#turning-off-self-update)).
 
 ### Or Set Your Token Manually
 

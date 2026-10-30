@@ -54,6 +54,7 @@ func TestShouldCheckForUpdate(t *testing.T) {
 		t.Cleanup(func() {
 			version.Version, stderrIsTerminal = oldVersion, oldTerminal
 			viper.Set("update_check", true)
+			viper.Set("self_update", nil) // unset, so the env var case sees its env
 		})
 	}
 
@@ -68,6 +69,8 @@ func TestShouldCheckForUpdate(t *testing.T) {
 		"opt-out env":           func(t *testing.T) { t.Setenv(selfupdate.NoCheckEnv, "1") },
 		"CI":                    func(t *testing.T) { t.Setenv("CI", "true") },
 		"config off":            func(*testing.T) { viper.Set("update_check", false) },
+		"self-update off":       func(*testing.T) { viper.Set("self_update", false) },
+		"self-update env off":   func(t *testing.T) { t.Setenv("SHIPYARD_SELF_UPDATE", "false") },
 		"Claude Code":           func(t *testing.T) { t.Setenv("CLAUDECODE", "1") },
 		"Codex":                 func(t *testing.T) { t.Setenv("CODEX_SANDBOX", "seatbelt") },
 		"stderr not a terminal": func(*testing.T) { stderrIsTerminal = func() bool { return false } },

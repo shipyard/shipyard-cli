@@ -8,15 +8,17 @@ import (
 
 	"github.com/spf13/viper"
 
+	"github.com/shipyard/shipyard-cli/config"
 	"github.com/shipyard/shipyard-cli/pkg/selfupdate"
 	"github.com/shipyard/shipyard-cli/version"
 )
 
 // updateStatePath is where the CLI's update check keeps its state,
 // ~/.shipyard/update-state.json, or "" when the CLI's opt-outs
-// (SHIPYARD_NO_UPDATE_CHECK, CI, update_check: false) turn the check off.
+// (SHIPYARD_NO_UPDATE_CHECK, CI, update_check: false, self_update: false)
+// turn the check off.
 func updateStatePath() string {
-	if selfupdate.ChecksOff(viper.GetBool("update_check")) {
+	if !config.SelfUpdateEnabled() || selfupdate.ChecksOff(viper.GetBool("update_check")) {
 		return ""
 	}
 	home := selfupdate.HomeDir()

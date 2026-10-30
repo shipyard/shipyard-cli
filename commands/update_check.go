@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/shipyard/shipyard-cli/config"
 	"github.com/shipyard/shipyard-cli/pkg/selfupdate"
 	"github.com/shipyard/shipyard-cli/version"
 )
@@ -77,7 +78,7 @@ func shouldCheckForUpdate(cmd *cobra.Command) bool {
 	if !selfupdate.IsRelease(version.Version) {
 		return false
 	}
-	if selfupdate.ChecksOff(viper.GetBool("update_check")) {
+	if !config.SelfUpdateEnabled() || selfupdate.ChecksOff(viper.GetBool("update_check")) {
 		return false
 	}
 	if underAgent() {

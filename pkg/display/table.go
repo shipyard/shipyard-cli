@@ -11,6 +11,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/mattn/go-isatty"
 
+	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/shipyard/shipyard-cli/pkg/types"
 )
 
@@ -189,14 +190,21 @@ func FormatPRNumber(prNumber, branchName string) string {
 	return prNumber
 }
 
-// FormatClickableUUID formats a UUID as a clickable link to shipyard.build details page
+// environmentDetailsURL is an environment's page in the Shipyard UI, on the
+// same host as the API.
+func environmentDetailsURL(uuid string) string {
+	return uri.APIHost() + "/application/" + uuid + "/detail"
+}
+
+// FormatClickableUUID formats a UUID as a clickable link to its details page
+// on the configured Shipyard host
 // Falls back to plain UUID if terminal doesn't support OSC 8
 func FormatClickableUUID(uuid string) string {
 	if uuid == "" {
 		return ""
 	}
 
-	detailsURL := "https://shipyard.build/application/" + uuid + "/detail"
+	detailsURL := environmentDetailsURL(uuid)
 
 	if supportsOSC8() {
 		// OSC 8 escape sequence: \033]8;;URL\033\\TEXT\033]8;;\033\\
@@ -213,7 +221,7 @@ func FormatClickableUUIDWithBackground(uuid string, bgColor *color.Color) string
 		return ""
 	}
 
-	detailsURL := "https://shipyard.build/application/" + uuid + "/detail"
+	detailsURL := environmentDetailsURL(uuid)
 	
 	var formattedUUID string
 	if supportsOSC8() {
