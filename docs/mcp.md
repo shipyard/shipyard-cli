@@ -14,7 +14,8 @@ in plain language:
 - "I just pushed. Verify the change against its environment."
 
 The server runs locally over stdio and uses the same token, org and config file
-as the CLI.
+as the CLI. `shipyard mcp host` runs the [hosted variant](#the-hosted-server)
+for clients that connect over HTTP with OAuth.
 
 - [Quick start](#quick-start)
 - [Connecting a client](#connecting-a-client)
@@ -23,6 +24,7 @@ as the CLI.
 - [Tools](#tools)
 - [Resources](#resources)
 - [The `verify` prompt](#the-verify-prompt)
+- [The hosted server](#the-hosted-server)
 - [Updating, uninstalling and rolling back](#updating-uninstalling-and-rolling-back)
 - [Troubleshooting](#troubleshooting)
 
@@ -672,6 +674,56 @@ comparing hashes) and runs a known reloading process. Results from an edited
 container are never the verdict: after the push, the environment rebuilds and
 the checks run again on the clean commit. If the agent stops without pushing, it
 restores the files it changed.
+
+## The hosted server
+
+`shipyard mcp host` serves a subset of the tools over stateless Streamable HTTP
+for clients that sign in with OAuth instead of using a local token. It's what
+Shipyard deploys as its hosted MCP endpoint; you don't need it to use the
+local server.
+
+- **Auth.** Every request needs `Authorization: Bearer` with a token Shipyard
+  issued for this server. Without one it answers 401 with a `WWW-Authenticate`
+  header pointing at its protected resource metadata
+  (`/.well-known/oauth-protected-resource/<path>`), which names Shipyard as the
+  authorization server, so clients start sign-in themselves.
+- **Token exchange.** The server never sends the client's token to the API. It
+  exchanges it at Shipyard's token endpoint (RFC 8693) for a short-lived API
+  token, reused until shortly before it expires. If Shipyard can't be reached,
+  tool calls fail with a retry hint rather than a 401, which would send the
+  client back through sign-in; a cached token keeps working until it expires.
+  A token over 4KB is refused with a 401 without asking Shipyard.
+- **Tools.** Only the tools in `pkg/mcp/tools/scopes.go` are hosted, each behind
+  the scope it needs: `plan_application`, `create_application`
+  (`apps:create`), `update_application` (`apps:update`), and
+  `get_environments`, `get_environment`, `get_build_history`,
+  `get_failure_details`, `get_build_logs` (`envs:read`). Tools that reach your
+  machine or a cluster directly, such as `exec_service`, `port_forward` and
+  `telepresence_connect`, are never hosted. `bypass_token` is returned only
+  with `envs:preview_access`.
+- **Org.** A hosted token is bound to the org the user picked when connecting.
+
+It's configured from the environment only, so the secret never lands in a
+config file:
+
+| Variable | Meaning |
+|---|---|
+| `SHIPYARD_MCP_RESOURCE_URL` | This server's MCP URL, e.g. `https://mcp.example.com/mcp`. Required; Shipyard's `OAUTH_MCP_RESOURCE` must match. |
+| `SHIPYARD_MCP_SITE_URL` | Shipyard's URL. Default `https://shipyard.build`. |
+| `SHIPYARD_MCP_CLIENT_ID` | This server's OAuth client id. Default `shipyard-mcp-host`. |
+| `SHIPYARD_MCP_CLIENT_SECRET` | This server's OAuth client secret. Required; Shipyard's `OAUTH_MCP_HOST_CLIENT_SECRET` must match. |
+
+```bash
+shipyard mcp host --listen :8080
+```
+
+At startup it checks its client id, secret and URLs with Shipyard's token
+endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
+it starts anyway. It never reads or creates a CLI config file, so it runs on a
+read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr; the tools' request logs,
+which carry users' parameters, appear only with `--verbose`.
+
+`GET /healthz` answers `ok` for load balancer checks.
 
 ## Updating, uninstalling and rolling back
 

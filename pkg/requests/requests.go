@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -24,6 +25,11 @@ type Requester interface {
 
 type HTTPClient struct {
 	userAgentType string
+	// bearer sends bearerToken as Authorization: Bearer in place of the CLI's
+	// configured API token. The hosted MCP server uses it for exchanged tokens,
+	// and an empty one is an error: it must never fall back to the configured token.
+	bearer      bool
+	bearerToken string
 }
 
 func New() HTTPClient {
@@ -34,13 +40,25 @@ func NewWithUserAgent(userAgentType string) HTTPClient {
 	return HTTPClient{userAgentType: userAgentType}
 }
 
+// NewWithBearerToken sends token as a bearer token instead of reading the CLI's
+// configured API token.
+func NewWithBearerToken(userAgentType, token string) HTTPClient {
+	return HTTPClient{userAgentType: userAgentType, bearer: true, bearerToken: token}
+}
+
 func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error) {
-	var token string
-	var err error
-	// TODO: refactor the CLI initialization process this to make the client not depend on global state.
-	token, err = auth.APIToken()
-	if err != nil {
-		return nil, err
+	token := c.bearerToken
+	if c.bearer {
+		if token == "" {
+			return nil, errors.New("no bearer token for this request")
+		}
+	} else {
+		var err error
+		// TODO: refactor the CLI initialization process this to make the client not depend on global state.
+		token, err = auth.APIToken()
+		if err != nil {
+			return nil, err
+		}
 	}
 	start := time.Now()
 	defer func() {
@@ -71,7 +89,11 @@ func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error
 
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-%s-%s-%s", "shipyard-"+c.userAgentType, version.Version, runtime.GOOS, runtime.GOARCH))
-	req.Header.Set("x-api-token", token)
+	if c.bearer {
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else {
+		req.Header.Set("x-api-token", token)
+	}
 
 	var netClient http.Client
 	resp, err := netClient.Do(req)

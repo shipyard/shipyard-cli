@@ -1,0 +1,130 @@
+package commands
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
+	"github.com/shipyard/shipyard-cli/pkg/mcp/hosted"
+)
+
+const defaultHostClientID = "shipyard-mcp-host"
+
+// NewMCPHostCmd runs the hosted MCP server: Streamable HTTP for clients that
+// sign in with OAuth. It never uses the CLI's own API token or config.
+func NewMCPHostCmd() *cobra.Command {
+	var listen string
+	cmd := &cobra.Command{
+		Use:   "host",
+		Short: "Run the hosted MCP server over HTTP",
+		Long: `Run the hosted MCP server: stateless Streamable HTTP for MCP clients that connect
+with OAuth. Each request's token is exchanged for a short-lived Shipyard API token.
+
+It is configured from the environment only, so the client secret never lands in a config file:
+
+  SHIPYARD_MCP_RESOURCE_URL   this server's MCP URL, e.g. https://mcp.example.com/mcp (required)
+  SHIPYARD_MCP_SITE_URL       Shipyard's URL (default https://shipyard.build)
+  SHIPYARD_MCP_CLIENT_ID      this server's OAuth client id (default shipyard-mcp-host)
+  SHIPYARD_MCP_CLIENT_SECRET  this server's OAuth client secret (required)`,
+		Args: cobra.NoArgs,
+		// It never reads the CLI's config file, nor creates one: the image may
+		// run on a read-only filesystem.
+		Annotations: map[string]string{envOnlyAnnotation: "true"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runHost(cmd.Context(), listen, hostConfigFromEnv(), serveHosted)
+		},
+	}
+	cmd.Flags().StringVar(&listen, "listen", ":8080", "address to listen on")
+	return cmd
+}
+
+// runHost checks cfg and hands the server's handler to serve.
+func runHost(ctx context.Context, listen string, cfg hosted.Config,
+	serve func(context.Context, string, http.Handler) error) error {
+	handler, err := hosted.Handler(cfg)
+	if err != nil {
+		return fmt.Errorf("the hosted MCP server is not configured: %w", err)
+	}
+	if err := hosted.CheckConfig(ctx, cfg); err != nil {
+		return fmt.Errorf("the hosted MCP server is misconfigured: %w", err)
+	}
+	// The tools build API URLs from api_url; it has to be the API the
+	// exchanged tokens are for. Set in memory only, never written back.
+	viper.Set("api_url", strings.TrimSuffix(cfg.SiteURL, "/")+"/api/v1")
+	return serve(ctx, listen, handler)
+}
+
+func hostConfigFromEnv() hosted.Config {
+	cfg := hosted.Config{
+		ResourceURL:  os.Getenv("SHIPYARD_MCP_RESOURCE_URL"),
+		SiteURL:      os.Getenv("SHIPYARD_MCP_SITE_URL"),
+		ClientID:     os.Getenv("SHIPYARD_MCP_CLIENT_ID"),
+		ClientSecret: os.Getenv("SHIPYARD_MCP_CLIENT_SECRET"),
+	}
+	if cfg.SiteURL == "" {
+		cfg.SiteURL = "https://shipyard.build"
+	}
+	if cfg.ClientID == "" {
+		cfg.ClientID = defaultHostClientID
+	}
+	return cfg
+}
+
+func serveHosted(ctx context.Context, listen string, handler http.Handler) error {
+	// The server's own messages go to hosted.Logger. The tools' request logs
+	// carry users' params and API error bodies, so they follow --verbose.
+	logger := hosted.Logger
+	srv := &http.Server{
+		Addr:              listen,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		// A bearer token over 4KB is refused anyway; this bounds what's read first.
+		MaxHeaderBytes: 64 << 10,
+		ReadTimeout:    30 * time.Second,
+		// A tool call can take a 10 second token exchange, then a log read that
+		// times out at 20 seconds, waits 10 and tries again.
+		WriteTimeout: 90 * time.Second,
+		IdleTimeout:  2 * time.Minute,
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	errs := make(chan error, 1)
+	go func() {
+		logger.Printf("hosted MCP server listening on %s", listen)
+		errs <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errs:
+		return err
+	case <-ctx.Done():
+	}
+	logger.Println("hosted MCP server shutting down")
+	shutdown, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err := srv.Shutdown(shutdown)
+	if errors.Is(err, context.DeadlineExceeded) {
+		// A routine stop, with a tool call still running: end it rather than
+		// fail the process.
+		logger.Println("hosted MCP server closing requests still running")
+		err = srv.Close()
+	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
