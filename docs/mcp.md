@@ -725,6 +725,70 @@ which carry users' parameters, appear only with `--verbose`.
 
 `GET /healthz` answers `ok` for load balancer checks.
 
+### Deploying the hosted server
+
+Shipyard runs it from the chart in `helm/charts/mcp-host`:
+
+| Environment | MCP URL | Shipyard | Namespace |
+|---|---|---|---|
+| Production | `https://mcp.shipyard.build/mcp` | `https://shipyard.build` | `mcp-host` |
+| QA | `https://mcp.qa.shipyard.build/mcp` | `https://qa.shipyard.build` | `qa-mcp-host` |
+
+The MCP URL is every token's audience. Changing it later invalidates every
+connection, so clients have to sign in again.
+
+1. **Core first.** Set `OAUTH_MCP_RESOURCE` to the MCP URL, exactly, and
+   `OAUTH_MCP_HOST_CLIENT_SECRET` to a secret generated in the secret store, a
+   different one per environment. Both settings must be in place before the host
+   starts: it checks them with core at startup and exits if core refuses them.
+2. **DNS.** Point the host name at the cluster's ingress. cert-manager issues
+   the certificate (`letsencrypt-production`) once the name resolves.
+3. **Image**, from a release tag on a clean tree:
+
+   ```bash
+   git checkout v1.11.0
+   make mcp-host.push
+   ```
+
+4. **Release**, with the kube context on the right cluster and the secret in
+   `SHIPYARD_MCP_CLIENT_SECRET` (from the secret store, not typed into a shell
+   history):
+
+   ```bash
+   make mcp-host.install.qa MCP_HOST_TAG=v1.11.0
+   ```
+
+   The secret goes to helm on stdin. `--atomic` rolls back a release whose pods
+   don't become ready.
+5. **Check it** from outside the cluster. A request without a token gets a 401
+   pointing at the metadata, and the metadata names core:
+
+   ```bash
+   curl -si -X POST https://mcp.qa.shipyard.build/mcp | grep -i www-authenticate
+   curl -s https://mcp.qa.shipyard.build/.well-known/oauth-protected-resource/mcp
+   ```
+
+What the chart sets, and why:
+
+- **No sticky sessions.** The server is stateless, so any of its replicas
+  (two by default, spread over nodes, with a disruption budget) serves any request.
+- **Streaming.** nginx doesn't buffer requests or responses, and waits 120
+  seconds for the server, longer than the server's own 90 second write timeout.
+- **Locked down.** The image runs as uid 10001 on a read-only filesystem with
+  no Kubernetes API token. The secret reaches it from a Secret, and a new
+  secret restarts the pods. To use a Secret managed elsewhere, set
+  `mcp.existingSecret`; then restart the pods yourself when it changes.
+- **Logs.** `mcp.verbose` adds the tools' request logs, which carry users'
+  parameters. Leave it off in production.
+
+**Rotating the secret.** Core accepts one host secret at a time, so change
+core's `OAUTH_MCP_HOST_CLIENT_SECRET` and the host's release together. Until
+both match, a call that needs a new exchanged token fails with a retry hint;
+tokens the host already holds keep working until they expire.
+
+**Rolling back.** `helm rollback mcp-host -n <namespace>` returns to the
+previous image and settings.
+
 ## Updating, uninstalling and rolling back
 
 ### Updating
