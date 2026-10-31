@@ -1,0 +1,63 @@
+# The hosted MCP server: `shipyard mcp host`, built from this repo's Dockerfile.
+# See docs/mcp.md, "Deploying the hosted server".
+
+# Stateless: any replica serves any request, so no sticky sessions.
+replicaCount: 2
+
+image:
+  repository: us-east4-docker.pkg.dev/shipyard-infra/shipyardbuild/mcp-host
+  # Required: the CLI release tag the image was built from. No default, so a
+  # deploy can't quietly roll back to whatever `latest` is.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+mcp:
+  # Required: this server's MCP URL. Core's OAUTH_MCP_RESOURCE must be the same
+  # string, since every token's audience is this URL. The ingress serves its host.
+  resourceUrl: ""
+  siteUrl: https://shipyard.build
+  clientId: shipyard-mcp-host
+  # This server's OAuth client secret; core's OAUTH_MCP_HOST_CLIENT_SECRET must
+  # match. Either name a Secret that already holds it, or pass the value and the
+  # chart creates the Secret. Never commit it here.
+  existingSecret: ""
+  existingSecretKey: SHIPYARD_MCP_CLIENT_SECRET
+  clientSecret: ""
+  # Logs tools' requests, which carry users' parameters. Leave off in production.
+  verbose: false
+
+service:
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  # The certificate's Secret; defaults to <release>-tls.
+  tlsSecretName: ""
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-production
+    # Streamable HTTP: pass responses through as they're written.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    # Above the server's 90 second WriteTimeout, so nginx never cuts a tool call
+    # the server would still answer (nginx's default is 60).
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    # The server refuses request bodies over 1MB itself.
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+podDisruptionBudget:
+  # Kept only while replicaCount is above 1.
+  minAvailable: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

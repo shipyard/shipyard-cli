@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-host.fullname" . }}
+  labels:
+    {{- include "mcp-host.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mcp-host.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-host.selectorLabels" . | nindent 8 }}
+      annotations:
+        # A new client secret rolls the pods: the server reads it only at start.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      # The server never calls the Kubernetes API.
+      automountServiceAccountToken: false
+      # Shutdown waits up to 30 seconds for running tool calls.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-host
+          image: "{{ .Values.image.repository }}:{{ required "image.tag is required: the CLI release the image was built from" .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["shipyard", "mcp", "host", "--listen", ":8080"{{ if .Values.mcp.verbose }}, "--verbose"{{ end }}]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SHIPYARD_MCP_RESOURCE_URL
+              value: {{ include "mcp-host.resourceUrl" . | quote }}
+            - name: SHIPYARD_MCP_SITE_URL
+              value: {{ required "mcp.siteUrl is required" .Values.mcp.siteUrl | quote }}
+            - name: SHIPYARD_MCP_CLIENT_ID
+              value: {{ required "mcp.clientId is required" .Values.mcp.clientId | quote }}
+            - name: SHIPYARD_MCP_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mcp-host.secretName" . }}
+                  key: {{ include "mcp-host.secretKey" . }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              # Lets the ingress drop this pod before it stops accepting requests.
+              exec:
+                command: ["sleep", "5"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      {{- else }}
+      affinity:
+        # Spread replicas over nodes where there's room, so one node can't take them all down.
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "mcp-host.selectorLabels" . | nindent 20 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

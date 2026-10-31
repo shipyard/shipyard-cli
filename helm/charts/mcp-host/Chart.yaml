@@ -1,0 +1,7 @@
+apiVersion: v2
+name: mcp-host
+description: Shipyard's hosted MCP server (shipyard mcp host)
+type: application
+version: 0.1.0
+# The CLI release the image is built from; set per deploy with image.tag.
+appVersion: "0.0.0"

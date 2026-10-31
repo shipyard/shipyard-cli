@@ -55,6 +55,19 @@ jobs:
       - name: Run tests (no cache)
         run: go test -v ./...
 
+  # The hosted MCP server's chart: what it renders, and the values it refuses.
+  # The runner image ships helm.
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Test the mcp-host chart
+        run: ./scripts/chart-test.sh
+
   # install.sh is what curl | bash users run, and its checksum refusals are
   # what keeps a bad download off their machines. Both hash tools are covered
   # on each OS: macOS ships sha256sum too, so install-test.sh forces the shasum
