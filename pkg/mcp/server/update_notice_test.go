@@ -123,6 +123,13 @@ func TestLoadMCPServerConfig_LatestVersion(t *testing.T) {
 	if got := LoadMCPServerConfig().LatestVersion; got != "" {
 		t.Errorf("update_check off: LatestVersion = %q, want empty", got)
 	}
+	viper.Set("update_check", true)
+
+	// A CLI that can't update itself mustn't tell the agent to upgrade it.
+	viper.Set("self_update", false)
+	if got := LoadMCPServerConfig().LatestVersion; got != "" {
+		t.Errorf("self_update off: LatestVersion = %q, want empty", got)
+	}
 }
 
 // Claude Code drops everything past 2048 characters of the instructions, so the

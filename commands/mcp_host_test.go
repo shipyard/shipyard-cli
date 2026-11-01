@@ -64,7 +64,10 @@ func fakeTokenEndpoint(t *testing.T, status int, oauthError string) *httptest.Se
 }
 
 func TestRunHostSetsTheAPIURLFromTheSite(t *testing.T) {
-	t.Cleanup(viper.Reset)
+	t.Cleanup(func() {
+		viper.Reset()
+		initViper()
+	})
 	core := fakeTokenEndpoint(t, http.StatusBadRequest, "invalid_grant")
 	served := false
 	err := runHost(t.Context(), ":0", hosted.Config{

@@ -64,3 +64,35 @@ func TestSaveNeedsAConfigFile(t *testing.T) {
 		t.Fatal("expected an error with no config file in use")
 	}
 }
+
+func TestSelfUpdateEnabled(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.SetEnvPrefix("shipyard")
+	viper.AutomaticEnv()
+
+	if !SelfUpdateEnabled() {
+		t.Error("unset: want on")
+	}
+
+	t.Setenv("SHIPYARD_SELF_UPDATE", "false")
+	if SelfUpdateEnabled() {
+		t.Error("SHIPYARD_SELF_UPDATE=false: want off")
+	}
+	t.Setenv("SHIPYARD_SELF_UPDATE", "")
+
+	viper.SetConfigType("yaml")
+	if err := viper.ReadConfig(strings.NewReader("self_update: false\n")); err != nil {
+		t.Fatal(err)
+	}
+	if SelfUpdateEnabled() {
+		t.Error("self_update: false in config: want off")
+	}
+
+	if err := viper.ReadConfig(strings.NewReader("self_update: true\n")); err != nil {
+		t.Fatal(err)
+	}
+	if !SelfUpdateEnabled() {
+		t.Error("self_update: true in config: want on")
+	}
+}
