@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/spf13/viper"
 
 	"github.com/shipyard/shipyard-cli/pkg/mcp/tools"
@@ -434,24 +435,142 @@ func TestConcurrentExchangesForOneTokenAreCoalesced(t *testing.T) {
 	}
 }
 
+// countingTransport counts the requests it sends; fail makes each one a
+// transport error, as when core can't be reached.
+type countingTransport struct {
+	n    atomic.Int64
+	fail bool
+}
+
+func (c *countingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.n.Add(1)
+	if c.fail {
+		return nil, errors.New("connection refused")
+	}
+	return http.DefaultTransport.RoundTrip(req)
+}
+
 func TestCoreIsNotAskedAgainRightAfterItWasUnavailable(t *testing.T) {
+	// Each of these holds for every token, so none is worth asking core again
+	// for during the pause.
+	for name, tc := range map[string]struct {
+		respond     func(http.ResponseWriter, map[string]string)
+		unreachable bool
+		pause       time.Duration
+	}{
+		"502": {respond: func(w http.ResponseWriter, _ map[string]string) { w.WriteHeader(http.StatusBadGateway) }},
+		"invalid_client": {respond: func(w http.ResponseWriter, _ map[string]string) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+		}},
+		"invalid_target": {respond: func(w http.ResponseWriter, _ map[string]string) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_target"}`))
+		}},
+		"unreachable": {unreachable: true},
+		// Every request from this server is under core's 8KB host limit, so a 429
+		// is core's ceiling for all of them, not one client's.
+		"429": {respond: func(w http.ResponseWriter, _ map[string]string) { w.WriteHeader(http.StatusTooManyRequests) }},
+		"429 with Retry-After": {pause: 30 * time.Second, respond: func(w http.ResponseWriter, _ map[string]string) {
+			w.Header().Set("Retry-After", "30")
+			w.WriteHeader(http.StatusTooManyRequests)
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			core := newFakeCore(t)
+			core.exchange = tc.respond
+			e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+			transport := &countingTransport{fail: tc.unreachable}
+			e.http.Transport = transport
+			now := time.Now()
+			e.now = func() time.Time { return now }
+			pause := tc.pause
+			if pause == 0 {
+				pause = unavailableBackoff
+			}
+			for _, subject := range []string{clientToken, "another-token"} {
+				if _, err := e.exchange(t.Context(), subject); !errors.Is(err, errUnavailable) {
+					t.Fatalf("err = %v, want errUnavailable", err)
+				}
+			}
+			if n := transport.n.Load(); n != 1 {
+				t.Errorf("exchanges during the backoff = %d, want 1", n)
+			}
+			now = now.Add(pause - time.Second)
+			_, _ = e.exchange(t.Context(), clientToken)
+			if n := transport.n.Load(); n != 1 {
+				t.Errorf("exchanges a second before the pause ends = %d, want 1", n)
+			}
+			now = now.Add(time.Second)
+			_, _ = e.exchange(t.Context(), clientToken)
+			if n := transport.n.Load(); n != 2 {
+				t.Errorf("exchanges after the backoff = %d, want 2", n)
+			}
+		})
+	}
+}
+
+func TestARevokedTokenIsNotServedFromCacheAtRefresh(t *testing.T) {
+	// The cached core token still has a minute left, but core now refuses the
+	// client's token: the connection was revoked, so it's a 401, not the cache.
 	core := newFakeCore(t)
-	core.exchange = func(w http.ResponseWriter, _ map[string]string) { w.WriteHeader(http.StatusBadGateway) }
 	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
 	now := time.Now()
 	e.now = func() time.Time { return now }
-	for _, subject := range []string{clientToken, "another-token"} {
-		if _, err := e.exchange(t.Context(), subject); !errors.Is(err, errUnavailable) {
-			t.Fatalf("err = %v, want errUnavailable", err)
+	if _, err := e.exchange(t.Context(), clientToken); err != nil {
+		t.Fatal(err)
+	}
+	core.exchange = func(w http.ResponseWriter, _ map[string]string) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	}
+	now = now.Add(4 * time.Minute)
+	if got, err := e.exchange(t.Context(), clientToken); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Fatalf("got %+v, %v; want ErrInvalidToken", got, err)
+	}
+	if _, ok := e.cache[sha256.Sum256([]byte(clientToken))]; ok {
+		t.Error("the revoked token's core token is still cached")
+	}
+}
+
+func TestARefusedTokenIsNotExchangedAgainForAMinute(t *testing.T) {
+	// Junk tokens count against core's ceiling for this server; a client
+	// resending one mustn't spend it again.
+	core := newFakeCore(t)
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	now := time.Now()
+	e.now = func() time.Time { return now }
+	for range 3 {
+		if _, err := e.exchange(t.Context(), "junk"); !errors.Is(err, auth.ErrInvalidToken) {
+			t.Fatalf("err = %v, want ErrInvalidToken", err)
 		}
 	}
 	if core.exchanges != 1 {
-		t.Errorf("exchanges during the backoff = %d, want 1", core.exchanges)
+		t.Errorf("exchanges for a refused token = %d, want 1", core.exchanges)
 	}
-	now = now.Add(unavailableBackoff)
-	_, _ = e.exchange(t.Context(), clientToken)
+	now = now.Add(refusedFor)
+	_, _ = e.exchange(t.Context(), "junk")
 	if core.exchanges != 2 {
-		t.Errorf("exchanges after the backoff = %d, want 2", core.exchanges)
+		t.Errorf("exchanges after %s = %d, want 2", refusedFor, core.exchanges)
+	}
+}
+
+func TestAFullCacheIsNotScannedOnEveryInsert(t *testing.T) {
+	// With tokens expiring one at a time, each scan of a full cache frees one
+	// entry: the next insert would scan all of it again. Within sweepEvery it
+	// evicts a batch instead.
+	core := newFakeCore(t)
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	now := time.Now()
+	e.now = func() time.Time { return now }
+	e.cache[sha256.Sum256([]byte("first"))] = exchanged{expires: now.Add(-time.Second)}
+	e.cache[sha256.Sum256([]byte("second"))] = exchanged{expires: now.Add(time.Second)}
+	fillCache(e, now)
+	e.store(sha256.Sum256([]byte("a")), exchanged{expires: now.Add(time.Hour)})
+	now = now.Add(2 * time.Second)
+	e.store(sha256.Sum256([]byte("b")), exchanged{expires: now.Add(time.Hour)})
+	if len(e.cache) > maxCached*9/10+1 {
+		t.Errorf("cache size = %d after two inserts into a full cache: it was scanned again instead of evicting a batch", len(e.cache))
 	}
 }
 
@@ -587,14 +706,28 @@ func TestAnOversizedTokenIs401WithoutAskingCore(t *testing.T) {
 	}
 }
 
+func TestATokenThatEncodesPast4KBIs401WithoutAskingCore(t *testing.T) {
+	// Core measures the encoded form against its 8KB host limit, and '/' encodes
+	// to 3 bytes: 2000 of them are 6000 bytes on the wire.
+	core := newFakeCore(t)
+	srv := newHost(t, core)
+	if res := initialize(t, srv, strings.Repeat("/", 2000)); res.status != http.StatusUnauthorized {
+		t.Fatalf("status = %d", res.status)
+	}
+	if core.exchanges != 0 {
+		t.Errorf("exchanges = %d, want 0", core.exchanges)
+	}
+}
+
 func TestARefusalForOneTokenDoesNotPauseOthers(t *testing.T) {
-	// A 4xx is about the request a client chose to send, not about core: it
+	// A refusal about the request a client chose to send, not about core,
 	// mustn't stop everyone else's exchanges.
 	core := newFakeCore(t)
 	exchange := core.exchange
 	core.exchange = func(w http.ResponseWriter, form map[string]string) {
 		if form["subject_token"] == "junk" {
-			w.WriteHeader(http.StatusTooManyRequests)
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_request"}`))
 			return
 		}
 		exchange(w, form)
@@ -651,6 +784,28 @@ func TestOnlyAPOSTBuildsTheServer(t *testing.T) {
 	}
 	if built := serversBuilt.Load() - before; built != 0 {
 		t.Errorf("servers built for a GET = %d, want 0", built)
+	}
+}
+
+func TestAPublicHostOverLoopbackIsServed(t *testing.T) {
+	// Behind a proxy on the same machine (a sidecar, a tunnel) requests arrive on
+	// loopback with the public Host. Every request needs a bearer token, so the
+	// SDK's DNS-rebinding guard for local servers mustn't refuse them.
+	core := newFakeCore(t)
+	srv := newHost(t, core)
+	payload := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/mcp", strings.NewReader(payload))
+	req.Host = "mcp.example.test"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+clientToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
 }
 

@@ -40,6 +40,15 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+// initViper reads SHIPYARD_* environment variables and sets defaults. Tests
+// that call viper.Reset call it again, or later tests stop seeing the env.
+func initViper() {
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	viper.SetEnvPrefix("shipyard")
+	viper.AutomaticEnv()
+	viper.SetDefault("update_check", true)
+}
+
 var (
 	cfgFile        string
 	errConfigParse = errors.New("failed to parse the config file, check YAML for syntax errors")
@@ -59,11 +68,7 @@ func Execute() {
 }
 
 func init() {
-	replacer := strings.NewReplacer("-", "_")
-	viper.SetEnvKeyReplacer(replacer)
-	viper.SetEnvPrefix("shipyard")
-	viper.AutomaticEnv()
-	viper.SetDefault("update_check", true)
+	initViper()
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.shipyard/config.yaml)")

@@ -56,6 +56,27 @@ The check names the tag, not its commit. A withdrawn release's attestations aren
 released again under the same tag, its withdrawn binaries still pass. To pin the commit as well, add
 `--source-digest <commit SHA>` with the commit the tag points to.
 
+### Rebuilding a release
+
+Releases after 1.10.0 are reproducible: building the release tag again, with the same Go and GoReleaser versions,
+gives byte-identical binaries in any directory. The versions are `GO_VERSION` and `GORELEASER_VERSION` in that tag's
+`.github/workflows/release.yaml`. With that GoReleaser installed, and `GO_VERSION` in place of `1.26.10` below
+(`GOTOOLCHAIN` makes Go use exactly that version, downloading it if needed, and `GOFLAGS=` drops any of your own
+build flags):
+
+```bash
+git clone https://github.com/shipyard/shipyard-cli && cd shipyard-cli
+git checkout vX.Y.Z
+GOTOOLCHAIN=go1.26.10 GOFLAGS= goreleaser release --clean --skip=publish,sbom
+grep " shipyard-linux-amd64$" dist/checksums.txt
+```
+
+The digest should match the same line in the release's `checksums.txt`. If it doesn't, check your Go and GoReleaser
+versions (`GOTOOLCHAIN=go1.26.10 go version`, `goreleaser --version`) before suspecting the release. The release
+workflow checks this on every release commit before it builds the release (`scripts/check-reproducible.sh`). SBOMs
+aren't reproducible: they record when they were generated. Their entry for the CLI's own module shows the version
+`(devel)`, because the build leaves out Go's VCS stamp; `shipyard --version` prints the release version.
+
 ## Upgrading
 
 ```bash
@@ -97,10 +118,34 @@ The message goes to stderr, and only when stderr is a terminal. It's never shown
 identify themselves (Claude Code, Codex, Cursor's agent, Gemini CLI), or for `shipyard mcp serve`. To turn it off, set
 `SHIPYARD_NO_UPDATE_CHECK=1` or add `update_check: false` to `~/.shipyard/config.yaml`.
 
+### Turning off self-update
+
+On a self-hosted Shipyard that can't reach GitHub, the CLI comes with your Shipyard release instead. Turn off
+self-update there with `self_update: false` in `~/.shipyard/config.yaml`, or `SHIPYARD_SELF_UPDATE=false`. The CLI then
+never contacts GitHub: no update notice, no background check from `shipyard mcp serve`, and `shipyard upgrade` refuses
+with a message saying self-update is off. `update_check: false` only turns off the notice and background check.
+
 ## Login
 
 Run `shipyard login` to initialize the CLI. This will prompt you to log in to Shipyard in the browser. The CLI will then
 save your API token in a local config. You're ready to start running commands.
+
+### Self-hosted Shipyard
+
+To use a self-hosted Shipyard, point the CLI at its API in `~/.shipyard/config.yaml` (or with `SHIPYARD_API_URL`)
+before logging in:
+
+```yaml
+api_url: https://shipyard.example.internal/api/v1
+self_update: false
+```
+
+`shipyard login` then opens that host's login page, and every command calls that API. Set `self_update: false` if the
+install can't reach GitHub (see [Turning off self-update](#turning-off-self-update)).
+
+If you've already logged in to another Shipyard (such as shipyard.build), `shipyard login` keeps that token and says
+you're logged in. Remove `api_token` from the config file (and unset `SHIPYARD_API_TOKEN`) before logging in to the
+self-hosted install.
 
 ### Or Set Your Token Manually
 
@@ -253,6 +298,17 @@ shipyard detached deploy {application_build_uuid} --name my-detached-env --branc
 
 # Per-repo build-on-commit settings (always | inherit | never)
 shipyard detached deploy {application_build_uuid} --build-on-commit-for web=always --build-on-commit-for api=never
+```
+
+### Delete a detached environment
+
+Pass the environment UUID, or the UUID of any of its application builds (the one in the build
+detail page's URL). Only detached environments can be deleted this way; a base or pull request
+environment is refused. Deleting one that is already deleted succeeds again.
+
+```bash
+shipyard detached delete {environment_uuid}
+shipyard detached delete {application_build_uuid}
 ```
 
 ### Get all services and exposed ports for an environment

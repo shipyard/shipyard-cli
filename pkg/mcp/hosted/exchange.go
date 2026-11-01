@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,10 +34,21 @@ const (
 	// after core was down or refused this server, instead of every request
 	// asking core again meanwhile.
 	unavailableBackoff = 5 * time.Second
-	// maxTokenBytes is the longest token sent to core. Core gives this server
-	// its own rate limit only for token requests under 8KB; a longer one counts
-	// against the limit for everyone from this server's address.
+	// maxRetryAfter caps how long a Retry-After from core pauses the exchanges.
+	maxRetryAfter = time.Minute
+	// maxTokenBytes is the longest token sent to core, URL-encoded as it is in
+	// the form. Core gives this server its own rate limit only for token
+	// requests under 8KB, measured encoded; a longer one counts against the
+	// limit for everyone from this server's address.
 	maxTokenBytes = 4096
+	// refusedFor is how long a token core refused is answered with a 401
+	// without asking core again: every exchange, refused or not, counts against
+	// core's ceiling for this server.
+	refusedFor = time.Minute
+	// sweepEvery is how often a full cache is scanned for expired entries.
+	// Between scans a full cache evicts a batch, so tokens expiring one at a
+	// time can't make every insert scan all of it.
+	sweepEvery = 10 * time.Second
 )
 
 // errUnavailable means the exchange couldn't be completed for a reason that
@@ -50,9 +62,15 @@ var errUnavailable = errors.New("token exchange unavailable")
 var errMisconfigured = errors.New("this server's OAuth client or URLs don't match core's")
 
 // errCoreDown is the part of errUnavailable that holds for every token: core
-// couldn't be reached, failed, or refused this server. Only it pauses the
-// exchanges. Any other refusal is about the one request a client chose to send.
+// couldn't be reached, failed, refused this server, or rate-limited it. Only it
+// pauses the exchanges. Any other refusal is about the one request a client
+// chose to send.
 var errCoreDown = errors.New("core is down or refused this server")
+
+// retryAfter is how long core asked this server to wait, from a 429.
+type retryAfter time.Duration
+
+func (r retryAfter) Error() string { return "retry after " + time.Duration(r).String() }
 
 // exchanged is a core API token obtained for one client token.
 type exchanged struct {
@@ -75,7 +93,11 @@ type exchanger struct {
 
 	mu    sync.Mutex
 	cache map[[sha256.Size]byte]exchanged
-	// unavailableUntil is when core may be asked again after errUnavailable.
+	// refused holds, for tokens core refused, when it may be asked about them again.
+	refused map[[sha256.Size]byte]time.Time
+	// sweptAt is when the full cache was last scanned for expired entries.
+	sweptAt time.Time
+	// unavailableUntil is when core may be asked again after errCoreDown.
 	unavailableUntil time.Time
 }
 
@@ -91,8 +113,9 @@ func newExchanger(tokenURL, resource, clientID, clientSecret string) *exchanger 
 			// again, to wherever it points.
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
-		now:   time.Now,
-		cache: make(map[[sha256.Size]byte]exchanged),
+		now:     time.Now,
+		cache:   make(map[[sha256.Size]byte]exchanged),
+		refused: make(map[[sha256.Size]byte]time.Time),
 	}
 }
 
@@ -100,14 +123,18 @@ func newExchanger(tokenURL, resource, clientID, clientSecret string) *exchanger 
 // auth.ErrInvalidToken when the subject token itself is no good, and
 // errUnavailable otherwise.
 func (e *exchanger) exchange(ctx context.Context, subject string) (exchanged, error) {
-	if len(subject) > maxTokenBytes {
+	if len(url.QueryEscape(subject)) > maxTokenBytes {
 		return exchanged{}, fmt.Errorf("%w: the token is too long", auth.ErrInvalidToken)
 	}
 	key := sha256.Sum256([]byte(subject))
 	e.mu.Lock()
 	hit, ok := e.cache[key]
+	refusedUntil, refused := e.refused[key]
 	backoff := e.now().Before(e.unavailableUntil)
 	e.mu.Unlock()
+	if refused && e.now().Before(refusedUntil) {
+		return exchanged{}, fmt.Errorf("%w: core refused the token moments ago", auth.ErrInvalidToken)
+	}
 	if ok && e.now().Before(hit.expires.Add(-expiryMargin)) {
 		return hit, nil
 	}
@@ -127,14 +154,23 @@ func (e *exchanger) exchange(ctx context.Context, subject string) (exchanged, er
 	})
 	if err != nil {
 		if errors.Is(err, errCoreDown) {
+			pause := unavailableBackoff
+			var wait retryAfter
+			if errors.As(err, &wait) {
+				pause = max(pause, min(time.Duration(wait), maxRetryAfter))
+			}
 			e.mu.Lock()
-			e.unavailableUntil = e.now().Add(unavailableBackoff)
+			// A shorter pause from a request that ended later mustn't cut a longer one short.
+			e.unavailableUntil = later(e.unavailableUntil, e.now().Add(pause))
 			e.mu.Unlock()
 		}
 		if usable && !errors.Is(err, auth.ErrInvalidToken) {
 			return hit, nil
 		}
 		e.forget(subject)
+		if errors.Is(err, auth.ErrInvalidToken) {
+			e.refuse(key)
+		}
 		return exchanged{}, err
 	}
 	got := result.(exchanged)
@@ -148,8 +184,8 @@ func (e *exchanger) exchange(ctx context.Context, subject string) (exchanged, er
 // store caches got under key, making room first when the cache is full. Call
 // it with e.mu held.
 func (e *exchanger) store(key [sha256.Size]byte, got exchanged) {
-	if len(e.cache) >= maxCached {
-		now := e.now()
+	if now := e.now(); len(e.cache) >= maxCached && now.Sub(e.sweptAt) >= sweepEvery {
+		e.sweptAt = now
 		for k, v := range e.cache {
 			if !now.Before(v.expires) {
 				delete(e.cache, k)
@@ -169,6 +205,24 @@ func (e *exchanger) store(key [sha256.Size]byte, got exchanged) {
 		}
 	}
 	e.cache[key] = got
+}
+
+// refuse answers key's token with a 401 for refusedFor without asking core. A
+// full set is cleared: the worst case is asking core again.
+func (e *exchanger) refuse(key [sha256.Size]byte) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.refused) >= maxCached {
+		clear(e.refused)
+	}
+	e.refused[key] = e.now().Add(refusedFor)
+}
+
+func later(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }
 
 // forget drops subject's cached token, so the next request exchanges again.
@@ -229,8 +283,14 @@ func (e *exchanger) request(ctx context.Context, subject string) (exchanged, err
 			return exchanged{}, fmt.Errorf("%w: %w: %w: core answered %d %s", errUnavailable, errCoreDown, errMisconfigured, resp.StatusCode, payload.Error)
 		case resp.StatusCode >= http.StatusInternalServerError:
 			return exchanged{}, fmt.Errorf("%w: %w: core answered %d", errUnavailable, errCoreDown, resp.StatusCode)
+		// Every request this server sends is under core's 8KB host limit, so a 429
+		// is core's ceiling for all of them: asking again only adds to it.
+		case resp.StatusCode == http.StatusTooManyRequests:
+			seconds, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
+			return exchanged{}, fmt.Errorf("%w: %w: %w: core answered 429", errUnavailable, errCoreDown,
+				retryAfter(time.Duration(max(seconds, 0))*time.Second))
 		}
-		// Anything else (a 429, a redirect) is unavailable for this request only.
+		// Anything else (a redirect, another refusal) is unavailable for this request only.
 		return exchanged{}, fmt.Errorf("%w: core answered %d %s", errUnavailable, resp.StatusCode, payload.Error)
 	}
 	if payload.AccessToken == "" || payload.ExpiresIn <= 0 || !strings.EqualFold(payload.TokenType, "bearer") {

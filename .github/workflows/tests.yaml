@@ -55,6 +55,11 @@ jobs:
       - name: Run tests (no cache)
         run: go test -v ./...
 
+      # The release vuln-scan refuses unstripped binaries by reading their
+      # symbol tables; this builds each executable format with and without -s.
+      - name: Test vuln-scan.sh stripped-binary guard
+        run: ./scripts/vuln-scan-test.sh
+
   # The hosted MCP server's chart: what it renders, and the values it refuses.
   # The runner image ships helm.
   chart:
@@ -91,6 +96,12 @@ jobs:
       - name: Test check-dist.sh
         if: runner.os == 'Linux'
         run: ./scripts/check-dist-test.sh
+
+      # The reproducibility gate only ever sees matching builds in CI, so its
+      # refusals are tested here with GoReleaser stubbed.
+      - name: Test check-reproducible.sh
+        if: runner.os == 'Linux'
+        run: ./scripts/check-reproducible-test.sh
 
       # What release.sh offers after a failed release, including whether it
       # may offer to delete the tag.
