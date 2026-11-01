@@ -63,8 +63,11 @@ expect_contains "ingress serves the resource URL's host" "- host: mcp.example.te
 expect_contains "certificate covers that host" "- mcp.example.test" "${ok[@]}"
 expect_contains "nginx doesn't buffer responses" 'proxy-buffering: "off"' "${ok[@]}"
 expect_contains "nginx waits past the server's WriteTimeout" 'proxy-read-timeout: "120"' "${ok[@]}"
-expect_contains "nginx limits requests per client" 'limit-rps: "10"' "${ok[@]}"
-expect_contains "nginx limits connections per client" 'limit-connections: "20"' "${ok[@]}"
+expect_contains "nginx limits requests per client" 'limit-rps: "50"' "${ok[@]}"
+expect_contains "nginx limits connections per client" 'limit-connections: "200"' "${ok[@]}"
+expect_contains "only the ingress controller reaches the pods" "kubernetes.io/metadata.name: ingress-nginx" "${ok[@]}"
+expect_contains "the ingress controller's namespace is a value" "kubernetes.io/metadata.name: ingress-system" \
+    "${ok[@]}" --set networkPolicy.ingressNamespace=ingress-system
 expect_contains "server gets the resource URL" 'value: "https://mcp.example.test/mcp"' "${ok[@]}"
 expect_contains "secret comes from a Secret, not a value" "secretKeyRef:" "${ok[@]}"
 expect_contains "runs read-only" "readOnlyRootFilesystem: true" "${ok[@]}"
@@ -92,6 +95,7 @@ expect_absent() {
 
 # A PDB with one replica would block every drain.
 expect_absent "no PDB with one replica" "kind: PodDisruptionBudget" "${ok[@]}" --set replicaCount=1
+expect_absent "no NetworkPolicy when it's turned off" "kind: NetworkPolicy" "${ok[@]}" --set networkPolicy.enabled=false
 expect_absent "no chart Secret with an existing one" "kind: Secret" \
     --set image.tag=v1.0.0 --set mcp.resourceUrl=https://mcp.example.test/mcp \
     --set mcp.existingSecret=mcp-secrets
@@ -112,14 +116,23 @@ expect_refused "both secret sources" "not both" "${ok[@]}" --set mcp.existingSec
 expect_refused "existing Secret without a key" "mcp.existingSecretKey is required" \
     --set image.tag=v1.0.0 --set mcp.resourceUrl=https://mcp.example.test/mcp \
     --set mcp.existingSecret=mcp-secrets --set mcp.existingSecretKey=
+expect_refused "resource URL with a fragment" "query or fragment" \
+    --set image.tag=v1.0.0 --set 'mcp.resourceUrl=https://mcp.example.test/mcp#f' --set mcp.clientSecret=x
+expect_refused "resource URL without a host" "needs a host" \
+    --set image.tag=v1.0.0 --set 'mcp.resourceUrl=https:///mcp' --set mcp.clientSecret=x
 # The server sends its client secret and users' tokens to the site URL.
 expect_refused "http site URL" "mcp.siteUrl must be https" "${ok[@]}" --set mcp.siteUrl=http://shipyard.example.test
+expect_refused "site URL without a host" "mcp.siteUrl needs a host" "${ok[@]}" --set 'mcp.siteUrl=https:///x'
+expect_refused "no site URL" "mcp.siteUrl is required" "${ok[@]}" --set mcp.siteUrl=
+expect_contains "verbose adds the flag" '"--verbose"' "${ok[@]}" --set mcp.verbose=true
 
-# The install recipe, run against a fake helm that records what it was given:
-# the secret reaches helm as given, and a secret that isn't one token is
+# The install recipes, run against a fake helm that records what it was given:
+# each environment's settings and the secret reach helm, and bad input is
 # refused before helm runs.
-fake_bin="$(mktemp -d)"
-trap 'rm -rf "$fake_bin"' EXIT
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+fake_bin="$work/bin"
+mkdir "$fake_bin"
 cat > "$fake_bin/helm" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" > "$fake_bin/argv"
@@ -127,40 +140,91 @@ cat > "$fake_bin/stdin"
 EOF
 chmod +x "$fake_bin/helm"
 
-install_qa() {
+# install <target> <secret> [make args...]
+install() {
+    local target="$1" secret="$2"
+    shift 2
     rm -f "$fake_bin/argv" "$fake_bin/stdin"
-    (cd "$ROOT" && SHIPYARD_MCP_CLIENT_SECRET="$1" PATH="$fake_bin:$PATH" \
-        make -s mcp-host.install.qa MCP_HOST_TAG=v1.0.0 MCP_HOST_IMAGE=registry.example.test/mcp-host) 2>&1
+    (cd "$ROOT" && SHIPYARD_MCP_CLIENT_SECRET="$secret" PATH="$fake_bin:$PATH" \
+        make -s "$target" MCP_HOST_IMAGE=registry.example.test/mcp-host KUBE_CONTEXT=test-context "$@") 2>&1
 }
 
-if install_qa "test-secret" > /dev/null && grep -qF 'clientSecret: "test-secret"' "$fake_bin/stdin"; then
-    pass "install sends the secret to helm"
-else
-    fail "install sends the secret to helm"
-fi
-if grep -qF 'image.repository=registry.example.test/mcp-host' "$fake_bin/argv" 2> /dev/null; then
-    pass "install deploys the image it pushed"
-else
-    fail "install deploys the image it pushed: no image.repository=\$(MCP_HOST_IMAGE)"
-fi
+# expect_install_args <name> <target> <args helm must get...>
+expect_install_args() {
+    local name="$1" target="$2" want
+    shift 2
+    if ! install "$target" "test-secret" MCP_HOST_TAG=v1.0.0 > /dev/null; then
+        fail "$name: the install failed"
+        return
+    fi
+    for want in "$@"; do
+        if ! grep -qF -- "$want" "$fake_bin/argv"; then
+            fail "$name: helm didn't get ${want}"
+            return
+        fi
+    done
+    if grep -qF 'clientSecret: "test-secret"' "$fake_bin/stdin"; then
+        pass "$name"
+    else
+        fail "$name: the secret didn't reach helm"
+    fi
+}
 
-# expect_install_refused <name> <secret>
+expect_install_args "QA install" mcp-host.install.qa "--kube-context test-context " "--namespace qa-mcp-host " \
+    "image.repository=registry.example.test/mcp-host " "image.tag=v1.0.0 " \
+    "mcp.resourceUrl=https://mcp.qa.shipyard.build/mcp " "mcp.siteUrl=https://qa.shipyard.build "
+expect_install_args "production install" mcp-host.install.production "--kube-context test-context " "--namespace mcp-host " \
+    "image.repository=registry.example.test/mcp-host " "image.tag=v1.0.0 " \
+    "mcp.resourceUrl=https://mcp.shipyard.build/mcp " "mcp.siteUrl=https://shipyard.build "
+
+# expect_install_refused <name> <message> <secret> [make args...]
 expect_install_refused() {
-    local name="$1" out
-    if out="$(install_qa "$2")"; then
+    local name="$1" want="$2" out
+    shift 2
+    if out="$(install mcp-host.install.qa "$@")"; then
         fail "$name: the install ran helm"
     elif [[ -e "$fake_bin/argv" ]]; then
         fail "$name: refused, but only after running helm"
-    elif grep -qF "must be one token" <<< "$out"; then
+    elif grep -qF -- "$want" <<< "$out"; then
         pass "$name"
     else
-        fail "$name: refused, but without \"must be one token\""
+        fail "$name: refused, but without \"${want}\""
         printf '%s\n' "$out" | head -5
     fi
 }
 
-expect_install_refused "install refuses a secret with a quote" 'abc"def'
-expect_install_refused "install refuses a secret over two lines" "$(printf 'first\nsecond')"
+expect_install_refused "install refuses no kube context" "KUBE_CONTEXT is required" "test-secret" MCP_HOST_TAG=v1.0.0 KUBE_CONTEXT=
+expect_install_refused "install refuses no tag" "MCP_HOST_TAG is required" "test-secret"
+expect_install_refused "install refuses no secret" "SHIPYARD_MCP_CLIENT_SECRET is required" "" MCP_HOST_TAG=v1.0.0
+expect_install_refused "install refuses a secret with a quote" "must be one token" 'abc"def' MCP_HOST_TAG=v1.0.0
+expect_install_refused "install refuses a secret over two lines" "must be one token" \
+    "$(printf 'first\nsecond')" MCP_HOST_TAG=v1.0.0
+
+# The image is built only at a release tag that's on origin, on a clean tree:
+# checked in a clone of a scratch origin, against this checkout's Makefile.
+# No tags: the commit under test may already carry a release tag.
+git clone -q --bare --no-tags "$ROOT" "$work/origin.git"
+git clone -q "$work/origin.git" "$work/repo"
+# expect_tag_check <name> <passes|refused> [message]
+expect_tag_check() {
+    local name="$1" want="$2" message="${3:-}" out
+    if out="$(make -s -C "$work/repo" -f "$ROOT/Makefile" check.mcp-host-tag 2>&1)"; then
+        [[ "$want" == passes ]] && pass "$name" || fail "$name: the check passed"
+    elif [[ "$want" == refused ]] && grep -qF -- "$message" <<< "$out"; then
+        pass "$name"
+    else
+        fail "$name: ${out}"
+    fi
+}
+tag="v0.0.0-chart-test"
+expect_tag_check "image build refuses an untagged commit" refused "from a release tag"
+git -C "$work/repo" -c tag.gpgSign=false tag "$tag"
+expect_tag_check "image build refuses a tag that isn't on origin" refused "isn't on origin"
+git -C "$work/origin.git" -c tag.gpgSign=false tag "$tag" "$(git -C "$work/repo" rev-parse HEAD)"
+touch "$work/repo/untracked.go"
+expect_tag_check "image build refuses an untracked file" refused "untracked files"
+rm "$work/repo/untracked.go"
+expect_tag_check "image build at a clean release tag on origin" passes
 
 if [[ "$failures" -gt 0 ]]; then
     printf '%d chart check(s) failed\n' "$failures"

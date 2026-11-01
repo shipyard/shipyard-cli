@@ -823,25 +823,27 @@ connection, so clients have to sign in again.
    `OAUTH_MCP_HOST_CLIENT_SECRET` to a secret generated in the secret store, a
    different one per environment. Both settings must be in place before the host
    starts: it checks them with core at startup and exits if core refuses them.
+   If core can't be reached then, it starts anyway, and `--atomic` won't catch
+   a wrong secret: check the release once core is up.
 2. **DNS.** Point the host name at the cluster's ingress. cert-manager issues
    the certificate (`letsencrypt-production`) once the name resolves. The
-   chart limits each client address to 10 requests a second and 20
-   connections, so the ingress has to see clients' real addresses (proxy
-   protocol or forwarded headers from the load balancer). Otherwise every
-   client shares one limit.
-3. **Image**, from a release tag on a clean tree:
+   ingress has to see clients' real addresses (proxy protocol or forwarded
+   headers from the load balancer), or every client shares one rate limit.
+   Check the ingress controller's namespace too: only it may reach the pods,
+   and the chart assumes `ingress-nginx` (`networkPolicy.ingressNamespace`).
+3. **Image**, from a release tag that's on origin, on a clean tree:
 
    ```bash
    git checkout v1.11.0
    make mcp-host.push
    ```
 
-4. **Release**, with the kube context on the right cluster and the secret in
-   `SHIPYARD_MCP_CLIENT_SECRET` (from the secret store, not typed into a shell
-   history):
+4. **Release**, naming the kube context of the environment's cluster, with the
+   secret in `SHIPYARD_MCP_CLIENT_SECRET` (from the secret store, not typed
+   into a shell history):
 
    ```bash
-   make mcp-host.install.qa MCP_HOST_TAG=v1.11.0
+   make mcp-host.install.qa MCP_HOST_TAG=v1.11.0 KUBE_CONTEXT=<qa cluster context>
    ```
 
    The secret goes to helm on stdin. `--atomic` rolls back a release whose pods
@@ -858,10 +860,19 @@ What the chart sets, and why:
 
 - **No sticky sessions.** The server is stateless, so any of its replicas
   (two by default, spread over nodes, with a disruption budget) serves any request.
+  Each replica caches exchanged tokens itself, so a token is exchanged once per
+  replica, and every rollout starts with empty caches: expect a burst of
+  exchanges with core after each one.
 - **Streaming.** nginx doesn't buffer requests or responses, and waits 120
   seconds for the server, longer than the server's own 90 second write timeout.
+- **Rate limits.** nginx allows each client address 50 requests a second and
+  200 connections, per ingress controller pod. Generous on purpose: hosted
+  clients send all their users from a few shared addresses. It damps one noisy
+  address; it doesn't keep junk tokens from using up core's exchange limit for
+  this server, since every new token costs an exchange.
 - **Locked down.** The image runs as uid 10001 on a read-only filesystem with
-  no Kubernetes API token. The secret reaches it from a Secret, and a new
+  no Kubernetes API token, and a NetworkPolicy lets only the ingress controller
+  reach it. The secret reaches it from a Secret, and a new
   secret restarts the pods. To use a Secret managed elsewhere, set
   `mcp.existingSecret`; then restart the pods yourself when it changes.
 - **Logs.** `mcp.verbose` adds the tools' request logs, which carry users'
@@ -876,7 +887,7 @@ tokens the host already holds keep working until they expire.
 secret in `SHIPYARD_MCP_CLIENT_SECRET`:
 
 ```bash
-make mcp-host.install.qa MCP_HOST_TAG=<previous tag>
+make mcp-host.install.qa MCP_HOST_TAG=<previous tag> KUBE_CONTEXT=<qa cluster context>
 ```
 
 Avoid `helm rollback` after rotating the secret. Each release keeps the

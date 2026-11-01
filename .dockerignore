@@ -2,3 +2,7 @@
 bin
 Makefile
 README.md
+# Local, gitignored files the image never needs: keep them out of the build context.
+.envrc
+.claude
+.gstack

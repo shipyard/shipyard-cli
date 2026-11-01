@@ -42,8 +42,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/* Shipyard's URL, checked: the server sends its client secret and users' tokens there. */}}
 {{- define "mcp-host.siteUrl" -}}
 {{- $raw := required "mcp.siteUrl is required" .Values.mcp.siteUrl -}}
-{{- if ne (urlParse $raw).scheme "https" -}}
+{{- $u := urlParse $raw -}}
+{{- if ne $u.scheme "https" -}}
 {{- fail (printf "mcp.siteUrl must be https, got %q" $raw) -}}
+{{- end -}}
+{{- if eq $u.host "" -}}
+{{- fail (printf "mcp.siteUrl needs a host, got %q" $raw) -}}
 {{- end -}}
 {{- $raw -}}
 {{- end -}}

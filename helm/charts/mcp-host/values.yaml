@@ -32,7 +32,8 @@ service:
 ingress:
   enabled: true
   className: nginx
-  # The certificate's Secret; defaults to <release>-tls.
+  # The certificate's Secret; defaults to <fullname>-tls (mcp-host-tls for a
+  # release named mcp-host).
   tlsSecretName: ""
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
@@ -46,12 +47,20 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
     # The server refuses request bodies over 1MB itself.
     nginx.ingress.kubernetes.io/proxy-body-size: "2m"
-    # The server has no per-client limit, and every new token costs core an
-    # exchange: enough of them use up core's limit for this server, and it then
-    # pauses every user's exchanges. Limits are per client address, so nginx
-    # has to see real client IPs, or every client shares one limit.
-    nginx.ingress.kubernetes.io/limit-rps: "10"
-    nginx.ingress.kubernetes.io/limit-connections: "20"
+    # Damps one noisy address; it doesn't protect core's exchange limit for this
+    # server (any new token costs an exchange, and a client with many addresses
+    # gets past it). Generous, because hosted clients send all their users from
+    # a few shared addresses. Counted per address, so nginx has to see real
+    # client IPs, and per ingress controller pod.
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-connections: "200"
+
+networkPolicy:
+  # Only the ingress controller reaches the pods, so nothing in the cluster can
+  # skip the ingress. Egress stays open.
+  enabled: true
+  # The namespace the ingress controller runs in.
+  ingressNamespace: ingress-nginx
 
 resources:
   requests:
