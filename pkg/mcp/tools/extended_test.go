@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -79,6 +80,44 @@ func TestExtendedTool_DeployDetached(t *testing.T) {
 	}
 	if rec.method != "POST" || !strings.Contains(rec.uri, "application-build/build-123/detached-app-build") {
 		t.Fatalf("unexpected request %s %s", rec.method, rec.uri)
+	}
+}
+
+func TestExtendedTool_DeleteDetached(t *testing.T) {
+	rec := &recordingRequester{resp: []byte(`{"data":{"application_uuid":"env-123","display_name":"ci-preview"}}`)}
+	tool := NewExtendedTool(client.Client{Requester: rec, OrgLookupFn: func() string { return "acme" }}, "delete_detached")
+
+	out, err := tool.Execute(context.Background(), json.RawMessage(`{"environment_id":"env-123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "ci-preview") {
+		t.Fatalf("unexpected body: %s", out)
+	}
+	if rec.method != "DELETE" || !strings.Contains(rec.uri, "environment/env-123/detached?org=acme") {
+		t.Fatalf("unexpected request %s %s", rec.method, rec.uri)
+	}
+}
+
+func TestExtendedTool_DeleteDetachedPropagatesRefusal(t *testing.T) {
+	rec := &recordingRequester{err: errors.New("environment is not a detached environment")}
+	tool := NewExtendedTool(client.Client{Requester: rec, OrgLookupFn: func() string { return "" }}, "delete_detached")
+
+	out, err := tool.Execute(context.Background(), json.RawMessage(`{"environment_id":"default-1"}`))
+	if err == nil || !strings.Contains(err.Error(), "not a detached environment") || out != "" {
+		t.Fatalf("expected the API refusal back, got out=%q err=%v", out, err)
+	}
+}
+
+func TestExtendedTool_DeleteDetachedRequiresEnvironmentID(t *testing.T) {
+	rec := &recordingRequester{}
+	tool := NewExtendedTool(client.Client{Requester: rec, OrgLookupFn: func() string { return "" }}, "delete_detached")
+
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{}`)); err == nil {
+		t.Fatal("expected a validation error")
+	}
+	if rec.method != "" {
+		t.Fatalf("no request should be sent, got %s %s", rec.method, rec.uri)
 	}
 }
 
