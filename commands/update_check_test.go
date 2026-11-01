@@ -44,7 +44,7 @@ func TestShouldCheckForUpdate(t *testing.T) {
 	mcp.AddCommand(serve)
 
 	setup := func(t *testing.T) {
-		for _, v := range append([]string{selfupdate.NoCheckEnv, "CI"}, agentEnvVars...) {
+		for _, v := range append([]string{selfupdate.NoCheckEnv, "CI", "SHIPYARD_SELF_UPDATE"}, agentEnvVars...) {
 			t.Setenv(v, "")
 		}
 		oldVersion, oldTerminal := version.Version, stderrIsTerminal

@@ -37,7 +37,9 @@ refuses without contacting GitHub.`,
 
   # Reinstall the latest release even if it's the running version
   shipyard upgrade --force`,
-		RunE: runUpgrade,
+		// Errors here (self-update off, network, checksum) aren't usage mistakes.
+		SilenceUsage: true,
+		RunE:         runUpgrade,
 	}
 
 	cmd.Flags().BoolP("force", "f", false, "Reinstall even if already on the latest version")
