@@ -176,7 +176,7 @@ func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 	// overwrites the shared kubeconfig and the host's routes. Neither only adds.
 	destructive := map[string]bool{
 		"stop_environment": true, "cancel_environment": true, "rebuild_environment": true,
-		"restart_service": true, "put_env_vars": true, "delete_env_var": true,
+		"restart_service": true, "put_env_vars": true, "delete_env_var": true, "delete_detached": true,
 		"update_branches": true, "reset_volume": true, "load_snapshot": true, "exec_service": true,
 		"set_org": true, "telepresence_connect": true, "update_application": true,
 		// create_application replaces an earlier create that never built
@@ -192,6 +192,8 @@ func TestMCPServer_HandleListTools_Annotations(t *testing.T) {
 		"get_failure_details": true, "get_build_logs": true,
 		"restart_environment": true, "stop_environment": true, "revive_environment": true,
 		"update_branches": true, "set_org": true, "put_env_vars": true, "delete_env_var": true,
+		// a repeat delete of a detached environment succeeds without doing anything
+		"delete_detached":      true,
 		"telepresence_connect": true,
 		"plan_application":     true, "create_application": true, "update_application": true,
 	}

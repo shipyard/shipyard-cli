@@ -3,6 +3,8 @@ package tools
 import (
 	"slices"
 	"testing"
+
+	"github.com/shipyard/shipyard-cli/pkg/client"
 )
 
 func TestHostedToolScopes(t *testing.T) {
@@ -40,6 +42,24 @@ func TestHostedToolScopes(t *testing.T) {
 	for _, name := range hosted {
 		if _, ok := HostedToolScopes[name]; !ok {
 			t.Errorf("hosted tool %s has no scope", name)
+		}
+	}
+}
+
+func TestNewHostedToolBuildsEveryHostedTool(t *testing.T) {
+	for name := range HostedToolScopes {
+		tool := NewHostedTool(client.Client{}, name)
+		if tool == nil {
+			t.Errorf("NewHostedTool(%s) = nil", name)
+			continue
+		}
+		if got := tool.Definition().Name; got != name {
+			t.Errorf("NewHostedTool(%s) built %s", name, got)
+		}
+	}
+	for _, name := range append(localOnlyTools, "put_env_vars", "stop_environment") {
+		if NewHostedTool(client.Client{}, name) != nil {
+			t.Errorf("NewHostedTool(%s) built a tool that isn't hosted", name)
 		}
 	}
 }

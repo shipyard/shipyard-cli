@@ -9,6 +9,7 @@ func NewHandler() http.Handler {
 	mux.HandleFunc("GET /environment/{id}", h.getEnvironmentByID)
 	mux.HandleFunc("POST /environment/{id}/rebuild", h.rebuildEnvironment)
 	mux.HandleFunc("POST /application-build/{id}/detached-app-build", h.deployDetached)
+	mux.HandleFunc("DELETE /environment/{id}/detached", h.deleteDetached)
 	return mux
 }
 
