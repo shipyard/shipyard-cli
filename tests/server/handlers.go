@@ -93,6 +93,33 @@ func findEnvByID(w http.ResponseWriter, r *http.Request) *types.Environment {
 	return nil
 }
 
+// deleteDetached mirrors DELETE /api/v1/environment/<uuid>/detached: "detached-1" is a detached
+// environment, "default-1" a base environment the API refuses, and anything else is unknown.
+func (handler) deleteDetached(w http.ResponseWriter, r *http.Request) {
+	org := r.URL.Query().Get("org")
+	if _, ok := store[org]; !ok {
+		orgNotFound(w)
+		return
+	}
+	apiError := func(status int, title string) {
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"errors": []map[string]any{{"title": title, "status": status}},
+		})
+	}
+	switch r.PathValue("id") {
+	case "detached-1":
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"application_uuid": "detached-1", "display_name": "ci-preview"},
+		})
+	case "default-1":
+		apiError(http.StatusBadRequest, "Environment is not a detached environment")
+	default:
+		apiError(http.StatusNotFound, "Environment not found")
+	}
+}
+
 func orgNotFound(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusBadRequest)
 	_, _ = fmt.Fprintf(w, "user org not found")

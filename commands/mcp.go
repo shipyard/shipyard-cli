@@ -23,6 +23,7 @@ func NewMCPCmd(c client.Client) *cobra.Command {
 	}
 
 	cmd.AddCommand(NewMCPServeCmd(c))
+	cmd.AddCommand(NewMCPHostCmd())
 	return cmd
 }
 
