@@ -110,6 +110,11 @@ func Handler(cfg Config) (http.Handler, error) {
 		Stateless:           true,
 		JSONResponse:        true,
 		MaxRequestBodyBytes: 1 << 20,
+		// The guard is for local servers without auth, against DNS rebinding.
+		// Every request here needs a bearer token, and behind a proxy on the same
+		// machine (a sidecar, a tunnel) requests arrive on loopback with the
+		// public Host, which the guard would refuse with a 403.
+		DisableLocalhostProtection: true,
 	})
 
 	mux := http.NewServeMux()

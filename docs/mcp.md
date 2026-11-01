@@ -692,7 +692,11 @@ local server.
   token, reused until shortly before it expires. If Shipyard can't be reached,
   tool calls fail with a retry hint rather than a 401, which would send the
   client back through sign-in; a cached token keeps working until it expires.
-  A token over 4KB is refused with a 401 without asking Shipyard.
+  A token over 4KB URL-encoded is refused with a 401 without asking Shipyard,
+  as is one Shipyard refused in the last minute. If Shipyard rate-limits the
+  server, it waits 5 seconds before exchanging again (longer, up to a minute,
+  when the 429 carries `Retry-After`). It has no per-client limit of its own:
+  limit requests per client address in front of it.
 - **Tools.** Only the tools in `pkg/mcp/tools/scopes.go` are hosted, each behind
   the scope it needs: `plan_application`, `create_application`
   (`apps:create`), `update_application` (`apps:update`), and
