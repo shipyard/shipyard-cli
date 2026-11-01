@@ -26,6 +26,7 @@ const (
 	clientToken = "client-mcp-token"
 	coreToken   = "exchanged-core-token"
 	secret      = "host-secret"
+	testAddr    = "192.0.2.1"
 )
 
 // fakeCore is core's token endpoint and API.
@@ -283,7 +284,7 @@ func TestCachedTokenIsExchangedAgainBeforeItExpires(t *testing.T) {
 	e.now = func() time.Time { return now }
 	for _, step := range []time.Duration{0, 3 * time.Minute, 30 * time.Second} {
 		now = now.Add(step)
-		if _, err := e.exchange(t.Context(), clientToken); err != nil {
+		if _, err := e.exchange(t.Context(), clientToken, testAddr); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -393,7 +394,7 @@ func TestARedirectFromCoreIsNotFollowed(t *testing.T) {
 		w.WriteHeader(http.StatusTemporaryRedirect)
 	}
 	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
-	if _, err := e.exchange(t.Context(), clientToken); !errors.Is(err, errUnavailable) {
+	if _, err := e.exchange(t.Context(), clientToken, testAddr); !errors.Is(err, errUnavailable) {
 		t.Errorf("err = %v, want errUnavailable", err)
 	}
 	if leaked {
@@ -418,7 +419,7 @@ func TestConcurrentExchangesForOneTokenAreCoalesced(t *testing.T) {
 	var wg sync.WaitGroup
 	for range callers {
 		wg.Go(func() {
-			if _, err := e.exchange(t.Context(), clientToken); err != nil {
+			if _, err := e.exchange(t.Context(), clientToken, testAddr); err != nil {
 				t.Error(err)
 			}
 		})
@@ -489,7 +490,7 @@ func TestCoreIsNotAskedAgainRightAfterItWasUnavailable(t *testing.T) {
 				pause = unavailableBackoff
 			}
 			for _, subject := range []string{clientToken, "another-token"} {
-				if _, err := e.exchange(t.Context(), subject); !errors.Is(err, errUnavailable) {
+				if _, err := e.exchange(t.Context(), subject, testAddr); !errors.Is(err, errUnavailable) {
 					t.Fatalf("err = %v, want errUnavailable", err)
 				}
 			}
@@ -497,12 +498,12 @@ func TestCoreIsNotAskedAgainRightAfterItWasUnavailable(t *testing.T) {
 				t.Errorf("exchanges during the backoff = %d, want 1", n)
 			}
 			now = now.Add(pause - time.Second)
-			_, _ = e.exchange(t.Context(), clientToken)
+			_, _ = e.exchange(t.Context(), clientToken, testAddr)
 			if n := transport.n.Load(); n != 1 {
 				t.Errorf("exchanges a second before the pause ends = %d, want 1", n)
 			}
 			now = now.Add(time.Second)
-			_, _ = e.exchange(t.Context(), clientToken)
+			_, _ = e.exchange(t.Context(), clientToken, testAddr)
 			if n := transport.n.Load(); n != 2 {
 				t.Errorf("exchanges after the backoff = %d, want 2", n)
 			}
@@ -517,7 +518,7 @@ func TestARevokedTokenIsNotServedFromCacheAtRefresh(t *testing.T) {
 	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
 	now := time.Now()
 	e.now = func() time.Time { return now }
-	if _, err := e.exchange(t.Context(), clientToken); err != nil {
+	if _, err := e.exchange(t.Context(), clientToken, testAddr); err != nil {
 		t.Fatal(err)
 	}
 	core.exchange = func(w http.ResponseWriter, _ map[string]string) {
@@ -525,7 +526,7 @@ func TestARevokedTokenIsNotServedFromCacheAtRefresh(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 	}
 	now = now.Add(4 * time.Minute)
-	if got, err := e.exchange(t.Context(), clientToken); !errors.Is(err, auth.ErrInvalidToken) {
+	if got, err := e.exchange(t.Context(), clientToken, testAddr); !errors.Is(err, auth.ErrInvalidToken) {
 		t.Fatalf("got %+v, %v; want ErrInvalidToken", got, err)
 	}
 	if _, ok := e.cache[sha256.Sum256([]byte(clientToken))]; ok {
@@ -541,7 +542,7 @@ func TestARefusedTokenIsNotExchangedAgainForAMinute(t *testing.T) {
 	now := time.Now()
 	e.now = func() time.Time { return now }
 	for range 3 {
-		if _, err := e.exchange(t.Context(), "junk"); !errors.Is(err, auth.ErrInvalidToken) {
+		if _, err := e.exchange(t.Context(), "junk", testAddr); !errors.Is(err, auth.ErrInvalidToken) {
 			t.Fatalf("err = %v, want ErrInvalidToken", err)
 		}
 	}
@@ -549,7 +550,7 @@ func TestARefusedTokenIsNotExchangedAgainForAMinute(t *testing.T) {
 		t.Errorf("exchanges for a refused token = %d, want 1", core.exchanges)
 	}
 	now = now.Add(refusedFor)
-	_, _ = e.exchange(t.Context(), "junk")
+	_, _ = e.exchange(t.Context(), "junk", testAddr)
 	if core.exchanges != 2 {
 		t.Errorf("exchanges after %s = %d, want 2", refusedFor, core.exchanges)
 	}
@@ -584,7 +585,7 @@ func TestAFullCacheEvictsExpiredEntriesFirst(t *testing.T) {
 	e.cache[expired] = exchanged{expires: now.Add(-time.Second)}
 	e.cache[soonest] = exchanged{expires: now.Add(time.Minute)}
 	fillCache(e, now)
-	if _, err := e.exchange(t.Context(), clientToken); err != nil {
+	if _, err := e.exchange(t.Context(), clientToken, testAddr); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := e.cache[expired]; ok {
@@ -605,7 +606,7 @@ func TestAFullCacheOfLiveTokensEvictsTheSoonestToExpire(t *testing.T) {
 	e.cache[soonest] = exchanged{expires: now.Add(time.Minute)}
 	e.cache[latest] = exchanged{expires: now.Add(time.Hour)}
 	fillCache(e, now)
-	if _, err := e.exchange(t.Context(), clientToken); err != nil {
+	if _, err := e.exchange(t.Context(), clientToken, testAddr); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := e.cache[soonest]; ok {
@@ -733,10 +734,10 @@ func TestARefusalForOneTokenDoesNotPauseOthers(t *testing.T) {
 		exchange(w, form)
 	}
 	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
-	if _, err := e.exchange(t.Context(), "junk"); !errors.Is(err, errUnavailable) {
+	if _, err := e.exchange(t.Context(), "junk", testAddr); !errors.Is(err, errUnavailable) {
 		t.Fatalf("err = %v, want errUnavailable", err)
 	}
-	if _, err := e.exchange(t.Context(), clientToken); err != nil {
+	if _, err := e.exchange(t.Context(), clientToken, testAddr); err != nil {
 		t.Errorf("a 429 for one token paused another: %v", err)
 	}
 }
@@ -746,7 +747,7 @@ func TestACachedTokenIsUsedUntilItExpiresWhileCoreIsDown(t *testing.T) {
 	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
 	now := time.Now()
 	e.now = func() time.Time { return now }
-	if _, err := e.exchange(t.Context(), clientToken); err != nil {
+	if _, err := e.exchange(t.Context(), clientToken, testAddr); err != nil {
 		t.Fatal(err)
 	}
 	core.exchange = func(w http.ResponseWriter, _ map[string]string) { w.WriteHeader(http.StatusBadGateway) }
@@ -754,13 +755,13 @@ func TestACachedTokenIsUsedUntilItExpiresWhileCoreIsDown(t *testing.T) {
 	// still has a minute left.
 	now = now.Add(4 * time.Minute)
 	for range 2 { // the second is during the pause
-		got, err := e.exchange(t.Context(), clientToken)
+		got, err := e.exchange(t.Context(), clientToken, testAddr)
 		if err != nil || got.token != coreToken {
 			t.Fatalf("got %+v, %v; want the cached token", got, err)
 		}
 	}
 	now = now.Add(time.Minute)
-	if _, err := e.exchange(t.Context(), clientToken); !errors.Is(err, errUnavailable) {
+	if _, err := e.exchange(t.Context(), clientToken, testAddr); !errors.Is(err, errUnavailable) {
 		t.Errorf("err = %v after the token expired, want errUnavailable", err)
 	}
 }
@@ -844,5 +845,229 @@ func TestResourceURLPaths(t *testing.T) {
 				t.Errorf("GET %s = %d", metaPath, resp.StatusCode)
 			}
 		})
+	}
+}
+
+func TestTokensCoreRefusesFromOneAddressStopReachingCore(t *testing.T) {
+	core := newFakeCore(t)
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	now := time.Now()
+	e.now = func() time.Time { return now }
+
+	for i := range maxRefusals {
+		if _, err := e.exchange(t.Context(), fmt.Sprintf("junk-%d", i), testAddr); !errors.Is(err, auth.ErrInvalidToken) {
+			t.Fatalf("junk %d: err = %v, want invalid token", i, err)
+		}
+	}
+	if core.exchanges != maxRefusals {
+		t.Fatalf("core exchanges = %d, want %d", core.exchanges, maxRefusals)
+	}
+	// Past the limit, nothing new from that address reaches core, a good token included.
+	for _, subject := range []string{"junk-next", clientToken} {
+		if _, err := e.exchange(t.Context(), subject, testAddr); !errors.Is(err, errThrottled) || errors.Is(err, errCoreDown) {
+			t.Errorf("%s: err = %v, want throttled without pausing everyone", subject, err)
+		}
+	}
+	if core.exchanges != maxRefusals {
+		t.Errorf("core exchanges = %d after the limit, want %d", core.exchanges, maxRefusals)
+	}
+	// Other addresses aren't held back.
+	if _, err := e.exchange(t.Context(), clientToken, "192.0.2.2"); err != nil {
+		t.Fatalf("another address: %v", err)
+	}
+	// And the address may ask again once its window ends.
+	now = now.Add(refusalWindow)
+	if _, err := e.exchange(t.Context(), "junk-later", testAddr); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Errorf("after the window: err = %v, want invalid token", err)
+	}
+}
+
+func TestATokenRefusedAgainFromMemoryDoesNotCount(t *testing.T) {
+	core := newFakeCore(t)
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	for range maxRefusals * 2 {
+		_, _ = e.exchange(t.Context(), "junk", testAddr)
+	}
+	if _, err := e.exchange(t.Context(), clientToken, testAddr); err != nil {
+		t.Errorf("one refused token sent again and again throttled its address: %v", err)
+	}
+}
+
+func TestAThrottledAddressKeepsItsCachedTokens(t *testing.T) {
+	core := newFakeCore(t)
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	now := time.Now()
+	e.now = func() time.Time { return now }
+	if _, err := e.exchange(t.Context(), clientToken, testAddr); err != nil {
+		t.Fatal(err)
+	}
+	for i := range maxRefusals {
+		_, _ = e.exchange(t.Context(), fmt.Sprintf("junk-%d", i), testAddr)
+	}
+	// Due for a new exchange, but still unexpired: served from the cache.
+	now = now.Add(5*time.Minute - expiryMargin)
+	if got, err := e.exchange(t.Context(), clientToken, testAddr); err != nil || got.token != coreToken {
+		t.Errorf("got %q, %v; want the cached token", got.token, err)
+	}
+}
+
+func TestAThrottledRequestIsAToolErrorNotA401(t *testing.T) {
+	core := newFakeCore(t)
+	srv := newHost(t, core)
+	for i := range maxRefusals {
+		if res := initialize(t, srv, fmt.Sprintf("junk-%d", i)); res.status != http.StatusUnauthorized {
+			t.Fatalf("junk %d: status = %d", i, res.status)
+		}
+	}
+	res := call(t, srv, clientToken, "tools/call", map[string]any{"name": "get_environments", "arguments": map[string]any{}})
+	if res.status != http.StatusOK {
+		t.Fatalf("status = %d", res.status)
+	}
+	if text, isError := toolText(t, res); !isError || text != unavailableMessage {
+		t.Errorf("result = %q (isError %v)", text, isError)
+	}
+}
+
+func TestClientAddress(t *testing.T) {
+	for name, tc := range map[string]struct {
+		behindProxy bool
+		forwarded   []string
+		want        string
+	}{
+		"direct":                              {want: "192.0.2.9"},
+		"direct ignores X-Forwarded-For":      {forwarded: []string{"198.51.100.1"}, want: "192.0.2.9"},
+		"behind a proxy":                      {behindProxy: true, forwarded: []string{"198.51.100.1"}, want: "198.51.100.1"},
+		"the proxy's entry, not the client's": {behindProxy: true, forwarded: []string{"203.0.113.5, 198.51.100.1"}, want: "198.51.100.1"},
+		"the last header":                     {behindProxy: true, forwarded: []string{"203.0.113.5", "198.51.100.1"}, want: "198.51.100.1"},
+		"behind a proxy without the header":   {behindProxy: true, want: "192.0.2.9"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+			req.RemoteAddr = "192.0.2.9:41234"
+			for _, v := range tc.forwarded {
+				req.Header.Add("X-Forwarded-For", v)
+			}
+			if got := (&host{behindProxy: tc.behindProxy}).clientAddress(req); got != tc.want {
+				t.Errorf("clientAddress = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func get(t *testing.T, srv *httptest.Server, path string) int {
+	t.Helper()
+	resp, err := http.Get(srv.URL + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+// eventually polls cond for up to two seconds: /readyz checks with core in the background.
+func eventually(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if cond() {
+			return
+		}
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+func TestNotReadyWhileCoreRefusesTheServer(t *testing.T) {
+	core := newFakeCore(t)
+	refuse := func(w http.ResponseWriter, _ map[string]string) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+	}
+	core.mu.Lock()
+	core.exchange = refuse
+	core.mu.Unlock()
+	srv := newHost(t, core)
+
+	// No traffic needed: /readyz asks core itself.
+	eventually(t, "/readyz to fail", func() bool { return get(t, srv, "/readyz") == http.StatusServiceUnavailable })
+	if status := get(t, srv, "/healthz"); status != http.StatusOK {
+		t.Errorf("/healthz = %d: a restart can't fix the secret", status)
+	}
+}
+
+func TestReadyAgainOnceCoreAcceptsTheServer(t *testing.T) {
+	core := newFakeCore(t)
+	good := core.exchange
+	core.exchange = func(w http.ResponseWriter, _ map[string]string) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+	}
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	var mu sync.Mutex
+	now := time.Now()
+	e.now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+
+	_, _ = e.exchange(t.Context(), clientToken, testAddr)
+	if !e.notReady() {
+		t.Fatal("an invalid_client answer left the server ready")
+	}
+	core.mu.Lock()
+	core.exchange = good
+	core.mu.Unlock()
+
+	e.recheck()
+	eventually(t, "the recheck", func() bool { return !e.notReady() })
+	core.mu.Lock()
+	asked := core.exchanges
+	core.mu.Unlock()
+	// Confirmed: no more checks.
+	mu.Lock()
+	now = now.Add(recheckEvery)
+	mu.Unlock()
+	e.recheck()
+	time.Sleep(50 * time.Millisecond)
+	core.mu.Lock()
+	defer core.mu.Unlock()
+	if core.exchanges != asked {
+		t.Errorf("checked again after core accepted the server")
+	}
+}
+
+func TestRechecksAreSpacedOut(t *testing.T) {
+	core := newFakeCore(t)
+	core.exchange = func(w http.ResponseWriter, _ map[string]string) { w.WriteHeader(http.StatusBadGateway) }
+	e := newExchanger(core.server.URL+"/oauth/token", core.server.URL+"/api", "host", secret)
+	now := time.Now()
+	e.now = func() time.Time { return now }
+	count := func() int { core.mu.Lock(); defer core.mu.Unlock(); return core.exchanges }
+
+	e.recheck()
+	eventually(t, "the first check", func() bool { return count() == 1 })
+	e.recheck()
+	e.recheck()
+	time.Sleep(50 * time.Millisecond)
+	if n := count(); n != 1 {
+		t.Fatalf("core asked %d times within %s", n, recheckEvery)
+	}
+	if e.notReady() {
+		t.Error("core being down made the server unready")
+	}
+}
+
+// Core's secret rotated before the release: the pods core accepted stay ready,
+// so the tokens they hold keep working until the release catches up.
+func TestAServerCoreAcceptedStaysReadyWhenCoreLaterRefusesIt(t *testing.T) {
+	core := newFakeCore(t)
+	srv := newHost(t, core)
+	if res := initialize(t, srv, clientToken); res.status != http.StatusOK {
+		t.Fatalf("initialize status = %d", res.status)
+	}
+	core.mu.Lock()
+	core.exchange = func(w http.ResponseWriter, _ map[string]string) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+	}
+	core.mu.Unlock()
+	_ = initialize(t, srv, "another-token")
+	if status := get(t, srv, "/readyz"); status != http.StatusOK {
+		t.Errorf("/readyz = %d after core refused a server it had accepted", status)
 	}
 }

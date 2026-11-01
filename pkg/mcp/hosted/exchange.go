@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -49,6 +50,23 @@ const (
 	// Between scans a full cache evicts a batch, so tokens expiring one at a
 	// time can't make every insert scan all of it.
 	sweepEvery = 10 * time.Second
+	// maxRefusals is how many tokens core may refuse for one client address in
+	// refusalWindow, on one replica, before that address's tokens that aren't
+	// cached stop reaching core until the window ends. Only refusals count, as
+	// in core's own limit for this server: a junk token costs core an exchange,
+	// and enough of them from anywhere use up core's ceiling for this server,
+	// which pauses every user's exchanges. A client that sends all its users
+	// from a few shared addresses rarely sends a token core refuses: each
+	// refused token is answered from memory for refusedFor after the first.
+	maxRefusals   = 60
+	refusalWindow = time.Minute
+	// recheckEvery is how often /readyz asks core about this server's own
+	// credentials while they aren't confirmed.
+	recheckEvery = 30 * time.Second
+	// configCheckToken is a subject token that can't exist. Core checks this
+	// server's client and resource before the subject token, so it refuses the
+	// token itself only when both are right.
+	configCheckToken = "shipyard-mcp-host-config-check"
 )
 
 // errUnavailable means the exchange couldn't be completed for a reason that
@@ -66,6 +84,10 @@ var errMisconfigured = errors.New("this server's OAuth client or URLs don't matc
 // pauses the exchanges. Any other refusal is about the one request a client
 // chose to send.
 var errCoreDown = errors.New("core is down or refused this server")
+
+// errThrottled is the part of errUnavailable that holds for one client address:
+// core refused too many of its tokens lately (see maxRefusals).
+var errThrottled = errors.New("core refused too many tokens from this address")
 
 // retryAfter is how long core asked this server to wait, from a 429.
 type retryAfter time.Duration
@@ -99,6 +121,21 @@ type exchanger struct {
 	sweptAt time.Time
 	// unavailableUntil is when core may be asked again after errCoreDown.
 	unavailableUntil time.Time
+	// refusals counts, per client address, the tokens core refused in the
+	// address's current window.
+	refusals map[string]refusalCount
+	// checkedAt is when /readyz last asked core about this server's credentials.
+	checkedAt time.Time
+
+	// misconfigured is set while core refuses this server's own client or
+	// resource. accepted is set once core has accepted them, and stays set.
+	misconfigured atomic.Bool
+	accepted      atomic.Bool
+}
+
+type refusalCount struct {
+	start time.Time
+	count int
 }
 
 func newExchanger(tokenURL, resource, clientID, clientSecret string) *exchanger {
@@ -113,16 +150,17 @@ func newExchanger(tokenURL, resource, clientID, clientSecret string) *exchanger 
 			// again, to wherever it points.
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
-		now:     time.Now,
-		cache:   make(map[[sha256.Size]byte]exchanged),
-		refused: make(map[[sha256.Size]byte]time.Time),
+		now:      time.Now,
+		cache:    make(map[[sha256.Size]byte]exchanged),
+		refused:  make(map[[sha256.Size]byte]time.Time),
+		refusals: make(map[string]refusalCount),
 	}
 }
 
-// exchange returns a core API token for subject. An error wraps
-// auth.ErrInvalidToken when the subject token itself is no good, and
-// errUnavailable otherwise.
-func (e *exchanger) exchange(ctx context.Context, subject string) (exchanged, error) {
+// exchange returns a core API token for subject, sent from the client address
+// addr. An error wraps auth.ErrInvalidToken when the subject token itself is no
+// good, and errUnavailable otherwise.
+func (e *exchanger) exchange(ctx context.Context, subject, addr string) (exchanged, error) {
 	if len(url.QueryEscape(subject)) > maxTokenBytes {
 		return exchanged{}, fmt.Errorf("%w: the token is too long", auth.ErrInvalidToken)
 	}
@@ -131,6 +169,7 @@ func (e *exchanger) exchange(ctx context.Context, subject string) (exchanged, er
 	hit, ok := e.cache[key]
 	refusedUntil, refused := e.refused[key]
 	backoff := e.now().Before(e.unavailableUntil)
+	throttled := e.overRefusals(addr)
 	e.mu.Unlock()
 	if refused && e.now().Before(refusedUntil) {
 		return exchanged{}, fmt.Errorf("%w: core refused the token moments ago", auth.ErrInvalidToken)
@@ -140,9 +179,12 @@ func (e *exchanger) exchange(ctx context.Context, subject string) (exchanged, er
 	}
 	// While core can't exchange again, a cached token is good until it expires.
 	usable := ok && e.now().Before(hit.expires)
-	if backoff {
+	if backoff || throttled {
 		if usable {
 			return hit, nil
+		}
+		if throttled {
+			return exchanged{}, fmt.Errorf("%w: %w", errUnavailable, errThrottled)
 		}
 		return exchanged{}, fmt.Errorf("%w: core was unavailable moments ago", errUnavailable)
 	}
@@ -152,6 +194,7 @@ func (e *exchanger) exchange(ctx context.Context, subject string) (exchanged, er
 	result, err, _ := e.group.Do(string(key[:]), func() (any, error) {
 		return e.request(context.WithoutCancel(ctx), subject)
 	})
+	e.observe(err)
 	if err != nil {
 		if errors.Is(err, errCoreDown) {
 			pause := unavailableBackoff
@@ -169,7 +212,7 @@ func (e *exchanger) exchange(ctx context.Context, subject string) (exchanged, er
 		}
 		e.forget(subject)
 		if errors.Is(err, auth.ErrInvalidToken) {
-			e.refuse(key)
+			e.refuse(key, addr)
 		}
 		return exchanged{}, err
 	}
@@ -207,15 +250,89 @@ func (e *exchanger) store(key [sha256.Size]byte, got exchanged) {
 	e.cache[key] = got
 }
 
-// refuse answers key's token with a 401 for refusedFor without asking core. A
-// full set is cleared: the worst case is asking core again.
-func (e *exchanger) refuse(key [sha256.Size]byte) {
+// refuse answers key's token with a 401 for refusedFor without asking core,
+// and counts the refusal against addr. A full set is cleared: the worst case
+// is asking core again.
+func (e *exchanger) refuse(key [sha256.Size]byte, addr string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	now := e.now()
 	if len(e.refused) >= maxCached {
 		clear(e.refused)
 	}
-	e.refused[key] = e.now().Add(refusedFor)
+	e.refused[key] = now.Add(refusedFor)
+
+	c := e.refusals[addr]
+	if now.Sub(c.start) >= refusalWindow {
+		if len(e.refusals) >= maxCached {
+			for a, old := range e.refusals {
+				if now.Sub(old.start) >= refusalWindow {
+					delete(e.refusals, a)
+				}
+			}
+			// Still full: forgetting every count only lets addresses ask core again.
+			if len(e.refusals) >= maxCached {
+				clear(e.refusals)
+			}
+		}
+		c = refusalCount{start: now}
+	}
+	c.count++
+	e.refusals[addr] = c
+	if c.count == maxRefusals {
+		Logger.Printf("MCP hosted: core refused %d tokens from one address within %s; its new tokens wait for the rest of it",
+			maxRefusals, refusalWindow)
+	}
+}
+
+// overRefusals reports whether core refused maxRefusals of addr's tokens in its
+// current window. Call it with e.mu held.
+func (e *exchanger) overRefusals(addr string) bool {
+	c, ok := e.refusals[addr]
+	return ok && c.count >= maxRefusals && e.now().Sub(c.start) < refusalWindow
+}
+
+// observe records what an answer from core says about this server's own
+// client and resource. Any other error says nothing about them.
+func (e *exchanger) observe(err error) {
+	switch {
+	case err == nil, errors.Is(err, auth.ErrInvalidToken):
+		e.misconfigured.Store(false)
+		e.accepted.Store(true)
+	case errors.Is(err, errMisconfigured):
+		e.misconfigured.Store(true)
+	}
+}
+
+// notReady reports whether core refuses this server's credentials and has
+// never accepted them: the release has the wrong secret. Once accepted, a
+// refusal (core's secret rotated first) leaves it ready, so the tokens it holds
+// keep working until the release catches up.
+func (e *exchanger) notReady() bool {
+	return e.misconfigured.Load() && !e.accepted.Load()
+}
+
+// recheck asks core about this server's credentials in the background, at most
+// every recheckEvery, until core accepts them. Without it a server that core
+// refused would never learn it was fixed: it gets no traffic while unready.
+func (e *exchanger) recheck() {
+	if e.accepted.Load() {
+		return
+	}
+	e.mu.Lock()
+	now := e.now()
+	due := now.Sub(e.checkedAt) >= recheckEvery
+	if due {
+		e.checkedAt = now
+	}
+	e.mu.Unlock()
+	if !due {
+		return
+	}
+	go func() {
+		_, err := e.request(context.Background(), configCheckToken)
+		e.observe(err)
+	}()
 }
 
 func later(a, b time.Time) time.Time {

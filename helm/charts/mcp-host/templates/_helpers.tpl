@@ -23,6 +23,19 @@ app.kubernetes.io/name: {{ include "mcp-host.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
+{{/* The image: by digest too when one is given, so a tag pushed again can't change what runs. */}}
+{{- define "mcp-host.image" -}}
+{{- $tag := required "image.tag is required: the CLI release the image was built from" .Values.image.tag -}}
+{{- with .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" .) -}}
+{{- fail (printf "image.digest must be sha256:<64 hex digits>, got %q" .) -}}
+{{- end -}}
+{{- printf "%s:%s@%s" $.Values.image.repository $tag . -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- end -}}
+{{- end -}}
+
 {{/* The resource URL, checked: https, a host, and no query or fragment. */}}
 {{- define "mcp-host.resourceUrl" -}}
 {{- $raw := required "mcp.resourceUrl is required: this server's MCP URL, e.g. https://mcp.shipyard.build/mcp" .Values.mcp.resourceUrl -}}

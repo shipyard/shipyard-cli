@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -64,6 +65,10 @@ type Config struct {
 	// (OAUTH_MCP_HOST_CLIENT_ID / OAUTH_MCP_HOST_CLIENT_SECRET).
 	ClientID     string
 	ClientSecret string
+	// BehindProxy takes each request's client address from the last entry of
+	// X-Forwarded-For, which the proxy in front (the ingress) appends. Set it
+	// only behind one: without it a client could name any address it likes.
+	BehindProxy bool
 }
 
 func (c Config) validate() error {
@@ -94,7 +99,10 @@ func Handler(cfg Config) (http.Handler, error) {
 		mcpPath = "/"
 	}
 
-	h := &host{exchanger: newExchanger(site+"/oauth/token", site+"/api", cfg.ClientID, cfg.ClientSecret)}
+	h := &host{
+		exchanger:   newExchanger(site+"/oauth/token", site+"/api", cfg.ClientID, cfg.ClientSecret),
+		behindProxy: cfg.BehindProxy,
+	}
 
 	// RFC 9728 puts the metadata for a resource with a path under that path. Some
 	// clients only look at the root, so both answer.
@@ -122,7 +130,20 @@ func Handler(cfg Config) (http.Handler, error) {
 	if mcpPath != "/" {
 		mux.Handle(protectedResourcePath+strings.TrimSuffix(mcpPath, "/"), metadata)
 	}
+	// Liveness: the process answers. Restarting can't fix anything /readyz reports.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	// Readiness: not until core accepts this server's own client and resource,
+	// if it has refused them, so a release with the wrong secret fails its
+	// rollout. Core being down is still ready: every replica would be down with
+	// it, and tool calls answer with a retry hint meanwhile.
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		h.exchanger.recheck()
+		if h.exchanger.notReady() {
+			http.Error(w, "core refuses this server's client credentials or resource", http.StatusServiceUnavailable)
+			return
+		}
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.Handle(mcpPath, auth.RequireBearerToken(h.verify, &auth.RequireBearerTokenOptions{
@@ -141,7 +162,7 @@ func CheckConfig(ctx context.Context, cfg Config) error {
 	}
 	site := strings.TrimSuffix(cfg.SiteURL, "/")
 	_, err := newExchanger(site+"/oauth/token", site+"/api", cfg.ClientID, cfg.ClientSecret).
-		request(ctx, "shipyard-mcp-host-config-check")
+		request(ctx, configCheckToken)
 	switch {
 	case err == nil, errors.Is(err, auth.ErrInvalidToken):
 		return nil
@@ -176,17 +197,38 @@ func requestServer(req *http.Request) *mcp.Server {
 }
 
 type host struct {
-	exchanger *exchanger
+	exchanger   *exchanger
+	behindProxy bool
+}
+
+// clientAddress is the address a request came from, for the refusal limit.
+func (h *host) clientAddress(req *http.Request) string {
+	if h.behindProxy {
+		if forwarded := req.Header.Values("X-Forwarded-For"); len(forwarded) > 0 {
+			hops := strings.Split(forwarded[len(forwarded)-1], ",")
+			if last := strings.TrimSpace(hops[len(hops)-1]); last != "" {
+				return last
+			}
+		}
+	}
+	addr, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		return req.RemoteAddr
+	}
+	return addr
 }
 
 // verify exchanges the client's token. Only a token core refuses is a 401: when
 // core can't be reached the request goes on, and every tool call answers with
 // a retry hint instead.
-func (h *host) verify(ctx context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
-	got, err := h.exchanger.exchange(ctx, token)
+func (h *host) verify(ctx context.Context, token string, req *http.Request) (*auth.TokenInfo, error) {
+	got, err := h.exchanger.exchange(ctx, token, h.clientAddress(req))
 	switch {
 	case errors.Is(err, auth.ErrInvalidToken):
 		return nil, err
+	case errors.Is(err, errThrottled):
+		// Logged once, when the address reached the limit.
+		return unavailableInfo(), nil
 	case errors.Is(err, errMisconfigured):
 		Logger.Printf("MCP hosted: misconfigured, every request will fail until it's fixed: %v", err)
 		return unavailableInfo(), nil

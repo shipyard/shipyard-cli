@@ -58,10 +58,14 @@ define mcp_host_install
 	@test -n "$$SHIPYARD_MCP_CLIENT_SECRET" || { echo "SHIPYARD_MCP_CLIENT_SECRET is required"; exit 1; }
 	@# A pattern, not grep: grep passes a value with a newline if any one line matches.
 	@case "$$SHIPYARD_MCP_CLIENT_SECRET" in *[!A-Za-z0-9._~+/=-]*) echo "SHIPYARD_MCP_CLIENT_SECRET must be one token: letters, digits and ._~+/=-"; exit 1 ;; esac
-	@printf 'mcp:\n  clientSecret: "%s"\n' "$$SHIPYARD_MCP_CLIENT_SECRET" | helm upgrade -i --atomic --timeout 5m \
+	@# Deployed by digest, looked up now: a tag pushed again later can't change what runs.
+	@digest=$$(docker buildx imagetools inspect "$(MCP_HOST_IMAGE):$(MCP_HOST_TAG)" --format '{{.Manifest.Digest}}') \
+	  && case "$$digest" in sha256:*) ;; *) echo "Couldn't look up the digest of $(MCP_HOST_IMAGE):$(MCP_HOST_TAG)"; exit 1 ;; esac \
+	  && printf 'mcp:\n  clientSecret: "%s"\n' "$$SHIPYARD_MCP_CLIENT_SECRET" | helm upgrade -i --atomic --timeout 5m \
 	  --kube-context $(KUBE_CONTEXT) --namespace $(1) --create-namespace \
 	  --set-string image.repository=$(MCP_HOST_IMAGE) \
 	  --set-string image.tag=$(MCP_HOST_TAG) \
+	  --set-string image.digest=$$digest \
 	  --set-string mcp.resourceUrl=$(2) \
 	  --set-string mcp.siteUrl=$(3) \
 	  -f - mcp-host $(MCP_HOST_CHART)
