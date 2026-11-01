@@ -39,6 +39,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $raw -}}
 {{- end -}}
 
+{{/* Shipyard's URL, checked: the server sends its client secret and users' tokens there. */}}
+{{- define "mcp-host.siteUrl" -}}
+{{- $raw := required "mcp.siteUrl is required" .Values.mcp.siteUrl -}}
+{{- if ne (urlParse $raw).scheme "https" -}}
+{{- fail (printf "mcp.siteUrl must be https, got %q" $raw) -}}
+{{- end -}}
+{{- $raw -}}
+{{- end -}}
+
 {{- define "mcp-host.host" -}}
 {{- (urlParse (include "mcp-host.resourceUrl" .)).host -}}
 {{- end -}}
@@ -53,7 +62,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{- define "mcp-host.secretKey" -}}
 {{- if .Values.mcp.existingSecret -}}
-{{- .Values.mcp.existingSecretKey -}}
+{{- required "mcp.existingSecretKey is required with mcp.existingSecret: the key that holds the client secret" .Values.mcp.existingSecretKey -}}
 {{- else -}}
 SHIPYARD_MCP_CLIENT_SECRET
 {{- end -}}

@@ -32,7 +32,8 @@ MCP_HOST_CHART := helm/charts/mcp-host
 
 check.mcp-host-tag:
 	@git describe --exact-match --tags HEAD > /dev/null 2>&1 || { echo "Build the hosted MCP image from a release tag: HEAD is $(VERSION)"; exit 1; }
-	@case "$(VERSION)" in *dirty*) echo "The tree has uncommitted changes ($(VERSION))"; exit 1 ;; esac
+	@# Untracked files too: the Dockerfile copies the whole tree, and describe --dirty ignores them.
+	@test -z "$$(git status --porcelain)" || { echo "The tree has uncommitted or untracked files:"; git status --short; exit 1; }
 
 mcp-host.image: check.mcp-host-tag
 	docker build --platform linux/amd64 --build-arg version=$(VERSION) --build-arg git_commit=$(GIT_COMMIT) \
@@ -50,9 +51,11 @@ chart-test:
 define mcp_host_install
 	@test -n "$(MCP_HOST_TAG)" || { echo "MCP_HOST_TAG is required, e.g. v1.11.0"; exit 1; }
 	@test -n "$$SHIPYARD_MCP_CLIENT_SECRET" || { echo "SHIPYARD_MCP_CLIENT_SECRET is required"; exit 1; }
-	@printf '%s' "$$SHIPYARD_MCP_CLIENT_SECRET" | grep -qE '^[A-Za-z0-9._~+/=-]+$$' || { echo "SHIPYARD_MCP_CLIENT_SECRET must be one token: letters, digits and ._~+/=-"; exit 1; }
+	@# A pattern, not grep: grep passes a value with a newline if any one line matches.
+	@case "$$SHIPYARD_MCP_CLIENT_SECRET" in *[!A-Za-z0-9._~+/=-]*) echo "SHIPYARD_MCP_CLIENT_SECRET must be one token: letters, digits and ._~+/=-"; exit 1 ;; esac
 	@printf 'mcp:\n  clientSecret: "%s"\n' "$$SHIPYARD_MCP_CLIENT_SECRET" | helm upgrade -i --atomic --timeout 5m \
 	  --namespace $(1) --create-namespace \
+	  --set-string image.repository=$(MCP_HOST_IMAGE) \
 	  --set-string image.tag=$(MCP_HOST_TAG) \
 	  --set-string mcp.resourceUrl=$(2) \
 	  --set-string mcp.siteUrl=$(3) \

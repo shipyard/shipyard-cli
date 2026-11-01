@@ -46,6 +46,12 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
     # The server refuses request bodies over 1MB itself.
     nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+    # The server has no per-client limit, and every new token costs core an
+    # exchange: enough of them use up core's limit for this server, and it then
+    # pauses every user's exchanges. Limits are per client address, so nginx
+    # has to see real client IPs, or every client shares one limit.
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
 
 resources:
   requests:

@@ -824,7 +824,11 @@ connection, so clients have to sign in again.
    different one per environment. Both settings must be in place before the host
    starts: it checks them with core at startup and exits if core refuses them.
 2. **DNS.** Point the host name at the cluster's ingress. cert-manager issues
-   the certificate (`letsencrypt-production`) once the name resolves.
+   the certificate (`letsencrypt-production`) once the name resolves. The
+   chart limits each client address to 10 requests a second and 20
+   connections, so the ingress has to see clients' real addresses (proxy
+   protocol or forwarded headers from the load balancer). Otherwise every
+   client shares one limit.
 3. **Image**, from a release tag on a clean tree:
 
    ```bash
@@ -868,8 +872,19 @@ core's `OAUTH_MCP_HOST_CLIENT_SECRET` and the host's release together. Until
 both match, a call that needs a new exchanged token fails with a retry hint;
 tokens the host already holds keep working until they expire.
 
-**Rolling back.** `helm rollback mcp-host -n <namespace>` returns to the
-previous image and settings.
+**Rolling back.** Release the previous tag the same way, with the current
+secret in `SHIPYARD_MCP_CLIENT_SECRET`:
+
+```bash
+make mcp-host.install.qa MCP_HOST_TAG=<previous tag>
+```
+
+Avoid `helm rollback` after rotating the secret. Each release keeps the
+secret it was installed with, so rolling back restores the old one; core
+refuses it and new pods exit at startup. The old pods keep serving until
+they're next replaced. `--atomic` rolls back the same way when an upgrade
+fails, so after a rotation check that the release you're left with holds the
+new secret.
 
 ## Updating, uninstalling and rolling back
 

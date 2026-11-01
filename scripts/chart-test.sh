@@ -8,7 +8,8 @@
 #
 set -euo pipefail
 
-CHART="$(cd "$(dirname "$0")/.." && pwd)/helm/charts/mcp-host"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CHART="$ROOT/helm/charts/mcp-host"
 
 ok=(--set image.tag=v1.0.0 --set mcp.resourceUrl=https://mcp.example.test/mcp --set mcp.clientSecret=test-secret)
 failures=0
@@ -54,12 +55,16 @@ if command -v kubeconform > /dev/null; then
     else
         fail "kubeconform"
     fi
+else
+    echo "skip manifests match the Kubernetes schemas: kubeconform isn't installed"
 fi
 
 expect_contains "ingress serves the resource URL's host" "- host: mcp.example.test" "${ok[@]}"
 expect_contains "certificate covers that host" "- mcp.example.test" "${ok[@]}"
 expect_contains "nginx doesn't buffer responses" 'proxy-buffering: "off"' "${ok[@]}"
 expect_contains "nginx waits past the server's WriteTimeout" 'proxy-read-timeout: "120"' "${ok[@]}"
+expect_contains "nginx limits requests per client" 'limit-rps: "10"' "${ok[@]}"
+expect_contains "nginx limits connections per client" 'limit-connections: "20"' "${ok[@]}"
 expect_contains "server gets the resource URL" 'value: "https://mcp.example.test/mcp"' "${ok[@]}"
 expect_contains "secret comes from a Secret, not a value" "secretKeyRef:" "${ok[@]}"
 expect_contains "runs read-only" "readOnlyRootFilesystem: true" "${ok[@]}"
@@ -67,17 +72,29 @@ expect_contains "verbose is off by default" '"--listen", ":8080"]' "${ok[@]}"
 expect_contains "an existing Secret is used by name" "name: mcp-secrets" \
     --set image.tag=v1.0.0 --set mcp.resourceUrl=https://mcp.example.test/mcp \
     --set mcp.existingSecret=mcp-secrets --set mcp.existingSecretKey=client-secret
-if render "${ok[@]}" --set replicaCount=1 | grep -q "kind: PodDisruptionBudget"; then
-    fail "no PDB with one replica: a PDB would block every drain"
-else
-    pass "no PDB with one replica"
-fi
-if render --set image.tag=v1.0.0 --set mcp.resourceUrl=https://mcp.example.test/mcp \
-    --set mcp.existingSecret=mcp-secrets | grep -q "kind: Secret"; then
-    fail "an existing Secret isn't recreated by the chart"
-else
-    pass "no chart Secret with an existing one"
-fi
+expect_contains "an existing Secret's key is used" "key: client-secret" \
+    --set image.tag=v1.0.0 --set mcp.resourceUrl=https://mcp.example.test/mcp \
+    --set mcp.existingSecret=mcp-secrets --set mcp.existingSecretKey=client-secret
+
+# expect_absent <name> <text> <helm args...>: renders, and without <text>.
+expect_absent() {
+    local name="$1" unwanted="$2" out
+    shift 2
+    if ! out="$(render "$@")"; then
+        fail "$name: didn't render"
+        printf '%s\n' "$out" | head -5
+    elif grep -qF -- "$unwanted" <<< "$out"; then
+        fail "$name: rendered with ${unwanted}"
+    else
+        pass "$name"
+    fi
+}
+
+# A PDB with one replica would block every drain.
+expect_absent "no PDB with one replica" "kind: PodDisruptionBudget" "${ok[@]}" --set replicaCount=1
+expect_absent "no chart Secret with an existing one" "kind: Secret" \
+    --set image.tag=v1.0.0 --set mcp.resourceUrl=https://mcp.example.test/mcp \
+    --set mcp.existingSecret=mcp-secrets
 
 expect_refused "no image tag" "image.tag is required" \
     --set mcp.resourceUrl=https://mcp.example.test/mcp --set mcp.clientSecret=x
@@ -92,6 +109,58 @@ expect_refused "resource URL with a query" "query or fragment" \
 expect_refused "no client secret" "mcp.clientSecret or mcp.existingSecret is required" \
     --set image.tag=v1.0.0 --set mcp.resourceUrl=https://mcp.example.test/mcp
 expect_refused "both secret sources" "not both" "${ok[@]}" --set mcp.existingSecret=mcp-secrets
+expect_refused "existing Secret without a key" "mcp.existingSecretKey is required" \
+    --set image.tag=v1.0.0 --set mcp.resourceUrl=https://mcp.example.test/mcp \
+    --set mcp.existingSecret=mcp-secrets --set mcp.existingSecretKey=
+# The server sends its client secret and users' tokens to the site URL.
+expect_refused "http site URL" "mcp.siteUrl must be https" "${ok[@]}" --set mcp.siteUrl=http://shipyard.example.test
+
+# The install recipe, run against a fake helm that records what it was given:
+# the secret reaches helm as given, and a secret that isn't one token is
+# refused before helm runs.
+fake_bin="$(mktemp -d)"
+trap 'rm -rf "$fake_bin"' EXIT
+cat > "$fake_bin/helm" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$fake_bin/argv"
+cat > "$fake_bin/stdin"
+EOF
+chmod +x "$fake_bin/helm"
+
+install_qa() {
+    rm -f "$fake_bin/argv" "$fake_bin/stdin"
+    (cd "$ROOT" && SHIPYARD_MCP_CLIENT_SECRET="$1" PATH="$fake_bin:$PATH" \
+        make -s mcp-host.install.qa MCP_HOST_TAG=v1.0.0 MCP_HOST_IMAGE=registry.example.test/mcp-host) 2>&1
+}
+
+if install_qa "test-secret" > /dev/null && grep -qF 'clientSecret: "test-secret"' "$fake_bin/stdin"; then
+    pass "install sends the secret to helm"
+else
+    fail "install sends the secret to helm"
+fi
+if grep -qF 'image.repository=registry.example.test/mcp-host' "$fake_bin/argv" 2> /dev/null; then
+    pass "install deploys the image it pushed"
+else
+    fail "install deploys the image it pushed: no image.repository=\$(MCP_HOST_IMAGE)"
+fi
+
+# expect_install_refused <name> <secret>
+expect_install_refused() {
+    local name="$1" out
+    if out="$(install_qa "$2")"; then
+        fail "$name: the install ran helm"
+    elif [[ -e "$fake_bin/argv" ]]; then
+        fail "$name: refused, but only after running helm"
+    elif grep -qF "must be one token" <<< "$out"; then
+        pass "$name"
+    else
+        fail "$name: refused, but without \"must be one token\""
+        printf '%s\n' "$out" | head -5
+    fi
+}
+
+expect_install_refused "install refuses a secret with a quote" 'abc"def'
+expect_install_refused "install refuses a secret over two lines" "$(printf 'first\nsecond')"
 
 if [[ "$failures" -gt 0 ]]; then
     printf '%d chart check(s) failed\n' "$failures"

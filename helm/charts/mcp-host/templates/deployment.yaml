@@ -40,7 +40,7 @@ spec:
             - name: SHIPYARD_MCP_RESOURCE_URL
               value: {{ include "mcp-host.resourceUrl" . | quote }}
             - name: SHIPYARD_MCP_SITE_URL
-              value: {{ required "mcp.siteUrl is required" .Values.mcp.siteUrl | quote }}
+              value: {{ include "mcp-host.siteUrl" . | quote }}
             - name: SHIPYARD_MCP_CLIENT_ID
               value: {{ required "mcp.clientId is required" .Values.mcp.clientId | quote }}
             - name: SHIPYARD_MCP_CLIENT_SECRET
