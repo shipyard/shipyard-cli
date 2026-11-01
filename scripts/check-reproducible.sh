@@ -3,8 +3,9 @@
 # Checks that the release build is reproducible: rebuilds the snapshot from a
 # fresh clone at a different path and compares each binary's SHA-256 with the
 # one in dist/checksums.txt. A path baked into the binary (no -trimpath) or a
-# build-time timestamp fails here. SBOMs are skipped: they record when they
-# were generated.
+# build-time timestamp fails here. The rebuild gets its own empty Go build
+# cache, so every package is compiled again instead of reused from the first
+# build. SBOMs are skipped: they record when they were generated.
 #
 # Run it after `goreleaser release --snapshot --clean`, from the repo root.
 #
@@ -22,7 +23,7 @@ clone="${work}/a/different/path/shipyard-cli"
 
 git clone --quiet --no-hardlinks . "$clone"
 git -C "$clone" checkout --quiet --detach "$(git rev-parse HEAD)"
-(cd "$clone" && goreleaser release --snapshot --clean --skip=sbom > "${work}/build.log" 2>&1) || {
+(cd "$clone" && GOCACHE="${work}/gocache" goreleaser release --snapshot --clean --skip=sbom > "${work}/build.log" 2>&1) || {
     cat "${work}/build.log" >&2; echo "Rebuild failed" >&2; exit 1
 }
 

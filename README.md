@@ -60,17 +60,22 @@ released again under the same tag, its withdrawn binaries still pass. To pin the
 
 Releases after 1.10.0 are reproducible: building the release tag again, with the same Go and GoReleaser versions,
 gives byte-identical binaries in any directory. The versions are `GO_VERSION` and `GORELEASER_VERSION` in that tag's
-`.github/workflows/release.yaml`. With those installed:
+`.github/workflows/release.yaml`. With that GoReleaser installed, and `GO_VERSION` in place of `1.26.10` below
+(`GOTOOLCHAIN` makes Go use exactly that version, downloading it if needed, and `GOFLAGS=` drops any of your own
+build flags):
 
 ```bash
 git clone https://github.com/shipyard/shipyard-cli && cd shipyard-cli
 git checkout vX.Y.Z
-goreleaser release --clean --skip=publish,sbom
+GOTOOLCHAIN=go1.26.10 GOFLAGS= goreleaser release --clean --skip=publish,sbom
 grep " shipyard-linux-amd64$" dist/checksums.txt
 ```
 
-The digest should match the same line in the release's `checksums.txt`. The release workflow checks this on every
-release commit before it builds the release (`scripts/check-reproducible.sh`). SBOMs aren't reproducible: they record when they were generated.
+The digest should match the same line in the release's `checksums.txt`. If it doesn't, check your Go and GoReleaser
+versions (`GOTOOLCHAIN=go1.26.10 go version`, `goreleaser --version`) before suspecting the release. The release
+workflow checks this on every release commit before it builds the release (`scripts/check-reproducible.sh`). SBOMs
+aren't reproducible: they record when they were generated. Their entry for the CLI's own module shows the version
+`(devel)`, because the build leaves out Go's VCS stamp; `shipyard --version` prints the release version.
 
 ## Upgrading
 
