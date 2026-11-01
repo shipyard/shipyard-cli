@@ -97,8 +97,8 @@ permissions.
 
 The plugin runs `shipyard` from the `PATH` the client sees, and you can't change
 that command. If the server fails to start with "command not found" (desktop apps
-opened from the Dock or Start menu may not see your shell's `PATH`), set it up by
-hand as below instead, with the absolute path from `which shipyard` as the
+opened from the Dock or Start menu may not see your shell's `PATH`), uninstall
+the plugin, then set it up by hand as below, with the absolute path from `which shipyard` as the
 command.
 
 Restart the session afterwards. Use the plugin or the manual setup below, not
@@ -107,8 +107,8 @@ server instead of running beside it:
 
 - **Claude Code** runs the plugin's server as `plugin:shipyard:shipyard`. If you
   already added a server that runs the same command (`shipyard mcp serve`),
-  Claude Code skips the plugin's server and keeps yours, so the plugin's
-  [permission rule](#claude-code-1) doesn't match. If your command differs, for
+  Claude Code skips the plugin's server and keeps yours, so the
+  [permission rule for the plugin's tools](#claude-code-1) doesn't match. If your command differs, for
   example an absolute path, both run. Either way, run `claude mcp remove shipyard`
   first.
 - **Codex** names the plugin's server `shipyard`. A `[mcp_servers.shipyard]` entry
@@ -236,7 +236,7 @@ tools stay blocked. Claude Code and Codex were run again on 2026-10-29 with CLI
 |---|---|
 | Claude Code | 2.1.284; 2.1.312 with the plugin |
 | Codex CLI | 0.162.0, also with the plugin |
-| Cursor | 3.24.9, and its CLI `cursor-agent` 2026.10.01 |
+| Cursor | 3.24.9, and its CLI `cursor-agent` 2026.10.01; plugin install on 3.27.22 (see [Cursor](#cursor-1) under permissions) |
 | Kiro | 1.2.56, and its CLI `kiro-cli` 2.28.0 |
 
 Newer client versions should work; the server speaks MCP protocol versions
@@ -847,7 +847,8 @@ Remove the server from the client:
 | Kiro | Delete the `shipyard` entry from `~/.kiro/settings/mcp.json` or `.kiro/settings/mcp.json`, or set `"disabled": true` to keep it for later |
 
 If you installed the plugin, remove it instead: `claude plugin uninstall shipyard@shipyard`,
-`codex plugin remove shipyard@shipyard`, uninstall it from Cursor Settings, Plugins (and
+`codex plugin remove shipyard@shipyard` (plus `codex mcp remove shipyard` if you kept a
+`[mcp_servers.shipyard]` block for the permission settings), uninstall it from Cursor Settings, Plugins (and
 run `cursor-agent plugin marketplace remove shipyard`), or uninstall the power from Kiro's
 Powers panel.
 
