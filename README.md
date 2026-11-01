@@ -143,6 +143,10 @@ self_update: false
 `shipyard login` then opens that host's login page, and every command calls that API. Set `self_update: false` if the
 install can't reach GitHub (see [Turning off self-update](#turning-off-self-update)).
 
+If you've already logged in to another Shipyard (such as shipyard.build), `shipyard login` keeps that token and says
+you're logged in. Remove `api_token` from the config file (and unset `SHIPYARD_API_TOKEN`) before logging in to the
+self-hosted install.
+
 ### Or Set Your Token Manually
 
 Set your Shipyard API token as the value of the `SHIPYARD_API_TOKEN` environment variable.

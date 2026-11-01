@@ -30,7 +30,10 @@ func NewLoginCmd() *cobra.Command {
 
 func login() error {
 	if _, err := auth.APIToken(); err == nil {
-		display.Println("You are already logged in.")
+		// A token from another host (say, shipyard.build before switching
+		// api_url to a self-hosted install) isn't replaced; name the host
+		// so the user can tell.
+		display.Println(alreadyLoggedInMessage())
 		return nil
 	}
 
@@ -87,6 +90,13 @@ func login() error {
 		display.Println("Login succeeded!")
 	}
 	return nil
+}
+
+// alreadyLoggedInMessage is what login prints when a token is already set.
+func alreadyLoggedInMessage() string {
+	return fmt.Sprintf("You are already logged in; commands use %s. If your token is for a different "+
+		"Shipyard host, remove api_token from your config file (or unset SHIPYARD_API_TOKEN) and run "+
+		"'shipyard login' again.", uri.APIHost())
 }
 
 // loginURL is the page that issues a CLI token and sends it to the local
