@@ -402,6 +402,13 @@ func TestDetachedDelete(t *testing.T) {
 			isErr:  true,
 		},
 		{
+			// A '/' would otherwise move the DELETE onto another route.
+			name:   "environment ID with a path separator is rejected",
+			args:   []string{"detached", "delete", "detached-1/env-vars/NAME"},
+			output: "Command error: environment_id 'detached-1/env-vars/NAME' contains invalid characters. Only alphanumeric characters, hyphens (-), and underscores (_) are allowed\n",
+			isErr:  true,
+		},
+		{
 			name:   "environment ID is required",
 			args:   []string{"detached", "delete"},
 			output: "Command error: accepts 1 arg(s), received 0\n",

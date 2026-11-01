@@ -8,6 +8,7 @@ import (
 	"github.com/shipyard/shipyard-cli/constants"
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/display"
+	"github.com/shipyard/shipyard-cli/pkg/mcp/validation"
 	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 	"github.com/spf13/cobra"
 )
@@ -167,6 +168,11 @@ refused. Deleting an environment that is already deleted, or being deleted, succ
 }
 
 func deleteDetached(c client.Client, environmentID string) error {
+	// The ID goes into the URL path unescaped: a '/', '?' or '#' would send the DELETE to another route.
+	if err := validation.ValidateEnvironmentID(environmentID); err != nil {
+		return err
+	}
+
 	params := make(map[string]string)
 	if org := c.OrgLookupFn(); org != "" {
 		params["org"] = org

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -95,6 +96,16 @@ func TestExtendedTool_DeleteDetached(t *testing.T) {
 	}
 	if rec.method != "DELETE" || !strings.Contains(rec.uri, "environment/env-123/detached?org=acme") {
 		t.Fatalf("unexpected request %s %s", rec.method, rec.uri)
+	}
+}
+
+func TestExtendedTool_DeleteDetachedPropagatesRefusal(t *testing.T) {
+	rec := &recordingRequester{err: errors.New("environment is not a detached environment")}
+	tool := NewExtendedTool(client.Client{Requester: rec, OrgLookupFn: func() string { return "" }}, "delete_detached")
+
+	out, err := tool.Execute(context.Background(), json.RawMessage(`{"environment_id":"default-1"}`))
+	if err == nil || !strings.Contains(err.Error(), "not a detached environment") || out != "" {
+		t.Fatalf("expected the API refusal back, got out=%q err=%v", out, err)
 	}
 }
 

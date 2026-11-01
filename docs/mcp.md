@@ -458,7 +458,7 @@ its server (`power-shipyard-plugins-shipyard`).
 | `delete_env_var` | Delete an environment variable by name |
 | `update_branches` | Change the branch of every repo in an environment |
 | `deploy_detached` | Deploy a detached environment cloned from an application build |
-| `delete_detached` | Delete a detached environment (base and pull request environments are refused) |
+| `delete_detached` | Delete a detached environment by its ID or one of its application builds' IDs (base and pull request environments are refused) |
 
 ### Applications
 
