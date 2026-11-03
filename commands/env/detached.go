@@ -193,6 +193,12 @@ func deleteDetached(c client.Client, environmentID string) error {
 		return fmt.Errorf("could not parse response: %w", err)
 	}
 
+	if resp.Data.DisplayName == "" {
+		display.Println(fmt.Sprintf(
+			"Detached environment %s is being deleted.", resp.Data.ApplicationUUID,
+		))
+		return nil
+	}
 	display.Println(fmt.Sprintf(
 		"Detached environment %q is being deleted (application UUID: %s).",
 		resp.Data.DisplayName, resp.Data.ApplicationUUID,

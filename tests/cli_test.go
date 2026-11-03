@@ -384,6 +384,11 @@ func TestDetachedDelete(t *testing.T) {
 			output: "Detached environment \"ci-preview\" is being deleted (application UUID: detached-1).\n",
 		},
 		{
+			name:   "environment without a display name",
+			args:   []string{"detached", "delete", "unnamed-1"},
+			output: "Detached environment unnamed-1 is being deleted.\n",
+		},
+		{
 			name:   "base environment is refused",
 			args:   []string{"detached", "delete", "default-1"},
 			output: "Command error: environment is not a detached environment\n",
