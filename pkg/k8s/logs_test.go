@@ -16,7 +16,7 @@ import (
 // followLogs runs a followed Logs call against a server that answers with
 // handler, and returns what it printed. It fails if Logs does not return: the
 // activity heartbeat runs until it does, so a stuck call keeps an environment
-// alive for as long as the process lives.
+// alive for up to activityMaxSession.
 func followLogs(t *testing.T, handler http.HandlerFunc) string {
 	t.Helper()
 
@@ -76,5 +76,31 @@ func TestLogsPrintsBytesReadWithEOF(t *testing.T) {
 	})
 	if out != "hello\n" {
 		t.Errorf("expected the final bytes to be printed, got %q", out)
+	}
+}
+
+// A stream that breaks is an error, not a clean finish.
+func TestLogsReturnsErrorWhenFollowedStreamBreaks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.(http.Flusher).Flush()
+		panic(http.ErrAbortHandler)
+	}))
+	t.Cleanup(srv.Close)
+	clientSet, err := kubernetes.NewForConfig(&rest.Config{Host: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{clientSet: clientSet, namespace: "app-ns", pod: "app-pod", container: "app"}
+
+	done := make(chan error, 1)
+	go func() { done <- s.Logs(true, 10) }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected an error from a broken stream")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Logs did not return after the stream broke")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/url"
 	"strings"
 	"sync"
@@ -377,5 +378,24 @@ func TestActivityHeartbeatDoesNotWarnOnIntermittentFailures(t *testing.T) {
 	script := []bool{true, true, false, true, true, false, true, true}
 	if out := runFailingHeartbeat(t, script, 10); out != "" {
 		t.Errorf("expected no warning, got %q", out)
+	}
+}
+
+// With --verbose the log goes to the terminal, live during exec, and an error's
+// text comes from the server.
+func TestActivityHeartbeatEscapesServerTextInLog(t *testing.T) {
+	var logged syncBuffer
+	output := log.Writer()
+	log.SetOutput(&logged)
+	defer log.SetOutput(output)
+
+	runFailingHeartbeat(t, []bool{true}, 2)
+
+	out := logged.String()
+	if !strings.Contains(out, "Failed to report") {
+		t.Fatalf("expected the failure to be logged, got %q", out)
+	}
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("expected control characters to be escaped, got %q", out)
 	}
 }

@@ -140,12 +140,13 @@ func (h heartbeat) start(ctx context.Context) (stop func()) {
 					failures = 0
 					continue
 				}
-				log.Printf("Failed to report %s activity for environment %s: %v", h.source, h.envID, err)
+				// %q: the error's text comes from the server, and with --verbose this
+				// goes to the terminal, which is live during exec.
+				log.Printf("Failed to report %s activity for environment %s: %q", h.source, h.envID, err)
 				h.failed()
 				if failures++; failures >= activityFailuresBeforeWarning && !warned {
 					warned = true
-					// \r\n: during exec the terminal is in raw mode. The error stays in
-					// the log: its text comes from the server, and this is a live terminal.
+					// \r\n: during exec the terminal is in raw mode.
 					_, _ = fmt.Fprintf(h.warnings, "\r\nWarning: could not report activity for environment %s, so it may be stopped as idle\r\n", h.envID)
 				}
 			}
