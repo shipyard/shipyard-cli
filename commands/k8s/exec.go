@@ -20,6 +20,8 @@ func NewExecCmd(c client.Client) *cobra.Command {
 		Long: `Execute any command with any arguments and flags in a given service.
 You can also run interactive commands, like shells, without passing anything special to exec.
 
+The session keeps the environment from being stopped as idle only while you type in it, for up to 12 hours.
+
 Pass any command arguments after a double slash.
 
 shipyard exec --env 123 --service web -- ls -l -a
@@ -60,8 +62,9 @@ func handleExecCmd(c client.Client, args []string) error {
 		return err
 	}
 
-	stop := k8s.StartActivityHeartbeat(context.Background(), c, id, k8s.ActivitySourceExec, k8s.ActivityHeartbeatInterval)
+	var input k8s.InputActivity
+	stop := k8s.StartInputHeartbeat(context.Background(), c, id, k8s.ActivitySourceExec, k8s.ActivityHeartbeatInterval, &input)
 	defer stop()
 
-	return k.Exec(args)
+	return k.Exec(args, &input)
 }
