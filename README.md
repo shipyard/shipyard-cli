@@ -320,7 +320,7 @@ shipyard get services --env {environment_uuid}
 ### Exec into a running environment's service
 
 Execute any command with any arguments and flags in a given service for a **running** environment. Pass any command
-arguments after a double slash.
+arguments after a double slash. The session keeps the environment from being stopped as idle only while you type in it, for up to 12 hours.
 
 ```bash
 shipyard exec --env {environment_uuid} --service {service_name} -- bash
@@ -331,6 +331,8 @@ shipyard exec --env {environment_uuid} --service {service_name} -- bash
 ```bash
 shipyard port-forward --env {environment_uuid} --service {service_name} --ports {local_port}:{service_container_port}
 ```
+
+An open `port-forward` or `logs --follow` keeps the environment from being stopped as idle for up to 12 hours.
 
 ### Get logs for a running environment's service
 

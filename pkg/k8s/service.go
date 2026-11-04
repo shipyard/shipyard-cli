@@ -90,7 +90,7 @@ func New(c client.Client, id string, svc *types.Service) (*Service, error) {
 	return &s, nil
 }
 
-func (c *Service) Exec(args []string) error {
+func (c *Service) Exec(args []string, input *InputActivity) error {
 	req := c.clientSet.CoreV1().RESTClient().Post().Resource("pods").Name(c.pod).
 		Namespace(c.namespace).SubResource("exec")
 	option := &v1.PodExecOptions{
@@ -116,7 +116,7 @@ func (c *Service) Exec(args []string) error {
 
 	// No deadline: an interactive session lasts as long as the user wants it.
 	return exec.StreamWithContext(context.Background(), remotecommand.StreamOptions{
-		Stdin:             in,
+		Stdin:             input.Reader(in),
 		Stdout:            os.Stdout,
 		Stderr:            os.Stderr,
 		TerminalSizeQueue: &fixedTerminalSizeQueue{},
@@ -288,20 +288,16 @@ func (c *Service) Logs(follow bool, tail int64) error {
 	for {
 		buf := make([]byte, 2000)
 		bytesRead, err := podLogs.Read(buf)
-		if bytesRead == 0 {
-			continue
+		if bytesRead > 0 {
+			display.Print(string(buf[:bytesRead]))
 		}
 		if err == io.EOF {
-			break
+			return nil
 		}
 		if err != nil {
 			return err
 		}
-		message := string(buf[:bytesRead])
-		display.Print(message)
 	}
-
-	return nil
 }
 
 // GetLogsAsString returns logs as a string instead of printing them
