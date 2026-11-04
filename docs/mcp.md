@@ -773,8 +773,14 @@ local server.
   A token over 4KB URL-encoded is refused with a 401 without asking Shipyard,
   as is one Shipyard refused in the last minute. If Shipyard rate-limits the
   server, it waits 5 seconds before exchanging again (longer, up to a minute,
-  when the 429 carries `Retry-After`). It has no per-client limit of its own:
-  limit requests per client address in front of it.
+  when the 429 carries `Retry-After`). Every token Shipyard refuses counts
+  against Shipyard's ceiling for this server, so once Shipyard refuses 60
+  tokens from one client address within a minute on one replica, that replica
+  answers 503 with `Retry-After` for that address's tokens it doesn't hold,
+  without asking Shipyard, until the minute is up. That includes a valid token
+  it hasn't seen yet. Tokens it holds keep working. That stops one address from using up the ceiling, not a client
+  spreading tokens over many addresses. It isn't a request limit: limit
+  requests per client address in front of it.
 - **Tools.** Only the tools in `pkg/mcp/tools/scopes.go` are hosted, each behind
   the scope it needs: `plan_application`, `create_application`
   (`apps:create`), `update_application` (`apps:update`), and
@@ -794,18 +800,125 @@ config file:
 | `SHIPYARD_MCP_SITE_URL` | Shipyard's URL. Default `https://shipyard.build`. |
 | `SHIPYARD_MCP_CLIENT_ID` | This server's OAuth client id. Default `shipyard-mcp-host`. |
 | `SHIPYARD_MCP_CLIENT_SECRET` | This server's OAuth client secret. Required; Shipyard's `OAUTH_MCP_HOST_CLIENT_SECRET` must match. |
+| `SHIPYARD_MCP_BEHIND_PROXY` | `true` behind a proxy that appends the client's address to `X-Forwarded-For`, such as an ingress: the client address is then the last entry. Default `false`, the connection's address. Never set it without a proxy, or clients can name any address. |
 
 ```bash
 shipyard mcp host --listen :8080
 ```
 
-At startup it checks its client id, secret and URLs with Shipyard's token
-endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
+At startup it checks its client id, secret and site URL with Shipyard's
+token endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
 it starts anyway. It never reads or creates a CLI config file, so it runs on a
 read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr; the tools' request logs,
 which carry users' parameters, appear only with `--verbose`.
 
-`GET /healthz` answers `ok` for load balancer checks.
+`GET /healthz` answers `ok` while the process runs. `GET /readyz` answers 503
+until its first check of the server's client id, secret and site URL has
+finished, and while Shipyard refuses them and never accepted them, and `ok` otherwise,
+Shipyard being down included. While it's
+503 it asks Shipyard again every 30 seconds, so it recovers once the settings
+match. A server Shipyard accepted once stays ready, so rotating Shipyard's
+secret ahead of the server's doesn't take it out of service.
+
+### Deploying the hosted server
+
+Shipyard runs it from the chart in `helm/charts/mcp-host`:
+
+| Environment | MCP URL | Shipyard | Namespace |
+|---|---|---|---|
+| Production | `https://mcp.shipyard.build/mcp` | `https://shipyard.build` | `mcp-host` |
+| QA | `https://mcp.qa.shipyard.build/mcp` | `https://qa.shipyard.build` | `qa-mcp-host` |
+
+The MCP URL is every token's audience. Changing it later invalidates every
+connection, so clients have to sign in again.
+
+1. **Core first.** Set `OAUTH_MCP_RESOURCE` to the MCP URL, exactly, and
+   `OAUTH_MCP_HOST_CLIENT_SECRET` to a secret generated in the secret store, a
+   different one per environment. Both settings must be in place before the host
+   starts: it checks the secret with core at startup and exits if core refuses it.
+   If core can't be reached during the release, its pods still report ready,
+   so `--atomic` won't catch a wrong secret: the pods go unready once core
+   refuses it, after the release has finished. Check the release once core is
+   up. The check covers the client id, secret and site URL, not
+   `OAUTH_MCP_RESOURCE`: a wrong or unset value there passes it, so check that
+   one by hand.
+2. **DNS.** Point the host name at the cluster's ingress. cert-manager issues
+   the certificate (`letsencrypt-production`) once the name resolves. The
+   ingress has to see clients' real addresses (proxy protocol or forwarded
+   headers from the load balancer), or every client shares one rate limit.
+   Check the ingress controller's namespace too: only it may reach the pods,
+   and the chart assumes `ingress-nginx` (`networkPolicy.ingressNamespace`).
+3. **Image**, from a release tag that's on origin, on a clean tree:
+
+   ```bash
+   git checkout v1.11.0
+   make mcp-host.push
+   ```
+
+4. **Release**, naming the kube context of the environment's cluster, with the
+   secret in `SHIPYARD_MCP_CLIENT_SECRET` (from the secret store, not typed
+   into a shell history):
+
+   ```bash
+   make mcp-host.install.qa MCP_HOST_TAG=v1.11.0 KUBE_CONTEXT=<qa cluster context>
+   ```
+
+   The secret goes to helm on stdin. The image is deployed by the tag's digest,
+   looked up with `docker buildx imagetools inspect`, so a tag pushed again
+   later can't change what runs. `--atomic` rolls back a release whose pods
+   don't become ready.
+5. **Check it** from outside the cluster. A request without a token gets a 401
+   pointing at the metadata, and the metadata names core:
+
+   ```bash
+   curl -si -X POST https://mcp.qa.shipyard.build/mcp | grep -i www-authenticate
+   curl -s https://mcp.qa.shipyard.build/.well-known/oauth-protected-resource/mcp
+   ```
+
+What the chart sets, and why:
+
+- **No sticky sessions.** The server is stateless, so any of its replicas
+  (two by default, spread over nodes, with a disruption budget) serves any request.
+  Each replica caches exchanged tokens itself, so a token is exchanged once per
+  replica, and every rollout starts with empty caches: expect a burst of
+  exchanges with core after each one.
+- **Streaming.** nginx doesn't buffer requests or responses, and waits 120
+  seconds for the server, longer than the server's own 90 second write timeout.
+- **Rate limits.** nginx allows each client address 50 requests a second and
+  200 connections, per ingress controller pod. Generous on purpose: hosted
+  clients send all their users from a few shared addresses. It damps one noisy
+  address. The server limits the tokens core refuses per address itself (see
+  above), with addresses from `X-Forwarded-For`, which the chart turns on.
+- **Locked down.** The image runs as uid 10001 on a read-only filesystem with
+  no Kubernetes API token, and a NetworkPolicy lets only the ingress controller
+  reach it. The secret reaches it from a Secret, and a new
+  secret restarts the pods. To use a Secret managed elsewhere, set
+  `mcp.existingSecret`; then restart the pods yourself when it changes.
+- **Memory.** `GOMEMLIMIT` is the container's memory limit, so the garbage
+  collector works harder near it instead of the pod being killed at it.
+- **Logs.** `mcp.verbose` adds the tools' request logs, which carry users'
+  parameters. Leave it off in production.
+
+**Rotating the secret.** Core accepts one host secret at a time, so change
+core's `OAUTH_MCP_HOST_CLIENT_SECRET` first, then release the host with the
+new one. Until both match, a call that needs a new exchanged token fails with
+a retry hint; tokens the host already holds keep working until they expire.
+The other order fails: the new pods never become ready while core still has
+the old secret, and `--atomic` rolls the release back after 5 minutes.
+
+**Rolling back.** Release the previous tag the same way, with the current
+secret in `SHIPYARD_MCP_CLIENT_SECRET`:
+
+```bash
+make mcp-host.install.qa MCP_HOST_TAG=<previous tag> KUBE_CONTEXT=<qa cluster context>
+```
+
+Avoid `helm rollback` after rotating the secret. Each release keeps the
+secret it was installed with, so rolling back restores the old one; core
+refuses it and new pods exit at startup. The old pods keep serving until
+they're next replaced. `--atomic` rolls back the same way when an upgrade
+fails, so after a rotation check that the release you're left with holds the
+new secret.
 
 ## Updating, uninstalling and rolling back
 

@@ -60,6 +60,32 @@ jobs:
       - name: Test vuln-scan.sh stripped-binary guard
         run: ./scripts/vuln-scan-test.sh
 
+  # The hosted MCP server's chart: what it renders, and the values it refuses.
+  # The runner image ships helm.
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Pinned and checked, so the schema check can't be skipped or swapped.
+      - name: Install kubeconform
+        run: |
+          KUBECONFORM_VERSION="0.7.0"
+          KUBECONFORM_SHA256="c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3"
+          curl -sSfL -o "$RUNNER_TEMP/kubeconform.tar.gz" \
+            "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C /usr/local/bin kubeconform
+          kubeconform -v
+
+      - name: Test the mcp-host chart
+        run: ./scripts/chart-test.sh
+        env:
+          REQUIRE_KUBECONFORM: "1"
+
   # install.sh is what curl | bash users run, and its checksum refusals are
   # what keeps a bad download off their machines. Both hash tools are covered
   # on each OS: macOS ships sha256sum too, so install-test.sh forces the shasum

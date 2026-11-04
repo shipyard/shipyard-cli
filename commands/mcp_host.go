@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -34,13 +35,19 @@ It is configured from the environment only, so the client secret never lands in 
   SHIPYARD_MCP_RESOURCE_URL   this server's MCP URL, e.g. https://mcp.example.com/mcp (required)
   SHIPYARD_MCP_SITE_URL       Shipyard's URL (default https://shipyard.build)
   SHIPYARD_MCP_CLIENT_ID      this server's OAuth client id (default shipyard-mcp-host)
-  SHIPYARD_MCP_CLIENT_SECRET  this server's OAuth client secret (required)`,
+  SHIPYARD_MCP_CLIENT_SECRET  this server's OAuth client secret (required)
+  SHIPYARD_MCP_BEHIND_PROXY   true behind a proxy that appends the client's address to
+                              X-Forwarded-For, such as an ingress (default false)`,
 		Args: cobra.NoArgs,
 		// It never reads the CLI's config file, nor creates one: the image may
 		// run on a read-only filesystem.
 		Annotations: map[string]string{envOnlyAnnotation: "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runHost(cmd.Context(), listen, hostConfigFromEnv(), serveHosted)
+			cfg, err := hostConfigFromEnv()
+			if err != nil {
+				return err
+			}
+			return runHost(cmd.Context(), listen, cfg, serveHosted)
 		},
 	}
 	cmd.Flags().StringVar(&listen, "listen", ":8080", "address to listen on")
@@ -63,7 +70,7 @@ func runHost(ctx context.Context, listen string, cfg hosted.Config,
 	return serve(ctx, listen, handler)
 }
 
-func hostConfigFromEnv() hosted.Config {
+func hostConfigFromEnv() (hosted.Config, error) {
 	cfg := hosted.Config{
 		ResourceURL:  os.Getenv("SHIPYARD_MCP_RESOURCE_URL"),
 		SiteURL:      os.Getenv("SHIPYARD_MCP_SITE_URL"),
@@ -76,7 +83,14 @@ func hostConfigFromEnv() hosted.Config {
 	if cfg.ClientID == "" {
 		cfg.ClientID = defaultHostClientID
 	}
-	return cfg
+	if raw := os.Getenv("SHIPYARD_MCP_BEHIND_PROXY"); raw != "" {
+		behind, err := strconv.ParseBool(raw)
+		if err != nil {
+			return cfg, fmt.Errorf("SHIPYARD_MCP_BEHIND_PROXY must be true or false, got %q", raw)
+		}
+		cfg.BehindProxy = behind
+	}
+	return cfg, nil
 }
 
 func serveHosted(ctx context.Context, listen string, handler http.Handler) error {
