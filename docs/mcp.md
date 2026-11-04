@@ -809,8 +809,12 @@ shipyard mcp host --listen :8080
 At startup it checks its client id, secret and site URL with Shipyard's
 token endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
 it starts anyway. It never reads or creates a CLI config file, so it runs on a
-read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr; the tools' request logs,
-which carry users' parameters, appear only with `--verbose`.
+read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr, including a line per tool call with
+its name, outcome and duration: `get_environment ok in 212ms`, or `failed
+status=404 in 90ms`, where `status=none` means the API never answered. A failure's
+reason goes only to the client, since an API error body can hold a user's data.
+The tools' request logs, which carry users' parameters, appear only with
+`--verbose`.
 
 `GET /healthz` answers `ok` while the process runs. `GET /readyz` answers 503
 until its first check of the server's client id, secret and site URL has
@@ -848,14 +852,18 @@ connection, so clients have to sign in again.
    headers from the load balancer), or every client shares one rate limit.
    Check the ingress controller's namespace too: only it may reach the pods,
    and the chart assumes `ingress-nginx` (`networkPolicy.ingressNamespace`).
-3. **Image**, from a release tag that's on origin, on a clean tree:
+3. **Pull secret, on QA.** The registry is private and QA's nodes can't read it,
+   so `mcp-host.install.qa` names `private-registry-auth`. It has to exist in
+   `qa-mcp-host` before the first release: copy it from the `qa` namespace.
+   Production's nodes read the registry themselves, and its install names none.
+4. **Image**, from a release tag that's on origin, on a clean tree:
 
    ```bash
    git checkout v1.11.0
    make mcp-host.push
    ```
 
-4. **Release**, naming the kube context of the environment's cluster, with the
+5. **Release**, naming the kube context of the environment's cluster, with the
    secret in `SHIPYARD_MCP_CLIENT_SECRET` (from the secret store, not typed
    into a shell history):
 
@@ -867,7 +875,7 @@ connection, so clients have to sign in again.
    looked up with `docker buildx imagetools inspect`, so a tag pushed again
    later can't change what runs. `--atomic` rolls back a release whose pods
    don't become ready.
-5. **Check it** from outside the cluster. A request without a token gets a 401
+6. **Check it** from outside the cluster. A request without a token gets a 401
    pointing at the metadata, and the metadata names core:
 
    ```bash

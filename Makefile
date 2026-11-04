@@ -52,6 +52,8 @@ chart-test:
 # environment's client secret, from the secret store; it goes to helm on stdin,
 # never on a command line. KUBE_CONTEXT: the kube context of this environment's
 # cluster, named every time so a release can't land on whichever is current.
+# The fourth argument is the pull secret, for a cluster whose nodes can't read
+# the registry; it has to exist in the namespace first.
 define mcp_host_install
 	@test -n "$(KUBE_CONTEXT)" || { echo "KUBE_CONTEXT is required: the kube context of this environment's cluster"; exit 1; }
 	@test -n "$(MCP_HOST_TAG)" || { echo "MCP_HOST_TAG is required, e.g. v1.11.0"; exit 1; }
@@ -68,6 +70,7 @@ define mcp_host_install
 	  --set-string image.digest=$$digest \
 	  --set-string mcp.resourceUrl=$(2) \
 	  --set-string mcp.siteUrl=$(3) \
+	  $(if $(4),--set-string 'imagePullSecrets[0].name=$(4)') \
 	  -f - mcp-host $(MCP_HOST_CHART)
 endef
 
@@ -75,6 +78,6 @@ mcp-host.install.production:
 	$(call mcp_host_install,mcp-host,https://mcp.shipyard.build/mcp,https://shipyard.build)
 
 mcp-host.install.qa:
-	$(call mcp_host_install,qa-mcp-host,https://mcp.qa.shipyard.build/mcp,https://qa.shipyard.build)
+	$(call mcp_host_install,qa-mcp-host,https://mcp.qa.shipyard.build/mcp,https://qa.shipyard.build,private-registry-auth)
 
 .PHONY: check.mcp-host-tag mcp-host.image mcp-host.push chart-test mcp-host.install.production mcp-host.install.qa

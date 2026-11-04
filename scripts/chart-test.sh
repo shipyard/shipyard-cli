@@ -140,6 +140,9 @@ expect_refused "resource URL without a host" "needs a host" \
 expect_refused "http site URL" "mcp.siteUrl must be https" "${ok[@]}" --set mcp.siteUrl=http://shipyard.example.test
 expect_refused "site URL without a host" "mcp.siteUrl needs a host" "${ok[@]}" --set 'mcp.siteUrl=https:///x'
 expect_refused "no site URL" "mcp.siteUrl is required" "${ok[@]}" --set mcp.siteUrl=
+expect_contains "a pull secret reaches the pods" "- name: pull-creds" "${ok[@]}" --set 'imagePullSecrets[0].name=pull-creds'
+expect_absent "no pull secrets by default" "imagePullSecrets" "${ok[@]}"
+
 expect_refused "a digest that isn't one" "image.digest must be sha256" "${ok[@]}" --set image.digest=latest
 expect_contains "verbose adds the flag" '"--verbose"' "${ok[@]}" --set mcp.verbose=true
 
@@ -198,10 +201,16 @@ expect_install_args() {
 
 expect_install_args "QA install" mcp-host.install.qa "--kube-context test-context " "--namespace qa-mcp-host " \
     "image.repository=registry.example.test/mcp-host " "image.tag=v1.0.0 " "image.digest=${digest} " \
-    "mcp.resourceUrl=https://mcp.qa.shipyard.build/mcp " "mcp.siteUrl=https://qa.shipyard.build "
+    "mcp.resourceUrl=https://mcp.qa.shipyard.build/mcp " "mcp.siteUrl=https://qa.shipyard.build " \
+    "imagePullSecrets[0].name=private-registry-auth "
 expect_install_args "production install" mcp-host.install.production "--kube-context test-context " "--namespace mcp-host " \
     "image.repository=registry.example.test/mcp-host " "image.tag=v1.0.0 " "image.digest=${digest} " \
     "mcp.resourceUrl=https://mcp.shipyard.build/mcp " "mcp.siteUrl=https://shipyard.build "
+if grep -qF imagePullSecrets "$fake_bin/argv"; then
+    fail "production install: it named a pull secret"
+else
+    pass "production install names no pull secret"
+fi
 
 # expect_install_refused <name> <message> <secret> [make args...]
 expect_install_refused() {

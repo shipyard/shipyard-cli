@@ -14,6 +14,10 @@ image:
   digest: ""
   pullPolicy: IfNotPresent
 
+# Pull secrets in the release's namespace, as [{name: ...}], for a cluster whose
+# nodes can't read the registry themselves. The chart doesn't create them.
+imagePullSecrets: []
+
 mcp:
   # Required: this server's MCP URL. Core's OAUTH_MCP_RESOURCE must be the same
   # string, since every token's audience is this URL. The ingress serves its host.
@@ -26,7 +30,8 @@ mcp:
   existingSecret: ""
   existingSecretKey: SHIPYARD_MCP_CLIENT_SECRET
   clientSecret: ""
-  # Logs tools' requests, which carry users' parameters. Leave off in production.
+  # Logs tools' requests, which carry users' parameters. Leave off in production:
+  # without it, each tool call still logs its name, outcome and duration.
   verbose: false
 
 service:
