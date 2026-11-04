@@ -50,9 +50,9 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
     # The server refuses request bodies over 1MB itself.
     nginx.ingress.kubernetes.io/proxy-body-size: "2m"
-    # Damps one noisy address. Core's exchange limit for this server is the
-    # server's own job: it stops asking core for an address whose tokens core
-    # keeps refusing. Generous, because hosted clients send all their users
+    # Damps one noisy address. The server stops asking core for an address
+    # whose tokens core keeps refusing, but a client with many addresses gets
+    # past both. Generous, because hosted clients send all their users
     # from a few shared addresses. Counted per address, so nginx has to see
     # real client IPs, and per ingress controller pod.
     nginx.ingress.kubernetes.io/limit-rps: "50"

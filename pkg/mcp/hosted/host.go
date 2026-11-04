@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -49,6 +50,7 @@ const (
 	extraCoreToken   = "core_token"
 	extraSubject     = "subject_token"
 	extraUnavailable = "exchange_unavailable"
+	extraThrottled   = "exchange_throttled"
 
 	unavailableMessage = "Shipyard is temporarily unavailable. Try again in a minute."
 	reconnectMessage   = "This Shipyard connection is no longer valid. Reconnect Shipyard in your agent, then try again."
@@ -87,7 +89,7 @@ func (c Config) validate() error {
 }
 
 // Handler serves the MCP endpoint at the resource URL's path, its protected
-// resource metadata (RFC 9728), and /healthz.
+// resource metadata (RFC 9728), /healthz and /readyz.
 func Handler(cfg Config) (http.Handler, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -134,14 +136,14 @@ func Handler(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	})
-	// Readiness: not until core accepts this server's own client and resource,
-	// if it has refused them, so a release with the wrong secret fails its
-	// rollout. Core being down is still ready: every replica would be down with
-	// it, and tool calls answer with a retry hint meanwhile.
+	// Readiness: not until the first check of this server's client and site URL
+	// has answered, nor while core refuses them, so a release with the wrong
+	// secret fails its rollout. Core being down is still ready: every replica
+	// would be down with it, and tool calls answer with a retry hint meanwhile.
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
 		h.exchanger.recheck()
 		if h.exchanger.notReady() {
-			http.Error(w, "core refuses this server's client credentials or resource", http.StatusServiceUnavailable)
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
 			return
 		}
 		_, _ = w.Write([]byte("ok\n"))
@@ -153,8 +155,9 @@ func Handler(cfg Config) (http.Handler, error) {
 }
 
 // CheckConfig asks core to exchange a token that can't exist. Core checks this
-// server's client and resource before the subject token, so it refuses the
-// token itself only when both are right. Core being unreachable isn't an error:
+// server's client and the API it asks for (the site URL) before the subject
+// token, so it refuses the token itself only when both are right. That doesn't
+// cover core's OAUTH_MCP_RESOURCE. Core being unreachable isn't an error:
 // the server answers with a retry hint until it's back.
 func CheckConfig(ctx context.Context, cfg Config) error {
 	if err := cfg.validate(); err != nil {
@@ -180,6 +183,14 @@ type serverKey struct{}
 // needs one: stateless, the SDK answers anything else with 405.
 func (h *host) withServer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// No MCP server for a token this replica doesn't hold: a throttled request
+		// hasn't been authenticated, and answering 401 would send it through
+		// sign-in for nothing.
+		if info := auth.TokenInfoFromContext(req.Context()); info != nil && info.Extra[extraThrottled] == true {
+			w.Header().Set("Retry-After", strconv.Itoa(int(refusalWindow.Seconds())))
+			http.Error(w, unavailableMessage, http.StatusServiceUnavailable)
+			return
+		}
 		if req.Method != http.MethodPost {
 			next.ServeHTTP(w, req)
 			return
@@ -228,7 +239,7 @@ func (h *host) verify(ctx context.Context, token string, req *http.Request) (*au
 		return nil, err
 	case errors.Is(err, errThrottled):
 		// Logged once, when the address reached the limit.
-		return unavailableInfo(), nil
+		return &auth.TokenInfo{Expiration: time.Now().Add(time.Minute), Extra: map[string]any{extraThrottled: true}}, nil
 	case errors.Is(err, errMisconfigured):
 		Logger.Printf("MCP hosted: misconfigured, every request will fail until it's fixed: %v", err)
 		return unavailableInfo(), nil
@@ -301,7 +312,7 @@ func (h *host) toolError(name, subject string, err error) string {
 		// The exchanged token stopped working, most likely because the user
 		// revoked the connection. The next request exchanges again, and gets the
 		// 401 that sends the client to sign in.
-		h.exchanger.forget(subject)
+		h.exchanger.expire(subject)
 		Logger.Printf("MCP hosted: %s: the API refused the exchanged token", name)
 		return reconnectMessage
 	}

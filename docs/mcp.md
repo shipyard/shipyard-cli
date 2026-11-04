@@ -775,11 +775,12 @@ local server.
   server, it waits 5 seconds before exchanging again (longer, up to a minute,
   when the 429 carries `Retry-After`). Every token Shipyard refuses counts
   against Shipyard's ceiling for this server, so once Shipyard refuses 60
-  tokens from one client address within a minute, that address's tokens that
-  aren't cached get a retry hint without asking Shipyard until the minute is
-  up; tokens it already holds keep working. That stops one address from using
-  up the ceiling. It isn't a request limit: limit requests per client address
-  in front of it.
+  tokens from one client address within a minute on one replica, that replica
+  answers 503 with `Retry-After` for that address's tokens it doesn't hold,
+  without asking Shipyard, until the minute is up. That includes a valid token
+  it hasn't seen yet. Tokens it holds keep working. That stops one address from using up the ceiling, not a client
+  spreading tokens over many addresses. It isn't a request limit: limit
+  requests per client address in front of it.
 - **Tools.** Only the tools in `pkg/mcp/tools/scopes.go` are hosted, each behind
   the scope it needs: `plan_application`, `create_application`
   (`apps:create`), `update_application` (`apps:update`), and
@@ -805,15 +806,16 @@ config file:
 shipyard mcp host --listen :8080
 ```
 
-At startup it checks its client id, secret and URLs with Shipyard's token
-endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
+At startup it checks its client id, secret and site URL with Shipyard's
+token endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
 it starts anyway. It never reads or creates a CLI config file, so it runs on a
 read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr; the tools' request logs,
 which carry users' parameters, appear only with `--verbose`.
 
 `GET /healthz` answers `ok` while the process runs. `GET /readyz` answers 503
-while Shipyard refuses the server's client id, secret or URLs and never
-accepted them, and `ok` otherwise, Shipyard being down included. While it's
+until its first check of the server's client id, secret and site URL has
+finished, and while Shipyard refuses them and never accepted them, and `ok` otherwise,
+Shipyard being down included. While it's
 503 it asks Shipyard again every 30 seconds, so it recovers once the settings
 match. A server Shipyard accepted once stays ready, so rotating Shipyard's
 secret ahead of the server's doesn't take it out of service.
@@ -833,10 +835,13 @@ connection, so clients have to sign in again.
 1. **Core first.** Set `OAUTH_MCP_RESOURCE` to the MCP URL, exactly, and
    `OAUTH_MCP_HOST_CLIENT_SECRET` to a secret generated in the secret store, a
    different one per environment. Both settings must be in place before the host
-   starts: it checks them with core at startup and exits if core refuses them.
-   If core can't be reached then, it starts anyway, and its pods stay unready
-   once core refuses the secret, so `--atomic` still rolls a wrong one back if
-   core comes back within the 5 minute timeout.
+   starts: it checks the secret with core at startup and exits if core refuses it.
+   If core can't be reached during the release, its pods still report ready,
+   so `--atomic` won't catch a wrong secret: the pods go unready once core
+   refuses it, after the release has finished. Check the release once core is
+   up. The check covers the client id, secret and site URL, not
+   `OAUTH_MCP_RESOURCE`: a wrong or unset value there passes it, so check that
+   one by hand.
 2. **DNS.** Point the host name at the cluster's ingress. cert-manager issues
    the certificate (`letsencrypt-production`) once the name resolves. The
    ingress has to see clients' real addresses (proxy protocol or forwarded

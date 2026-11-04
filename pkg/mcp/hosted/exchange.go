@@ -52,11 +52,12 @@ const (
 	sweepEvery = 10 * time.Second
 	// maxRefusals is how many tokens core may refuse for one client address in
 	// refusalWindow, on one replica, before that address's tokens that aren't
-	// cached stop reaching core until the window ends. Only refusals count, as
-	// in core's own limit for this server: a junk token costs core an exchange,
-	// and enough of them from anywhere use up core's ceiling for this server,
-	// which pauses every user's exchanges. A client that sends all its users
-	// from a few shared addresses rarely sends a token core refuses: each
+	// held by this replica stop reaching core until the window ends. Only refusals count here.
+	// Core has two limits for this server: one counts only exchanges it grants,
+	// and a ceiling counts every request. So a junk token costs core nothing but
+	// the ceiling, and enough of them from anywhere pause every user's
+	// exchanges. This stops one address, not many. A client that sends all its
+	// users from a few shared addresses rarely sends a token core refuses: each
 	// refused token is answered from memory for refusedFor after the first.
 	maxRefusals   = 60
 	refusalWindow = time.Minute
@@ -64,8 +65,8 @@ const (
 	// credentials while they aren't confirmed.
 	recheckEvery = 30 * time.Second
 	// configCheckToken is a subject token that can't exist. Core checks this
-	// server's client and resource before the subject token, so it refuses the
-	// token itself only when both are right.
+	// server's client and the API it asks for before the subject token, so it
+	// refuses the token itself only when both are right.
 	configCheckToken = "shipyard-mcp-host-config-check"
 )
 
@@ -127,10 +128,12 @@ type exchanger struct {
 	// checkedAt is when /readyz last asked core about this server's credentials.
 	checkedAt time.Time
 
-	// misconfigured is set while core refuses this server's own client or
-	// resource. accepted is set once core has accepted them, and stays set.
+	// misconfigured is set while core refuses this server's own client or the
+	// API it asks for. accepted is set once core has accepted them, and stays set.
+	// checked is set once core, or the lack of it, has answered about them.
 	misconfigured atomic.Bool
 	accepted      atomic.Bool
+	checked       atomic.Bool
 }
 
 type refusalCount struct {
@@ -179,11 +182,14 @@ func (e *exchanger) exchange(ctx context.Context, subject, addr string) (exchang
 	}
 	// While core can't exchange again, a cached token is good until it expires.
 	usable := ok && e.now().Before(hit.expires)
-	if backoff || throttled {
+	// A token this replica holds isn't junk, so the throttle doesn't apply: an
+	// address's refused tokens can't lock out its active users.
+	unknown := throttled && !ok
+	if backoff || unknown {
 		if usable {
 			return hit, nil
 		}
-		if throttled {
+		if unknown {
 			return exchanged{}, fmt.Errorf("%w: %w", errUnavailable, errThrottled)
 		}
 		return exchanged{}, fmt.Errorf("%w: core was unavailable moments ago", errUnavailable)
@@ -210,8 +216,10 @@ func (e *exchanger) exchange(ctx context.Context, subject, addr string) (exchang
 		if usable && !errors.Is(err, auth.ErrInvalidToken) {
 			return hit, nil
 		}
-		e.forget(subject)
+		// Only a refusal says anything about the token: after any other failure
+		// the entry stays, lapsed, so the token stays known.
 		if errors.Is(err, auth.ErrInvalidToken) {
+			e.forget(subject)
 			e.refuse(key, addr)
 		}
 		return exchanged{}, err
@@ -251,12 +259,15 @@ func (e *exchanger) store(key [sha256.Size]byte, got exchanged) {
 }
 
 // refuse answers key's token with a 401 for refusedFor without asking core,
-// and counts the refusal against addr. A full set is cleared: the worst case
-// is asking core again.
+// and counts the refusal against addr, once however many requests were waiting
+// on core's answer. A full set is cleared: the worst case is asking core again.
 func (e *exchanger) refuse(key [sha256.Size]byte, addr string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	now := e.now()
+	if until, ok := e.refused[key]; ok && now.Before(until) {
+		return
+	}
 	if len(e.refused) >= maxCached {
 		clear(e.refused)
 	}
@@ -293,8 +304,9 @@ func (e *exchanger) overRefusals(addr string) bool {
 }
 
 // observe records what an answer from core says about this server's own
-// client and resource. Any other error says nothing about them.
+// client and the API it asks for. Any other error says nothing about them.
 func (e *exchanger) observe(err error) {
+	defer e.checked.Store(true)
 	switch {
 	case err == nil, errors.Is(err, auth.ErrInvalidToken):
 		e.misconfigured.Store(false)
@@ -304,12 +316,12 @@ func (e *exchanger) observe(err error) {
 	}
 }
 
-// notReady reports whether core refuses this server's credentials and has
-// never accepted them: the release has the wrong secret. Once accepted, a
-// refusal (core's secret rotated first) leaves it ready, so the tokens it holds
-// keep working until the release catches up.
+// notReady reports whether the first check of this server's credentials is
+// still running, or core refuses them and has never accepted them: the release
+// has the wrong secret. Once accepted, a refusal (core's secret rotated first)
+// leaves it ready, so the tokens it holds keep working until the release catches up.
 func (e *exchanger) notReady() bool {
-	return e.misconfigured.Load() && !e.accepted.Load()
+	return !e.accepted.Load() && (e.misconfigured.Load() || !e.checked.Load())
 }
 
 // recheck asks core about this server's credentials in the background, at most
@@ -340,6 +352,19 @@ func later(a, b time.Time) time.Time {
 		return a
 	}
 	return b
+}
+
+// expire stops subject's cached token being used, so the next request exchanges
+// again. The entry stays: it's what tells a throttled address's known tokens
+// from new ones.
+func (e *exchanger) expire(subject string) {
+	key := sha256.Sum256([]byte(subject))
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if got, ok := e.cache[key]; ok {
+		got.expires = time.Time{}
+		e.cache[key] = got
+	}
 }
 
 // forget drops subject's cached token, so the next request exchanges again.

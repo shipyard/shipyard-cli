@@ -77,7 +77,11 @@ expect_contains "runs read-only" "readOnlyRootFilesystem: true" "${ok[@]}"
 expect_contains "verbose is off by default" '"--listen", ":8080"]' "${ok[@]}"
 expect_contains "ready only once core accepts the secret" "path: /readyz" "${ok[@]}"
 expect_contains "alive while the process answers" "path: /healthz" "${ok[@]}"
-expect_contains "client addresses come from the ingress" "name: SHIPYARD_MCP_BEHIND_PROXY" "${ok[@]}"
+if render "${ok[@]}" | grep -A1 'name: SHIPYARD_MCP_BEHIND_PROXY' | grep -qF 'value: "true"'; then
+    pass "client addresses come from the ingress"
+else
+    fail "SHIPYARD_MCP_BEHIND_PROXY isn't true with the ingress on"
+fi
 expect_contains "the garbage collector knows the memory limit" "name: GOMEMLIMIT" "${ok[@]}"
 digest="sha256:$(printf '0123456789abcdef%.0s' 1 2 3 4)"
 expect_contains "the image runs by digest when given one" \
@@ -156,6 +160,7 @@ chmod +x "$fake_bin/helm"
 cat > "$fake_bin/docker" <<EOF
 #!/bin/sh
 [ -e "$fake_bin/docker_fails" ] && { echo "fake docker: not found" >&2; exit 1; }
+[ -e "$fake_bin/docker_garbage" ] && { echo "not-a-digest"; exit 0; }
 printf '%s\n' "\$*" > "$fake_bin/docker_argv"
 echo "$digest"
 EOF
@@ -229,6 +234,9 @@ fi
 touch "$fake_bin/docker_fails"
 expect_install_refused "install refuses a tag it can't look up" "fake docker: not found" "test-secret" MCP_HOST_TAG=v1.0.0
 rm "$fake_bin/docker_fails"
+touch "$fake_bin/docker_garbage"
+expect_install_refused "install refuses an answer that isn't a digest" "Couldn't look up the digest" "test-secret" MCP_HOST_TAG=v1.0.0
+rm "$fake_bin/docker_garbage"
 
 # The image is built only at a release tag that's on origin, on a clean tree:
 # checked in a clone of a scratch origin, against this checkout's Makefile.
