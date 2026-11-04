@@ -13,7 +13,9 @@ func routesSchema() map[string]interface{} {
 		"type": "object",
 		"description": "Map of service name to its route (the shipyard.route label value, e.g. \"/\" or \"/api\"). " +
 			"Only routes to set: the plan's routes come from the compose file and already apply, and sending one back " +
-			"duplicates it. To pick the main route, pass one of the plan's route_candidates with \"/\"",
+			"duplicates it. A route set here replaces the service's compose route rather than adding one, so moving the " +
+			"service on \"/\" to another path leaves the app's URL returning 404. To pick the main route, pass one of the " +
+			"plan's route_candidates with \"/\"",
 		"additionalProperties": map[string]interface{}{"type": "string"},
 	}
 }
@@ -101,7 +103,7 @@ func UpdateApplicationSchema() map[string]interface{} {
 						"services":         stringArray("Compose services to enable"),
 						"routes":           routesSchema(),
 						"compose_filename": map[string]interface{}{"type": "string", "description": "Compose file path"},
-						"remove_routes":    stringArray("Services whose route to remove"),
+						"remove_routes":    stringArray("Services whose route to remove, which puts back the route from the compose file"),
 						"selected_profiles": stringArray("Compose profiles to turn on: each enabled service whose " +
 							"enabled_by_default is false needs one of its profiles here"),
 					},

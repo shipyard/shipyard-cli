@@ -24,10 +24,16 @@ Examples:
   shipyard mode qa mcp serve -v
 
   # Run any command in local mode
-  shipyard mode local get environments`,
+  shipyard mode local get environments
+
+  # Flags after the mode go to the command
+  shipyard mode qa get environment 12345 --bypass-token`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runMode,
 	}
+
+	// Flags after the mode belong to the command it runs, which mode doesn't know about
+	cmd.Flags().SetInterspersed(false)
 
 	return cmd
 }
@@ -41,13 +47,18 @@ func runMode(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	subArgs := args[1:]
+	if len(subArgs) > 0 && subArgs[0] == "--" {
+		subArgs = subArgs[1:]
+	}
+
 	// If no additional args, set mode permanently (legacy behavior)
-	if len(args) == 1 {
+	if len(subArgs) == 0 {
 		return setPermanentMode(mode, buildURL)
 	}
 
 	// Otherwise, execute the subcommand with temporary mode context
-	return executeWithMode(cmd, mode, buildURL, args[1:])
+	return executeWithMode(cmd, mode, buildURL, subArgs)
 }
 
 func getBuildURLForMode(mode string) (string, error) {
