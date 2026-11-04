@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mcp-host
-          image: "{{ .Values.image.repository }}:{{ required "image.tag is required: the CLI release the image was built from" .Values.image.tag }}"
+          image: {{ include "mcp-host.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["shipyard", "mcp", "host", "--listen", ":8080"{{ if .Values.mcp.verbose }}, "--verbose"{{ end }}]
           ports:
@@ -48,9 +48,23 @@ spec:
                 secretKeyRef:
                   name: {{ include "mcp-host.secretName" . }}
                   key: {{ include "mcp-host.secretKey" . }}
+            {{- if .Values.ingress.enabled }}
+            # The ingress appends each client's address to X-Forwarded-For: the
+            # server limits refused tokens per address.
+            - name: SHIPYARD_MCP_BEHIND_PROXY
+              value: "true"
+            {{- end }}
+            # The memory limit, in bytes: the garbage collector works harder near
+            # it rather than the container being killed at it.
+            - name: GOMEMLIMIT
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+          # Not ready while core refuses this server's client secret, so a release
+          # with the wrong one fails and --atomic rolls it back.
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: http
             periodSeconds: 5
           livenessProbe:

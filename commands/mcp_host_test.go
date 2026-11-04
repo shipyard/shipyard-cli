@@ -21,7 +21,14 @@ func TestHostConfigFromEnvDefaults(t *testing.T) {
 	t.Setenv("SHIPYARD_MCP_SITE_URL", "")
 	t.Setenv("SHIPYARD_MCP_CLIENT_ID", "")
 	t.Setenv("SHIPYARD_MCP_CLIENT_SECRET", "host-secret")
-	cfg := hostConfigFromEnv()
+	t.Setenv("SHIPYARD_MCP_BEHIND_PROXY", "")
+	cfg, err := hostConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BehindProxy {
+		t.Error("BehindProxy is on by default: clients could name any address")
+	}
 	if cfg.SiteURL != "https://shipyard.build" {
 		t.Errorf("SiteURL = %q", cfg.SiteURL)
 	}
@@ -31,9 +38,18 @@ func TestHostConfigFromEnvDefaults(t *testing.T) {
 
 	t.Setenv("SHIPYARD_MCP_SITE_URL", "https://shipyard.example.test")
 	t.Setenv("SHIPYARD_MCP_CLIENT_ID", "custom-host")
-	cfg = hostConfigFromEnv()
-	if cfg.SiteURL != "https://shipyard.example.test" || cfg.ClientID != "custom-host" {
+	t.Setenv("SHIPYARD_MCP_BEHIND_PROXY", "true")
+	cfg, err = hostConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SiteURL != "https://shipyard.example.test" || cfg.ClientID != "custom-host" || !cfg.BehindProxy {
 		t.Errorf("cfg = %+v", cfg)
+	}
+
+	t.Setenv("SHIPYARD_MCP_BEHIND_PROXY", "yes please")
+	if _, err := hostConfigFromEnv(); err == nil {
+		t.Error("an unreadable SHIPYARD_MCP_BEHIND_PROXY was accepted")
 	}
 }
 

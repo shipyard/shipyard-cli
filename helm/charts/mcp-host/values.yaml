@@ -9,6 +9,9 @@ image:
   # Required: the CLI release tag the image was built from. No default, so a
   # deploy can't quietly roll back to whatever `latest` is.
   tag: ""
+  # The tag's digest, sha256:...; the install targets look it up from the
+  # registry. With it, pods run that image even if the tag is pushed again later.
+  digest: ""
   pullPolicy: IfNotPresent
 
 mcp:
@@ -47,11 +50,11 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
     # The server refuses request bodies over 1MB itself.
     nginx.ingress.kubernetes.io/proxy-body-size: "2m"
-    # Damps one noisy address; it doesn't protect core's exchange limit for this
-    # server (any new token costs an exchange, and a client with many addresses
-    # gets past it). Generous, because hosted clients send all their users from
-    # a few shared addresses. Counted per address, so nginx has to see real
-    # client IPs, and per ingress controller pod.
+    # Damps one noisy address. The server stops asking core for an address
+    # whose tokens core keeps refusing, but a client with many addresses gets
+    # past both. Generous, because hosted clients send all their users
+    # from a few shared addresses. Counted per address, so nginx has to see
+    # real client IPs, and per ingress controller pod.
     nginx.ingress.kubernetes.io/limit-rps: "50"
     nginx.ingress.kubernetes.io/limit-connections: "200"
 
@@ -67,6 +70,7 @@ resources:
     cpu: 50m
     memory: 64Mi
   limits:
+    # Also the server's GOMEMLIMIT.
     memory: 256Mi
 
 podDisruptionBudget:
