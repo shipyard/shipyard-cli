@@ -70,8 +70,8 @@ var extendedToolDefinitions = map[string]ToolDefinition{
 	"delete_detached": {
 		Name: "delete_detached",
 		Description: "Delete a detached environment, by its ID or the ID of any of its application builds. " +
-			"Only detached environments can be deleted: a base or pull " +
-			"request environment is refused. Deleting one that is already deleted, or being deleted, succeeds again.",
+			"Only detached environments can be deleted: a base, pull " +
+			"request or remote environment is refused. Deleting one that is already deleted, or being deleted, succeeds again.",
 		InputSchema: schemas.DeleteDetachedSchema(),
 	},
 	"update_branches": {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/shipyard/shipyard-cli/constants"
 	"github.com/shipyard/shipyard-cli/pkg/client"
@@ -150,7 +151,7 @@ func newDetachedDeleteCmd(c client.Client) *cobra.Command {
 		Long: `Queue the deletion of a detached environment.
 
 Pass the environment ID, or the ID of any of its application builds (the one in the
-build detail page's URL). Only detached environments can be deleted this way: a base or pull request environment is
+build detail page's URL). Only detached environments can be deleted this way: a base, pull request or remote environment is
 refused. Deleting an environment that is already deleted, or being deleted, succeeds again.`,
 		Example: `  # Delete the detached environment 4d5e6f
   shipyard detached delete 4d5e6f
@@ -193,9 +194,9 @@ func deleteDetached(c client.Client, environmentID string) error {
 		return fmt.Errorf("could not parse response: %w", err)
 	}
 
-	if resp.Data.DisplayName == "" {
+	if strings.TrimSpace(resp.Data.DisplayName) == "" {
 		display.Println(fmt.Sprintf(
-			"Detached environment %s is being deleted.", resp.Data.ApplicationUUID,
+			"Detached environment is being deleted (application UUID: %s).", resp.Data.ApplicationUUID,
 		))
 		return nil
 	}
