@@ -100,6 +100,9 @@ type exchanged struct {
 	token   string
 	scopes  []string
 	expires time.Time
+	// org is the name of the token's org, for the log. Empty from a core that
+	// doesn't send it.
+	org string
 }
 
 // exchanger trades a client's MCP token for a short-lived core API token
@@ -409,6 +412,7 @@ func (e *exchanger) request(ctx context.Context, subject string) (exchanged, err
 		TokenType   string `json:"token_type"`
 		ExpiresIn   int    `json:"expires_in"`
 		Scope       string `json:"scope"`
+		Org         string `json:"org"`
 		Error       string `json:"error"`
 	}
 	_ = json.Unmarshal(body, &payload)
@@ -442,5 +446,6 @@ func (e *exchanger) request(ctx context.Context, subject string) (exchanged, err
 		token:   payload.AccessToken,
 		scopes:  strings.Fields(payload.Scope),
 		expires: start.Add(time.Duration(payload.ExpiresIn) * time.Second),
+		org:     payload.Org,
 	}, nil
 }

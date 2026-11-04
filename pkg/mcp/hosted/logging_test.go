@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -57,7 +58,7 @@ func TestASuccessfulToolCallLogsOneLine(t *testing.T) {
 	srv := newHost(t, core)
 	log := captureLog(t)
 	callGetEnvironments(t, srv)
-	wantLogLine(t, log, `MCP hosted: get_environments ok in \d+(\.\d+)?(µs|ms|s)$`)
+	wantLogLine(t, log, `MCP hosted: get_environments ok in \d+(\.\d+)?(µs|ms|s) org="test-org"$`)
 	if n := strings.Count(log.String(), "get_environments"); n != 1 {
 		t.Errorf("%d lines for one call:\n%s", n, log.String())
 	}
@@ -69,7 +70,7 @@ func TestAFailedToolCallLogsItsStatusButNotTheBody(t *testing.T) {
 	srv := newHost(t, core)
 	log := captureLog(t)
 	callGetEnvironments(t, srv)
-	wantLogLine(t, log, `MCP hosted: get_environments failed status=404 in \d`)
+	wantLogLine(t, log, `MCP hosted: get_environments failed status=404 in \S+ org="test-org"$`)
 	// The fake API's error body, and the call's own arguments.
 	for _, private := range []string{"Invalid token", "private-app"} {
 		if strings.Contains(log.String(), private) {
@@ -84,7 +85,7 @@ func TestAFailureThatNeverReachedTheAPILogsNoStatus(t *testing.T) {
 	log := captureLog(t)
 	// A required argument is missing, so the tool stops before any API call.
 	call(t, srv, clientToken, "tools/call", map[string]any{"name": "get_environment", "arguments": map[string]any{}})
-	wantLogLine(t, log, `MCP hosted: get_environment failed status=none in \d`)
+	wantLogLine(t, log, `MCP hosted: get_environment failed status=none in \S+ org="test-org"$`)
 }
 
 func TestAToolCallCoreCouldntAuthorizeLogsThatItDidntRun(t *testing.T) {
@@ -93,7 +94,7 @@ func TestAToolCallCoreCouldntAuthorizeLogsThatItDidntRun(t *testing.T) {
 	srv := newHost(t, core)
 	log := captureLog(t)
 	callGetEnvironments(t, srv)
-	wantLogLine(t, log, `MCP hosted: get_environments unavailable$`)
+	wantLogLine(t, log, `MCP hosted: get_environments unavailable org="unknown"$`)
 }
 
 func TestRequestsThatAreNotToolCallsLogTheirMethodOnlyIfUseful(t *testing.T) {
@@ -101,7 +102,7 @@ func TestRequestsThatAreNotToolCallsLogTheirMethodOnlyIfUseful(t *testing.T) {
 	srv := newHost(t, core)
 	log := captureLog(t)
 	initialize(t, srv, clientToken)
-	wantLogLine(t, log, `MCP hosted: initialize$`)
+	wantLogLine(t, log, `MCP hosted: initialize org="test-org"$`)
 
 	before := log.String()
 	call(t, srv, clientToken, "tools/list", map[string]any{})
@@ -139,7 +140,55 @@ func TestAListenStreamIsLoggedWhenItOpens(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	// The stream stays open, so the line has to come when it opens, not when it ends.
-	eventually(t, "the listen line", func() bool { return strings.Contains(log.String(), "MCP hosted: subscriptions/listen") })
+	eventually(t, "the listen line", func() bool { return strings.Contains(log.String(), `MCP hosted: subscriptions/listen org="test-org"`) })
+}
+
+func TestAToolCallTheAPIRefusedLogsItsOrg(t *testing.T) {
+	core := newFakeCore(t)
+	core.apiStatus = http.StatusUnauthorized
+	srv := newHost(t, core)
+	log := captureLog(t)
+	callGetEnvironments(t, srv)
+	wantLogLine(t, log, `MCP hosted: get_environments: the API refused the exchanged token in \S+ org="test-org"$`)
+}
+
+// Core sends the org from one release on, so an older core has to keep working.
+func TestWithoutAnOrgFromCoreTheOrgIsUnknown(t *testing.T) {
+	core := newFakeCore(t)
+	core.exchange = func(w http.ResponseWriter, _ map[string]string) {
+		_, _ = fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":300,"scope":"envs:read"}`, coreToken)
+	}
+	srv := newHost(t, core)
+	log := captureLog(t)
+	callGetEnvironments(t, srv)
+	wantLogLine(t, log, `MCP hosted: get_environments ok in \S+ org="unknown"$`)
+}
+
+func TestACachedTokenKeepsItsOrg(t *testing.T) {
+	core := newFakeCore(t)
+	srv := newHost(t, core)
+	callGetEnvironments(t, srv)
+	log := captureLog(t)
+	callGetEnvironments(t, srv)
+	if core.exchanges != 1 {
+		t.Fatalf("%d exchanges, want the second call to use the cached token", core.exchanges)
+	}
+	wantLogLine(t, log, `MCP hosted: get_environments ok in \S+ org="test-org"$`)
+}
+
+// Core doesn't limit what an org name holds, and a line break would forge a log line.
+func TestAnOrgNameCantBreakTheLogLine(t *testing.T) {
+	core := newFakeCore(t)
+	core.exchange = func(w http.ResponseWriter, _ map[string]string) {
+		_, _ = fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":300,"scope":"envs:read","org":"a b\nMCP hosted: forged"}`, coreToken)
+	}
+	srv := newHost(t, core)
+	log := captureLog(t)
+	callGetEnvironments(t, srv)
+	if lines := strings.Count(strings.TrimSpace(log.String()), "\n") + 1; lines != 1 {
+		t.Errorf("%d lines:\n%s", lines, log.String())
+	}
+	wantLogLine(t, log, `org="a b\\nMCP hosted: forged"$`)
 }
 
 // A client opens a long-lived stream only to hear about changes. Each request

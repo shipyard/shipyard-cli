@@ -51,7 +51,7 @@ func newFakeCore(t *testing.T) *fakeCore {
 			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 			return
 		}
-		_, _ = fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":300,"scope":%q,"issued_token_type":%q}`,
+		_, _ = fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":300,"org":"test-org","scope":%q,"issued_token_type":%q}`,
 			coreToken, strings.Join(tools.KnownScopes, " "), tokenTypeAccessToken)
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1273,7 +1273,7 @@ func TestAnExchangedTokenTheAPIRefusedStillReachesCoreWhenThrottled(t *testing.T
 	if _, err := e.exchange(t.Context(), clientToken, testAddr); err != nil {
 		t.Fatal(err)
 	}
-	(&host{exchanger: e}).toolError("get_environments", clientToken, &requests.APIError{StatusCode: http.StatusUnauthorized}, 0)
+	(&host{exchanger: e}).toolError("get_environments", clientToken, "test-org", &requests.APIError{StatusCode: http.StatusUnauthorized}, 0)
 	core.exchange = func(w http.ResponseWriter, _ map[string]string) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))

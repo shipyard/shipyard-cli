@@ -810,8 +810,10 @@ At startup it checks its client id, secret and site URL with Shipyard's
 token endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
 it starts anyway. It never reads or creates a CLI config file, so it runs on a
 read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr, including a line per tool call with
-its name, outcome and duration: `get_environment ok in 212ms`, or `failed
-status=404 in 90ms`, where `status=none` means the API never answered. A failure's
+its name, outcome, duration and org: `get_environment ok in 212ms org="acme"`, or
+`failed status=404 in 90ms org="acme"`, where `status=none` means the API never
+answered and `org="unknown"` means Shipyard's token endpoint didn't name one. The
+org comes from the token exchange, so those lines name customers. A failure's
 reason goes only to the client, since an API error body can hold a user's data.
 The tools' request logs, which carry users' parameters, appear only with
 `--verbose`.

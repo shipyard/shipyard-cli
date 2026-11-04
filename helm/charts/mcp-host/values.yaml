@@ -31,7 +31,7 @@ mcp:
   existingSecretKey: SHIPYARD_MCP_CLIENT_SECRET
   clientSecret: ""
   # Logs tools' requests, which carry users' parameters. Leave off in production:
-  # without it, each tool call still logs its name, outcome and duration.
+  # without it, each tool call still logs its name, outcome, duration and org.
   verbose: false
 
 service:
