@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -22,6 +23,7 @@ func NewMCPCmd(c client.Client) *cobra.Command {
 	}
 
 	cmd.AddCommand(NewMCPServeCmd(c))
+	cmd.AddCommand(NewMCPHostCmd())
 	return cmd
 }
 
@@ -55,6 +57,10 @@ to interact with Shipyard environments through standardized tools.`,
 func runMCPServe(c client.Client) error {
 	// Load MCP server configuration
 	config := server.LoadMCPServerConfig()
+
+	// After reading the cached latest version above, so this session's notice
+	// comes from the cache and the refresh only serves the next one.
+	server.RefreshLatestVersion(context.Background())
 
 	// Create MCP server
 	mcpServer := server.NewMCPServer(config, c)

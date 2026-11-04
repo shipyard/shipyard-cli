@@ -13,6 +13,7 @@ import (
 
 	"github.com/shipyard/shipyard-cli/auth"
 	"github.com/shipyard/shipyard-cli/pkg/display"
+	"github.com/shipyard/shipyard-cli/pkg/requests/uri"
 )
 
 func NewLoginCmd() *cobra.Command {
@@ -29,7 +30,10 @@ func NewLoginCmd() *cobra.Command {
 
 func login() error {
 	if _, err := auth.APIToken(); err == nil {
-		display.Println("You are already logged in.")
+		// A token from another host (say, shipyard.build before switching
+		// api_url to a self-hosted install) isn't replaced; name the host
+		// so the user can tell.
+		display.Println(alreadyLoggedInMessage())
 		return nil
 	}
 
@@ -71,8 +75,7 @@ func login() error {
 	}()
 
 	display.Println("Opening the default web browser...")
-	backendURL := fmt.Sprintf("https://shipyard.build/api/me/user-token/cli?callbackUrl=http://%s", server.Addr)
-	if err := browser.OpenURL(backendURL); err != nil {
+	if err := browser.OpenURL(loginURL(server.Addr)); err != nil {
 		return err
 	}
 	select {
@@ -87,4 +90,18 @@ func login() error {
 		display.Println("Login succeeded!")
 	}
 	return nil
+}
+
+// alreadyLoggedInMessage is what login prints when a token is already set.
+func alreadyLoggedInMessage() string {
+	return fmt.Sprintf("You are already logged in; commands use %s. If your token is for a different "+
+		"Shipyard host, remove api_token from your config file (or unset SHIPYARD_API_TOKEN) and run "+
+		"'shipyard login' again.", uri.APIHost())
+}
+
+// loginURL is the page that issues a CLI token and sends it to the local
+// callback server at callbackAddr. It's on the same host as the API, so a
+// self-hosted install's api_url logs in against that install.
+func loginURL(callbackAddr string) string {
+	return fmt.Sprintf("%s/api/me/user-token/cli?callbackUrl=http://%s", uri.APIHost(), callbackAddr)
 }

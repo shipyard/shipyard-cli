@@ -1,8 +1,8 @@
 # Shipyard MCP server
 
 `shipyard mcp serve` runs a [Model Context Protocol](https://modelcontextprotocol.io)
-server, so an AI assistant such as Claude Code, Claude Desktop, Cursor or Codex can
-work with your Shipyard environments. Once it's connected, you can ask for things
+server, so an AI assistant such as Claude Code, Claude Desktop, Cursor, Codex or Kiro
+can work with your Shipyard environments. Once it's connected, you can ask for things
 in plain language:
 
 - "Which environments are running for the `web` repo?"
@@ -14,14 +14,18 @@ in plain language:
 - "I just pushed. Verify the change against its environment."
 
 The server runs locally over stdio and uses the same token, org and config file
-as the CLI.
+as the CLI. `shipyard mcp host` runs the [hosted variant](#the-hosted-server)
+for clients that connect over HTTP with OAuth.
 
 - [Quick start](#quick-start)
 - [Connecting a client](#connecting-a-client)
 - [Configuration](#configuration)
+- [Permissions and least privilege](#permissions-and-least-privilege)
 - [Tools](#tools)
 - [Resources](#resources)
 - [The `verify` prompt](#the-verify-prompt)
+- [The hosted server](#the-hosted-server)
+- [Updating, uninstalling and rolling back](#updating-uninstalling-and-rolling-back)
 - [Troubleshooting](#troubleshooting)
 
 ## Quick start
@@ -47,7 +51,11 @@ as the CLI.
    claude mcp add shipyard -- shipyard mcp serve
    ```
 
-   Other clients are covered in [Connecting a client](#connecting-a-client).
+   Or, instead, install the [Shipyard plugin](#installing-the-plugin) in Claude
+   Code, Codex, Cursor or Kiro, which adds the server and a skill in one step. Use one or
+   the other: if you already ran `claude mcp add`, run `claude mcp remove shipyard`
+   before installing the plugin. Other clients are covered in
+   [Connecting a client](#connecting-a-client).
 
 4. **Try it.** Start a new session and ask "list my Shipyard environments".
 
@@ -62,6 +70,56 @@ can't read your config file.
 `shipyard` has to be on the `PATH` the client sees. Desktop apps usually don't
 inherit your shell's `PATH`, so use the absolute path (`which shipyard`) as the
 command if the server fails to start.
+
+**Keep your token out of project files.** `.cursor/mcp.json`, `.kiro/settings/mcp.json`
+and Claude Code's `.mcp.json` live in the repository and tend to get committed.
+Run `shipyard login` instead, or put the token in a per-user file such as
+`~/.cursor/mcp.json`. The examples below show an `env` block only for the cases
+where you need one.
+
+### Installing the plugin
+
+The [Shipyard plugin](https://github.com/shipyard/shipyard-plugins) adds the
+server and a short skill that tells the assistant how to use it safely. It
+contains no code and no token: it starts `shipyard mcp serve`, so you still need
+the CLI on your `PATH` and `shipyard login`.
+
+| Client | Install |
+|---|---|
+| Claude Code | `claude plugin marketplace add shipyard/shipyard-plugins`, then `claude plugin install shipyard@shipyard` |
+| Codex | `codex plugin marketplace add shipyard/shipyard-plugins`, then `codex plugin add shipyard@shipyard` |
+| Cursor | `cursor-agent plugin marketplace add https://github.com/shipyard/shipyard-plugins`, then Cursor Settings, Plugins: install Shipyard |
+| Kiro | In the Powers panel, install from the GitHub URL `https://github.com/shipyard/shipyard-plugins` |
+
+**In Cursor, check Auto-Run first.** With Auto-Run on, Cursor runs Shipyard
+tools without asking, destructive ones included. See [Cursor](#cursor-1) under
+permissions.
+
+The plugin runs `shipyard` from the `PATH` the client sees, and you can't change
+that command. If the server fails to start with "command not found" (desktop apps
+opened from the Dock or Start menu may not see your shell's `PATH`), uninstall
+the plugin, then set it up by hand as below, with the absolute path from `which shipyard` as the
+command.
+
+Restart the session afterwards. Use the plugin or the manual setup below, not
+both. The one exception is Codex, where a manual entry replaces the plugin's
+server instead of running beside it:
+
+- **Claude Code** runs the plugin's server as `plugin:shipyard:shipyard`. If you
+  already added a server that runs the same command (`shipyard mcp serve`),
+  Claude Code skips the plugin's server and keeps yours, so the
+  [permission rule for the plugin's tools](#claude-code-1) doesn't match. If your command differs, for
+  example an absolute path, both run. Either way, run `claude mcp remove shipyard`
+  first.
+- **Codex** names the plugin's server `shipyard`. A `[mcp_servers.shipyard]` entry
+  in `config.toml` replaces it, so you only need one when you want the
+  [Codex permission settings](#codex).
+- **Cursor** runs the plugin's server as `plugin-shipyard-shipyard`, a separate
+  name from a `shipyard` entry in `mcp.json`. Remove that entry first. The
+  plugin's server runs in the Cursor app only: `cursor-agent` doesn't load it.
+- **Kiro** runs the power's server as `power-shipyard-plugins-shipyard`, a
+  separate name from a `shipyard` entry in `mcp.json`. Remove or disable that
+  entry first.
 
 ### Claude Code
 
@@ -122,7 +180,8 @@ project, and add:
 
 Drop the `env` block if the CLI is already configured. Reload the window, then
 check Settings → MCP, where Shipyard should list its tools and the `verify`
-prompt.
+prompt. Before using it, read [Cursor](#cursor-1) under permissions: with
+Auto-Run on, Cursor runs tools without asking.
 
 ### Codex CLI
 
@@ -135,12 +194,53 @@ args = ["mcp", "serve"]
 env = { "SHIPYARD_API_TOKEN" = "your-token-here", "SHIPYARD_ORG" = "your-org-name" }
 ```
 
-Drop the `env` line if the CLI is already configured.
+Drop the `env` line if the CLI is already configured. You can also add it from the
+command line: `codex mcp add shipyard -- shipyard mcp serve`, and check it with
+`codex mcp list`.
+
+### Kiro
+
+The Kiro IDE and the Kiro CLI read the same files: `~/.kiro/settings/mcp.json`
+for every workspace, or `.kiro/settings/mcp.json` inside one workspace, which wins
+over the user file. Add:
+
+```json
+{
+  "mcpServers": {
+    "shipyard": {
+      "command": "shipyard",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+Kiro reloads the file when you save it. If the CLI isn't logged in, add an `env`
+block as in the Cursor example, in the user file rather than the workspace one.
+Before using Kiro unattended, read [Kiro](#kiro-1) under permissions: Kiro's CLI
+doesn't ask before running a tool.
 
 ### Other clients
 
 Any MCP client that can launch a stdio server works. Configure it to run
 `shipyard mcp serve`, with the environment variables below if needed.
+
+### Tested clients
+
+These were run against a Shipyard org on 2026-10-09 and 2026-10-15, each with
+a read-only session (list orgs, list environments) and a check that destructive
+tools stay blocked. Claude Code and Codex were run again on 2026-10-29 with CLI
+1.10.0 and the plugin, using the permission settings below:
+
+| Client | Version tested |
+|---|---|
+| Claude Code | 2.1.284; 2.1.312 with the plugin |
+| Codex CLI | 0.162.0, also with the plugin |
+| Cursor | 3.24.9, and its CLI `cursor-agent` 2026.10.01; plugin install on 3.27.22 (see [Cursor](#cursor-1) under permissions) |
+| Kiro | 1.2.56, and its CLI `kiro-cli` 2.28.0 |
+
+Newer client versions should work; the server speaks MCP protocol versions
+`2025-06-18`, `2025-03-26` and `2024-11-05`.
 
 ## Configuration
 
@@ -178,6 +278,162 @@ A few things differ from the CLI:
 - **Restart the client after changing settings.** The server reads its
   configuration once, at startup.
 
+## Permissions and least privilege
+
+### Which token to use
+
+The server can do whatever its token can. `shipyard login` stores your personal
+token, which reaches every org you belong to. For a shared machine, CI, or an
+assistant you want confined to one org, use an **org API key** instead: it only
+reaches that org. Set it as `SHIPYARD_API_TOKEN` in the client's `env` block, in
+a per-user config file. An org has one key, and generating a new one replaces it,
+so check with your org before rotating it.
+
+`exec_service` stays off unless you turn it on (see
+[Running commands in a container](#running-commands-in-a-container-exec_service)).
+
+### What each tool may change
+
+From 1.10.0, every tool tells the client whether it only reads, may destroy or
+overwrite state, or neither. Clients use this to decide what to ask you about.
+
+| Kind | Tools |
+|---|---|
+| Read-only | `get_environments`, `get_environment`, `get_build_history`, `get_failure_details`, `get_build_logs`, `get_env_vars`, `get_logs`, `get_services`, `get_volumes`, `get_snapshots`, `get_orgs`, `get_org`, `plan_application`, `port_forward` (returns a command, runs nothing) |
+| Destructive: overwrites, stops or removes something | `stop_environment`, `cancel_environment`, `rebuild_environment`, `update_branches`, `delete_detached`, `restart_service`, `put_env_vars`, `delete_env_var`, `reset_volume`, `load_snapshot`, `exec_service`, `set_org` (changes the org every later call targets), `telepresence_connect` (rewrites `~/.shipyard/kubeconfig` and your routes), `update_application` (overwrites an app's config and can unlink repos), `create_application` (replaces an earlier create whose first build never started) |
+| Adds state only | `restart_environment`, `revive_environment`, `deploy_detached`, `create_snapshot` |
+
+### Letting an assistant read without asking
+
+In an interactive session each client asks before a tool call, and you can
+approve as you go. For an assistant that runs on its own (a script, a CI job, a
+headless session), allow the read-only tools and nothing else. Each recipe below
+was checked: the read tools run, and a destructive call is refused. The recipes
+assume a server you added by hand. Where the [plugin](#installing-the-plugin)
+changes that, the client's section says so.
+
+The `get_*` rules don't match `port_forward`, which is read-only too; add it by
+name if you want it. An assistant that also starts environments to test against,
+such as one running the [`verify` prompt](#the-verify-prompt), needs
+`restart_environment` and `revive_environment` as well: environments stop after
+a while without traffic, and these two only add state.
+
+#### Claude Code
+
+Add the read tools to `permissions.allow` in `.claude/settings.json` (or pass the
+same rule to `claude -p --allowedTools`):
+
+```json
+{
+  "permissions": {
+    "allow": ["mcp__shipyard__get_*"]
+  }
+}
+```
+
+Every other Shipyard tool still needs your approval, and a non-interactive
+session refuses it.
+
+With the plugin, the tools are named after the plugin's server, so allow
+`mcp__plugin_shipyard_shipyard__get_*` instead. That holds only if you haven't
+also added the server by hand; see [Installing the plugin](#installing-the-plugin).
+
+#### Codex
+
+In `~/.codex/config.toml`, let Codex decide from the tool hints (CLI 1.10.0 or
+later):
+
+```toml
+[mcp_servers.shipyard]
+command = "shipyard"
+args = ["mcp", "serve"]
+default_tools_approval_mode = "writes"
+```
+
+Read tools then run without asking, and destructive tools aren't offered to a
+session that can't ask you. With an older CLI, which sends no hints, approve each
+read tool instead:
+
+```toml
+[mcp_servers.shipyard.tools.get_orgs]
+approval_mode = "approve"
+
+[mcp_servers.shipyard.tools.get_environments]
+approval_mode = "approve"
+```
+
+With the plugin installed, keep the whole `[mcp_servers.shipyard]` block,
+`command` and `args` included: it replaces the plugin's server rather than adding
+a second one. A block with only the approval setting is rejected (`invalid
+transport`).
+
+#### Cursor
+
+**The Cursor app decides from its Auto-Run setting, not from the tool hints.**
+With Auto-Run on and MCP Tools Protection off, Cursor 3.27.22 ran
+`stop_environment` on a real environment without asking, and retried it when
+the first call failed. Before you connect Shipyard, open Cursor Settings,
+Auto-Run, and either choose **Ask Every Time**, or turn on **MCP Tools
+Protection**. Then check that a destructive call asks you before you rely on it.
+Use **Run Everything** only with an org API key for an org you can afford to
+have changed.
+
+The Cursor agent CLI (`cursor-agent -p`) doesn't use the tool hints. Allow the
+read tools in `.cursor/cli.json`, or `~/.cursor/cli-config.json` for every
+project:
+
+```json
+{
+  "permissions": {
+    "allow": ["Mcp(shipyard:get_*)"]
+  }
+}
+```
+
+This needs a server you added by hand in `mcp.json`: `cursor-agent` doesn't load
+the plugin's server.
+
+Cursor also asks you to approve the server itself the first time, and again
+whenever its `command` changes, for example after an upgrade moves the binary.
+`cursor-agent mcp enable shipyard` approves it from the command line.
+
+#### Kiro
+
+The Kiro CLI's non-interactive mode (`kiro-cli chat --no-interactive`) runs MCP
+tools **without asking**, whatever `--trust-tools` says, and it ignores the tool
+hints. Remove the destructive tools from the server with `disabledTools`:
+
+```json
+{
+  "mcpServers": {
+    "shipyard": {
+      "command": "shipyard",
+      "args": ["mcp", "serve"],
+      "disabledTools": [
+        "stop_environment", "cancel_environment", "rebuild_environment",
+        "update_branches", "delete_detached", "restart_service", "put_env_vars", "delete_env_var",
+        "reset_volume", "load_snapshot", "exec_service", "set_org",
+        "telepresence_connect", "update_application", "create_application"
+      ]
+    }
+  }
+}
+```
+
+A disabled tool is not offered to the model at all. This leaves the read tools
+and the four that only add state (`restart_environment`, `revive_environment`,
+`deploy_detached`, `create_snapshot`) on, so the assistant can start a stopped
+environment to test against. Add those four too for a strictly read-only session.
+
+`disabledTools` is a block-list: a tool added in a later release is enabled until
+you add it, so check the [table above](#what-each-tool-may-change) after
+upgrading. Put it on the `shipyard` entry Kiro actually uses: a workspace
+`.kiro/settings/mcp.json` that defines `shipyard` wins over the user file.
+
+This recipe needs a server you added by hand. If the Shipyard power is installed,
+uninstall it from the Powers panel first: this `disabledTools` list doesn't cover
+its server (`power-shipyard-plugins-shipyard`).
+
 ## Tools
 
 ### Environments
@@ -196,19 +452,57 @@ A few things differ from the CLI:
 
 | Tool | What it does |
 |---|---|
-| `get_build_history` | List an environment's builds, optionally only successful ones |
+| `get_build_history` | List an environment's builds, with a failure summary for failed ones (up to 100 per page) |
 | `get_env_vars` | List environment variables; hidden values are masked |
 | `put_env_vars` | Create or update environment variables |
 | `delete_env_var` | Delete an environment variable by name |
 | `update_branches` | Change the branch of every repo in an environment |
 | `deploy_detached` | Deploy a detached environment cloned from an application build |
+| `delete_detached` | Delete a detached environment by its ID or one of its application builds' IDs (base, pull request and remote environments are refused) |
+
+### Applications
+
+| Tool | What it does |
+|---|---|
+| `plan_application` | Preview creating an app for a pushed GitHub branch: its compose file, services, suggested routes, the env vars the compose file needs set (`optional` when it has a default), any existing app, `app_name` (a name free in the org whose URL is free too) and `visitors_required` (true for an org API token). Changes nothing |
+| `create_application` | Create an app from a confirmed plan: services (at least one), routes and env vars. Requires the plan's `head_sha`, so Shipyard builds the commit you confirmed. Each env item needs the services the plan lists for it, so a value reaches only those services, or `[]` when the plan lists none (a variable the compose file interpolates, set for the whole app); values are sent to Shipyard but never returned. Pass the plan's `app_name`; without one Shipyard picks a free name the same way. A service behind a compose profile needs that profile in `selected_profiles`. With an org API token, pass `visitors` (GitHub logins) |
+| `update_application` | Reconfigure an app: a repo's branch, services, routes (`remove_routes` removes one) or `selected_profiles`, added or removed repos. Runtime env vars are set with `put_env_vars`, build args in the dashboard |
+
+When Shipyard needs something done first, such as installing the GitHub app,
+pushing the branch, adding a compose file or freeing an environment under your
+plan's limit, these return `status: needs_action` with a `next_step` (`kind`,
+`message`, and a `url` when there is one) instead of an error. The agent shows
+you the message and waits for you to act.
+
+A branch that already has an app returns `status: already_exists` with that app
+and `requested_vs_existing`, the services, routes and env names you asked for
+that it doesn't have yet; the agent can apply services and routes with
+`update_application`, runtime env vars with `put_env_vars`, and build args in
+the Shipyard dashboard. None of the request's env values are applied.
+If another request is still creating the same app, `create_application` returns
+`status: creating` and the agent tries again shortly.
+
+### Failed builds
+
+| Tool | What it does |
+|---|---|
+| `get_failure_details` | Why a build failed, in one call: phase and reason, failing services, excerpts from their build or crash logs, which services are enabled, and for a config or branch error Shipyard's description of it |
+| `get_build_logs` | A build's stored build, run or crash logs, paged back from the end. Works after the environment stopped |
+
+Both work on the latest build by default; pass a `build_id` from
+`get_build_history` for an older one. Some failures are reported only as worth one
+rebuild, without details; the agent checks that no build is already running first.
+Hidden env var and secret values are masked in returned logs. Each log line is
+prefixed with `| `, so the agent can tell the app's output from the tool's own
+instructions. A block of lines repeated back to back, like the same stack trace
+from every restart of a crash loop, is shown once with a count.
 
 ### Services
 
 | Tool | What it does |
 |---|---|
-| `get_services` | List an environment's services and exposed ports |
-| `get_logs` | Get logs from a service |
+| `get_services` | List an environment's enabled services and exposed ports; a service that isn't listed is disabled |
+| `get_logs` | Get live logs from a service in a running environment; `previous: true` returns the crashed container's last run (an init container or sidecar if that is what crashed), with its restart count, exit code and termination reason |
 | `restart_service` | Restart one service without rebuilding the environment |
 | `exec_service` | Run a non-interactive command in a service container. Off by default; see below |
 
@@ -459,15 +753,266 @@ container are never the verdict: after the push, the environment rebuilds and
 the checks run again on the clean commit. If the agent stops without pushing, it
 restores the files it changed.
 
+## The hosted server
+
+`shipyard mcp host` serves a subset of the tools over stateless Streamable HTTP
+for clients that sign in with OAuth instead of using a local token. It's what
+Shipyard deploys as its hosted MCP endpoint; you don't need it to use the
+local server.
+
+- **Auth.** Every request needs `Authorization: Bearer` with a token Shipyard
+  issued for this server. Without one it answers 401 with a `WWW-Authenticate`
+  header pointing at its protected resource metadata
+  (`/.well-known/oauth-protected-resource/<path>`), which names Shipyard as the
+  authorization server, so clients start sign-in themselves.
+- **Token exchange.** The server never sends the client's token to the API. It
+  exchanges it at Shipyard's token endpoint (RFC 8693) for a short-lived API
+  token, reused until shortly before it expires. If Shipyard can't be reached,
+  tool calls fail with a retry hint rather than a 401, which would send the
+  client back through sign-in; a cached token keeps working until it expires.
+  A token over 4KB URL-encoded is refused with a 401 without asking Shipyard,
+  as is one Shipyard refused in the last minute. If Shipyard rate-limits the
+  server, it waits 5 seconds before exchanging again (longer, up to a minute,
+  when the 429 carries `Retry-After`). Every token Shipyard refuses counts
+  against Shipyard's ceiling for this server, so once Shipyard refuses 60
+  tokens from one client address within a minute on one replica, that replica
+  answers 503 with `Retry-After` for that address's tokens it doesn't hold,
+  without asking Shipyard, until the minute is up. That includes a valid token
+  it hasn't seen yet. Tokens it holds keep working. That stops one address from using up the ceiling, not a client
+  spreading tokens over many addresses. It isn't a request limit: limit
+  requests per client address in front of it.
+- **Tools.** Only the tools in `pkg/mcp/tools/scopes.go` are hosted, each behind
+  the scope it needs: `plan_application`, `create_application`
+  (`apps:create`), `update_application` (`apps:update`), and
+  `get_environments`, `get_environment`, `get_build_history`,
+  `get_failure_details`, `get_build_logs` (`envs:read`). Tools that reach your
+  machine or a cluster directly, such as `exec_service`, `port_forward` and
+  `telepresence_connect`, are never hosted. `bypass_token` is returned only
+  with `envs:preview_access`.
+- **Org.** A hosted token is bound to the org the user picked when connecting.
+
+It's configured from the environment only, so the secret never lands in a
+config file:
+
+| Variable | Meaning |
+|---|---|
+| `SHIPYARD_MCP_RESOURCE_URL` | This server's MCP URL, e.g. `https://mcp.example.com/mcp`. Required; Shipyard's `OAUTH_MCP_RESOURCE` must match. |
+| `SHIPYARD_MCP_SITE_URL` | Shipyard's URL. Default `https://shipyard.build`. |
+| `SHIPYARD_MCP_CLIENT_ID` | This server's OAuth client id. Default `shipyard-mcp-host`. |
+| `SHIPYARD_MCP_CLIENT_SECRET` | This server's OAuth client secret. Required; Shipyard's `OAUTH_MCP_HOST_CLIENT_SECRET` must match. |
+| `SHIPYARD_MCP_BEHIND_PROXY` | `true` behind a proxy that appends the client's address to `X-Forwarded-For`, such as an ingress: the client address is then the last entry. Default `false`, the connection's address. Never set it without a proxy, or clients can name any address. |
+
+```bash
+shipyard mcp host --listen :8080
+```
+
+At startup it checks its client id, secret and site URL with Shipyard's
+token endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
+it starts anyway. It never reads or creates a CLI config file, so it runs on a
+read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr; the tools' request logs,
+which carry users' parameters, appear only with `--verbose`.
+
+`GET /healthz` answers `ok` while the process runs. `GET /readyz` answers 503
+until its first check of the server's client id, secret and site URL has
+finished, and while Shipyard refuses them and never accepted them, and `ok` otherwise,
+Shipyard being down included. While it's
+503 it asks Shipyard again every 30 seconds, so it recovers once the settings
+match. A server Shipyard accepted once stays ready, so rotating Shipyard's
+secret ahead of the server's doesn't take it out of service.
+
+### Deploying the hosted server
+
+Shipyard runs it from the chart in `helm/charts/mcp-host`:
+
+| Environment | MCP URL | Shipyard | Namespace |
+|---|---|---|---|
+| Production | `https://mcp.shipyard.build/mcp` | `https://shipyard.build` | `mcp-host` |
+| QA | `https://mcp.qa.shipyard.build/mcp` | `https://qa.shipyard.build` | `qa-mcp-host` |
+
+The MCP URL is every token's audience. Changing it later invalidates every
+connection, so clients have to sign in again.
+
+1. **Core first.** Set `OAUTH_MCP_RESOURCE` to the MCP URL, exactly, and
+   `OAUTH_MCP_HOST_CLIENT_SECRET` to a secret generated in the secret store, a
+   different one per environment. Both settings must be in place before the host
+   starts: it checks the secret with core at startup and exits if core refuses it.
+   If core can't be reached during the release, its pods still report ready,
+   so `--atomic` won't catch a wrong secret: the pods go unready once core
+   refuses it, after the release has finished. Check the release once core is
+   up. The check covers the client id, secret and site URL, not
+   `OAUTH_MCP_RESOURCE`: a wrong or unset value there passes it, so check that
+   one by hand.
+2. **DNS.** Point the host name at the cluster's ingress. cert-manager issues
+   the certificate (`letsencrypt-production`) once the name resolves. The
+   ingress has to see clients' real addresses (proxy protocol or forwarded
+   headers from the load balancer), or every client shares one rate limit.
+   Check the ingress controller's namespace too: only it may reach the pods,
+   and the chart assumes `ingress-nginx` (`networkPolicy.ingressNamespace`).
+3. **Image**, from a release tag that's on origin, on a clean tree:
+
+   ```bash
+   git checkout v1.11.0
+   make mcp-host.push
+   ```
+
+4. **Release**, naming the kube context of the environment's cluster, with the
+   secret in `SHIPYARD_MCP_CLIENT_SECRET` (from the secret store, not typed
+   into a shell history):
+
+   ```bash
+   make mcp-host.install.qa MCP_HOST_TAG=v1.11.0 KUBE_CONTEXT=<qa cluster context>
+   ```
+
+   The secret goes to helm on stdin. The image is deployed by the tag's digest,
+   looked up with `docker buildx imagetools inspect`, so a tag pushed again
+   later can't change what runs. `--atomic` rolls back a release whose pods
+   don't become ready.
+5. **Check it** from outside the cluster. A request without a token gets a 401
+   pointing at the metadata, and the metadata names core:
+
+   ```bash
+   curl -si -X POST https://mcp.qa.shipyard.build/mcp | grep -i www-authenticate
+   curl -s https://mcp.qa.shipyard.build/.well-known/oauth-protected-resource/mcp
+   ```
+
+What the chart sets, and why:
+
+- **No sticky sessions.** The server is stateless, so any of its replicas
+  (two by default, spread over nodes, with a disruption budget) serves any request.
+  Each replica caches exchanged tokens itself, so a token is exchanged once per
+  replica, and every rollout starts with empty caches: expect a burst of
+  exchanges with core after each one.
+- **Streaming.** nginx doesn't buffer requests or responses, and waits 120
+  seconds for the server, longer than the server's own 90 second write timeout.
+- **Rate limits.** nginx allows each client address 50 requests a second and
+  200 connections, per ingress controller pod. Generous on purpose: hosted
+  clients send all their users from a few shared addresses. It damps one noisy
+  address. The server limits the tokens core refuses per address itself (see
+  above), with addresses from `X-Forwarded-For`, which the chart turns on.
+- **Locked down.** The image runs as uid 10001 on a read-only filesystem with
+  no Kubernetes API token, and a NetworkPolicy lets only the ingress controller
+  reach it. The secret reaches it from a Secret, and a new
+  secret restarts the pods. To use a Secret managed elsewhere, set
+  `mcp.existingSecret`; then restart the pods yourself when it changes.
+- **Memory.** `GOMEMLIMIT` is the container's memory limit, so the garbage
+  collector works harder near it instead of the pod being killed at it.
+- **Logs.** `mcp.verbose` adds the tools' request logs, which carry users'
+  parameters. Leave it off in production.
+
+**Rotating the secret.** Core accepts one host secret at a time, so change
+core's `OAUTH_MCP_HOST_CLIENT_SECRET` first, then release the host with the
+new one. Until both match, a call that needs a new exchanged token fails with
+a retry hint; tokens the host already holds keep working until they expire.
+The other order fails: the new pods never become ready while core still has
+the old secret, and `--atomic` rolls the release back after 5 minutes.
+
+**Rolling back.** Release the previous tag the same way, with the current
+secret in `SHIPYARD_MCP_CLIENT_SECRET`:
+
+```bash
+make mcp-host.install.qa MCP_HOST_TAG=<previous tag> KUBE_CONTEXT=<qa cluster context>
+```
+
+Avoid `helm rollback` after rotating the secret. Each release keeps the
+secret it was installed with, so rolling back restores the old one; core
+refuses it and new pods exit at startup. The old pods keep serving until
+they're next replaced. `--atomic` rolls back the same way when an upgrade
+fails, so after a rotation check that the release you're left with holds the
+new secret.
+
+## Updating, uninstalling and rolling back
+
+### Updating
+
+```bash
+shipyard upgrade
+```
+
+From 1.10.0, `shipyard upgrade` installs the latest release, through Homebrew if
+that's how you installed. From 1.9.0 or earlier, upgrade once the way you
+installed; see [Upgrading from 1.9.0 or earlier](../README.md#upgrading-from-190-or-earlier).
+Then restart the MCP server: restart the client, or use its MCP panel
+(`/mcp` in Claude Code). In clients that show the server's instructions, such as
+Claude Code, an assistant connected to an out-of-date CLI is told so when the
+session starts, once the CLI's daily update check has seen the new release. It
+isn't told when `CI` is set or update checks are off. Codex doesn't show them.
+
+To update the [plugin](#installing-the-plugin): `claude plugin update shipyard@shipyard`,
+or `codex plugin marketplace upgrade shipyard`. In Cursor, run
+`cursor-agent plugin marketplace update shipyard`, then reinstall the plugin from
+Cursor Settings, Plugins. In Kiro, uninstall the power and import it from GitHub
+again, because Kiro's own update check can fail with "No name was provided for
+author".
+
+If the upgrade changed the binary's path, update the `command` in the client's
+config. Cursor asks you to approve the server again, and a per-app firewall needs
+a fresh approval too.
+
+### Uninstalling
+
+Remove the server from the client:
+
+| Client | Command or file |
+|---|---|
+| Claude Code | `claude mcp remove shipyard` (add `--scope user` if you added it there) |
+| Claude Desktop | Delete the `shipyard` entry from `claude_desktop_config.json`, then restart |
+| Cursor | Delete the `shipyard` entry from `~/.cursor/mcp.json` or `.cursor/mcp.json`, and any `Mcp(shipyard:…)` rules from `cli.json` |
+| Codex | `codex mcp remove shipyard` |
+| Kiro | Delete the `shipyard` entry from `~/.kiro/settings/mcp.json` or `.kiro/settings/mcp.json`, or set `"disabled": true` to keep it for later |
+
+If you installed the plugin, remove it instead: `claude plugin uninstall shipyard@shipyard`,
+`codex plugin remove shipyard@shipyard` (plus `codex mcp remove shipyard` if you kept a
+`[mcp_servers.shipyard]` block for the permission settings), uninstall it from Cursor Settings, Plugins (and
+run `cursor-agent plugin marketplace remove shipyard`), or uninstall the power from Kiro's
+Powers panel.
+
+To remove the CLI and its token as well: `brew uninstall shipyard` for a Homebrew
+install, otherwise delete the binary (`which shipyard`). There is no logout
+command; delete the token from `~/.shipyard/config.yaml` (the `api_token` line, or
+the whole file). An org API key you set in a client's `env` block goes away with
+that entry; rotate it if it may have leaked.
+
+### Rolling back
+
+To go back to an earlier release, download it from the
+[releases page](https://github.com/shipyard/shipyard-cli/releases), check it
+against that release's `checksums.txt`, and point the client's `command` at the
+binary's absolute path:
+
+```bash
+VERSION=1.9.0; OS=darwin; ARCH=arm64   # OS: darwin or linux; ARCH: arm64 or amd64
+curl -fsSLO https://github.com/shipyard/shipyard-cli/releases/download/v$VERSION/shipyard-$OS-$ARCH
+curl -fsSLO https://github.com/shipyard/shipyard-cli/releases/download/v$VERSION/checksums.txt
+grep " shipyard-$OS-$ARCH\$" checksums.txt | shasum -a 256 -c -
+chmod +x shipyard-$OS-$ARCH
+```
+
+On Windows, download `shipyard-windows-amd64.exe` (or `-arm64.exe`) and compare
+its SHA-256 (`certutil -hashfile <file> SHA256`) with the line in `checksums.txt`.
+
+Restart the client afterwards. Rolling back below 1.10.0 removes the tool hints,
+so the Codex `writes` setting above stops offering the read tools without asking.
+
 ## Troubleshooting
 
 - **The client can't start the server, or says `shipyard` isn't found.** The
   client doesn't see your shell's `PATH`. Use the absolute path from
   `which shipyard` as the command.
+- **The server won't start: "Connection closed" or `unknown command "mcp"`.**
+  The `shipyard` the client runs predates the MCP server (before 1.8.0).
+  Claude Code shows only "Connection closed"; Cursor shows the
+  `unknown command "mcp" for "shipyard"` it printed. Run `which -a shipyard` to
+  list every copy on the `PATH`; the first one wins. Upgrade it (`brew upgrade
+  shipyard` for Homebrew), remove the stale copy, or point the client at the
+  newer binary's absolute path.
 - **The `verify` prompt or newer tools are missing.** An older CLI earlier on the
   `PATH`, often a Homebrew install, is answering instead. Check
   `shipyard --version` in the client's environment and upgrade with
-  `brew upgrade shipyard`.
+  `shipyard upgrade`. When the CLI's last update check found a newer release,
+  the server tells the assistant so on startup, and the assistant can suggest
+  the upgrade. Terminal commands run that check, and so does the server, in the
+  background at most once a day, for the next session. `SHIPYARD_NO_UPDATE_CHECK`,
+  `CI`, `update_check: false` or `self_update: false` turns both off.
 - **`exec_service` says it's disabled.** Set `SHIPYARD_MCP_ALLOW_EXEC=true` in the
   client's `env` block, or `mcp.allow_exec: true` in the config file, then
   restart the client.
@@ -483,3 +1028,19 @@ restores the files it changed.
 - **A per-app firewall (LuLu, Little Snitch) is installed.** Approve the
   `shipyard` binary once, otherwise calls stall until the CLI's 20s timeout.
   Rules are keyed by path, so a Homebrew upgrade needs a fresh approval.
+- **The Kiro IDE won't list or install powers: `Invalid installed.json schema`.**
+  The Powers panel can't list, install or uninstall any power; the `mcp.json`
+  setup above is unaffected. The Kiro CLI and the Kiro IDE share
+  `~/.kiro/powers/installed.json` but write it in different formats: after
+  `kiro-cli` installs or uninstalls a power, the IDE rejects the file (seen with
+  Kiro CLI 2.28.0 through 2.30.0 and Kiro 1.2.56). Move the file aside and
+  install again; the IDE recreates it. Powers it listed need reinstalling: do
+  that from the IDE's Powers panel, since installing or uninstalling with
+  `kiro-cli` breaks the file again. This is a Kiro bug, tracked as
+  [kirodotdev/Kiro#11924](https://github.com/kirodotdev/Kiro/issues/11924);
+  remove this entry once a Kiro IDE release accepts the CLI's file (the issue
+  may stay open for a CLI-side fix).
+
+  ```bash
+  mv ~/.kiro/powers/installed.json ~/.kiro/powers/installed.json.$(date +%s).bak
+  ```

@@ -10,6 +10,11 @@ Using an AI assistant? The CLI includes an MCP server: see [Use Shipyard from an
     ```
     curl https://www.shipyard.sh/install.sh | bash
     ```
+  It installs to `/usr/local/bin`, using `sudo` only if it can't write there. To install somewhere else, such as a
+  directory you own, set `SHIPYARD_INSTALL_DIR`:
+    ```
+    curl https://www.shipyard.sh/install.sh | SHIPYARD_INSTALL_DIR="$HOME/.local/bin" bash
+    ```
 - **Windows**
   Navigate to the [releases page](https://github.com/shipyard/shipyard-cli/releases) and download the executable for
   Windows.
@@ -20,10 +25,127 @@ Using an AI assistant? The CLI includes an MCP server: see [Use Shipyard from an
     brew install shipyard
     ```
 
+### Verifying a download
+
+Every release publishes a `checksums.txt` with the SHA-256 of each binary. The install script checks the binary
+against it and refuses to install on a mismatch. To check a binary you downloaded yourself:
+
+```bash
+grep " shipyard-darwin-arm64$" checksums.txt | shasum -a 256 -c -
+```
+
+`checksums.txt` comes from the same release as the binary, so it catches a corrupted or truncated download, not a
+release whose files were replaced. The attestation below is the check that the binary was built by this repo's release
+workflow.
+
+In releases after 1.9.0, each binary also has a signed build provenance attestation, showing which workflow run,
+commit and tag built it, and an SPDX SBOM (`shipyard-<os>-<arch>.sbom.json`; `.exe.sbom.json` on Windows) listing
+what it was built from. Verify the attestation with the [GitHub CLI](https://cli.github.com), naming the release you
+downloaded (here v1.10.0):
+
+```bash
+gh attestation verify shipyard-darwin-arm64 -R shipyard/shipyard-cli \
+  --signer-workflow shipyard/shipyard-cli/.github/workflows/release.yaml \
+  --source-ref refs/tags/v1.10.0
+```
+
+Keep `--source-ref`: without it, the check passes for anything a copy of the workflow signed on any branch, not just
+that release's tag build.
+
+The check names the tag, not its commit. A withdrawn release's attestations aren't deleted, so if a version is ever
+released again under the same tag, its withdrawn binaries still pass. To pin the commit as well, add
+`--source-digest <commit SHA>` with the commit the tag points to.
+
+### Rebuilding a release
+
+Releases after 1.10.0 are reproducible: building the release tag again, with the same Go and GoReleaser versions,
+gives byte-identical binaries in any directory. The versions are `GO_VERSION` and `GORELEASER_VERSION` in that tag's
+`.github/workflows/release.yaml`. With that GoReleaser installed, and `GO_VERSION` in place of `1.26.10` below
+(`GOTOOLCHAIN` makes Go use exactly that version, downloading it if needed, and `GOFLAGS=` drops any of your own
+build flags):
+
+```bash
+git clone https://github.com/shipyard/shipyard-cli && cd shipyard-cli
+git checkout vX.Y.Z
+GOTOOLCHAIN=go1.26.10 GOFLAGS= goreleaser release --clean --skip=publish,sbom
+grep " shipyard-linux-amd64$" dist/checksums.txt
+```
+
+The digest should match the same line in the release's `checksums.txt`. If it doesn't, check your Go and GoReleaser
+versions (`GOTOOLCHAIN=go1.26.10 go version`, `goreleaser --version`) before suspecting the release. The release
+workflow checks this on every release commit before it builds the release (`scripts/check-reproducible.sh`). SBOMs
+aren't reproducible: they record when they were generated. Their entry for the CLI's own module shows the version
+`(devel)`, because the build leaves out Go's VCS stamp; `shipyard --version` prints the release version.
+
+## Upgrading
+
+```bash
+shipyard upgrade
+```
+
+`shipyard update` does the same thing. It installs the latest release and shows its release notes. A Homebrew install
+is upgraded with `brew upgrade shipyard`; any other install downloads the release binary, verifies it against the
+release's `checksums.txt`, and replaces the running binary. If that binary is in a directory you can't write to, such as
+`/usr/local/bin`, run `sudo shipyard upgrade`.
+
+Add `--prerelease` to include pre-releases, or `--force` to reinstall the current release (for a Homebrew install, use
+`brew reinstall shipyard` instead).
+
+### Upgrading from 1.9.0 or earlier
+
+The `shipyard update` in 1.9.0 and earlier compares versions as text, so it reports 1.10.0 and later as older than
+what you have. Upgrade once the way you installed, and `shipyard upgrade` works from then on:
+
+- **Linux and macOS:** `curl https://www.shipyard.sh/install.sh | bash`
+- **Windows:** download the executable from the [releases page](https://github.com/shipyard/shipyard-cli/releases)
+- **Homebrew:** `brew upgrade shipyard`
+
+### Update notices
+
+When a new release is out, the CLI tells you after a command finishes, at most once a day:
+
+```
+A new version of shipyard is available: 1.9.0 → 1.10.0
+Run `shipyard upgrade` to install it. Release notes: https://github.com/shipyard/shipyard-cli/releases/tag/v1.10.0
+```
+
+It never asks anything or waits for input. The check runs in the background while your command runs; if it hasn't
+finished when the command does, the CLI waits at most a second for it. That only happens when it's asking GitHub, about
+once a day or to fetch release notes you missed. The first run after an upgrade made any other way, such as
+`brew upgrade`, shows those notes.
+
+The message goes to stderr, and only when stderr is a terminal. It's never shown in CI, inside AI coding agents that
+identify themselves (Claude Code, Codex, Cursor's agent, Gemini CLI), or for `shipyard mcp serve`. To turn it off, set
+`SHIPYARD_NO_UPDATE_CHECK=1` or add `update_check: false` to `~/.shipyard/config.yaml`.
+
+### Turning off self-update
+
+On a self-hosted Shipyard that can't reach GitHub, the CLI comes with your Shipyard release instead. Turn off
+self-update there with `self_update: false` in `~/.shipyard/config.yaml`, or `SHIPYARD_SELF_UPDATE=false`. The CLI then
+never contacts GitHub: no update notice, no background check from `shipyard mcp serve`, and `shipyard upgrade` refuses
+with a message saying self-update is off. `update_check: false` only turns off the notice and background check.
+
 ## Login
 
 Run `shipyard login` to initialize the CLI. This will prompt you to log in to Shipyard in the browser. The CLI will then
 save your API token in a local config. You're ready to start running commands.
+
+### Self-hosted Shipyard
+
+To use a self-hosted Shipyard, point the CLI at its API in `~/.shipyard/config.yaml` (or with `SHIPYARD_API_URL`)
+before logging in:
+
+```yaml
+api_url: https://shipyard.example.internal/api/v1
+self_update: false
+```
+
+`shipyard login` then opens that host's login page, and every command calls that API. Set `self_update: false` if the
+install can't reach GitHub (see [Turning off self-update](#turning-off-self-update)).
+
+If you've already logged in to another Shipyard (such as shipyard.build), `shipyard login` keeps that token and says
+you're logged in. Remove `api_token` from the config file (and unset `SHIPYARD_API_TOKEN`) before logging in to the
+self-hosted install.
 
 ### Or Set Your Token Manually
 
@@ -176,6 +298,17 @@ shipyard detached deploy {application_build_uuid} --name my-detached-env --branc
 
 # Per-repo build-on-commit settings (always | inherit | never)
 shipyard detached deploy {application_build_uuid} --build-on-commit-for web=always --build-on-commit-for api=never
+```
+
+### Delete a detached environment
+
+Pass the environment UUID, or the UUID of any of its application builds (the one in the build
+detail page's URL). Only detached environments can be deleted this way; a base, pull request or
+remote environment is refused. Deleting one that is already deleted succeeds again.
+
+```bash
+shipyard detached delete {environment_uuid}
+shipyard detached delete {application_build_uuid}
 ```
 
 ### Get all services and exposed ports for an environment
@@ -392,6 +525,7 @@ Then ask things like:
 
 - "Which environments are running for the `web` repo?"
 - "Show me the `api` service's logs on my branch's environment."
+- "Why did the latest build of this environment fail?"
 - "Set `FEATURE_FLAGS=beta` on this environment and restart the `worker` service."
 - "I just pushed. Verify the change against its environment." (or `/mcp__shipyard__verify`)
 

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -363,6 +365,95 @@ func TestDetachedDeploy(t *testing.T) {
 	}
 }
 
+func TestDetachedDelete(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		args   []string
+		output string
+		isErr  bool
+	}{
+		{
+			name:   "default org success",
+			args:   []string{"detached", "delete", "detached-1"},
+			output: "Detached environment \"ci-preview\" is being deleted (application UUID: detached-1).\n",
+		},
+		{
+			name:   "non default org success",
+			args:   []string{"detached", "delete", "detached-1", "--org", "pugs"},
+			output: "Detached environment \"ci-preview\" is being deleted (application UUID: detached-1).\n",
+		},
+		{
+			name:   "environment without a display name",
+			args:   []string{"detached", "delete", "unnamed-build-1"},
+			output: "Detached environment is being deleted (application UUID: unnamed-env-1).\n",
+		},
+		{
+			name:   "environment with a blank display name",
+			args:   []string{"detached", "delete", "blank-1"},
+			output: "Detached environment is being deleted (application UUID: blank-1).\n",
+		},
+		{
+			name:   "base environment is refused",
+			args:   []string{"detached", "delete", "default-1"},
+			output: "Command error: environment is not a detached environment\n",
+			isErr:  true,
+		},
+		{
+			name:   "unknown environment",
+			args:   []string{"detached", "delete", "missing-env"},
+			output: "Command error: environment not found\n",
+			isErr:  true,
+		},
+		{
+			name:   "invalid org",
+			args:   []string{"detached", "delete", "detached-1", "--org", "cats"},
+			output: "Command error: user org not found\n",
+			isErr:  true,
+		},
+		{
+			// A '/' would otherwise move the DELETE onto another route.
+			name:   "environment ID with a path separator is rejected",
+			args:   []string{"detached", "delete", "detached-1/env-vars/NAME"},
+			output: "Command error: environment_id 'detached-1/env-vars/NAME' contains invalid characters. Only alphanumeric characters, hyphens (-), and underscores (_) are allowed\n",
+			isErr:  true,
+		},
+		{
+			name:   "environment ID is required",
+			args:   []string{"detached", "delete"},
+			output: "Command error: accepts 1 arg(s), received 0\n",
+			isErr:  true,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			c := newCmd(test.args)
+			err := c.cmd.Run()
+			if test.isErr {
+				if err == nil {
+					t.Errorf("expected error %q but command succeeded", test.output)
+					return
+				}
+				if diff := cmp.Diff(c.stdErr.String(), test.output); diff != "" {
+					t.Error(diff)
+				}
+				return
+			}
+			if err != nil {
+				t.Logf("Detached delete failed: %v", err)
+				t.Logf("Stderr: %q", c.stdErr.String())
+				t.Fatalf("unexpected error")
+			}
+			if diff := cmp.Diff(c.stdOut.String(), test.output); diff != "" {
+				t.Error(diff)
+			}
+		})
+	}
+}
+
 // nolint:gosec // Bad arguments can't be passed in.
 func newCmd(args []string) *cmdWrapper {
 	c := cmdWrapper{
@@ -379,6 +470,46 @@ func newCmd(args []string) *cmdWrapper {
 	c.stdErr = stderr
 	c.stdOut = stdout
 	return &c
+}
+
+// sc-20426: with no config in $HOME, the CLI creates a default one. The same
+// run must be able to write to it, or `shipyard login` fails right after the
+// user deletes their config and only works on the second try.
+func TestSaveWorksOnTheRunThatCreatesTheConfig(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+
+	cmd := exec.Command("./shipyard", "set", "token", "fresh-token")
+	cmd.Env = append(withoutEnv(os.Environ(), "HOME", "SHIPYARD_API_TOKEN"), "HOME="+home)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("set token failed on a fresh $HOME: %v\n%s", err, stderr.String())
+	}
+
+	written, err := os.ReadFile(filepath.Join(home, ".shipyard", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(written), "api_token: fresh-token") {
+		t.Errorf("token not saved to the new config:\n%s", written)
+	}
+}
+
+func withoutEnv(env []string, keys ...string) []string {
+	var out []string
+	for _, kv := range env {
+		keep := true
+		for _, k := range keys {
+			if strings.HasPrefix(kv, k+"=") {
+				keep = false
+			}
+		}
+		if keep {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 func commandLine(in []string) []string {

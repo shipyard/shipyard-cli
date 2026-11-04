@@ -185,6 +185,17 @@ Loop:
   get_environments(branch=BRANCH, repo_name=<repo>)
   find projects[] entry where repo_name == <repo>
 
+  processing == false, and not (commit_hash == PUSHED_SHA AND ready)
+                                        → before the rules below, call
+                                          get_build_history(environment_id=<id>, page_size=1).
+                                          Its latest build is for PUSHED_SHA (projects[] entry
+                                          for <repo>) with status FAILED → BUILD FAILED. Stop
+                                          polling. Call get_failure_details and follow "Build
+                                          failed" in Troubleshooting, not "Stopped
+                                          environments": a failed first build shows stopped
+                                          with a null commit_hash, and a failed later build
+                                          leaves commit_hash on the previous one. Otherwise
+                                          apply the rules below
   stopped == true or retired == true    → STOP POLLING. The environment is not running;
                                           see "Stopped environments" below
   processing == true                    → a build is in flight, keep polling. Check this
@@ -235,8 +246,8 @@ processing, means no build is running and none is coming, so polling alone will 
 
 - **Never poll faster than 5 seconds.**
 - **Never call `rebuild_environment` while waiting.** A build is already running; rebuilding
-  restarts the clock and costs real money. Rebuild only if the build actually failed and you have
-  a specific reason to retry it.
+  restarts the clock and costs real money. Rebuild only after a build failed and
+  `get_failure_details` says to rebuild once.
 - `ready == true` with a matching `commit_hash` means the environment is serving *your* commit.
   That is the guarantee; do not add your own heuristics on top of it.
 - **Both conditions matter.** In a live test the commit matched while `ready` was still false for
@@ -566,8 +577,9 @@ to discard, and never report Verified from a container you edited (see below).
 **In a read-only run, do not fix anything:** no edits, commits or pushes. Report the failure with
 what you found in the logs, and stop.
 
-**Three attempts, then stop.** After a failed check: read the failure and the environment logs,
-make one targeted fix, and try again. An attempt is one fix, whether you pushed it or tried it in
+**Three attempts, then stop.** After a failed check: read the failure and the environment logs
+(`get_logs`; for a service that keeps restarting, `get_logs` with `previous: true` returns the run
+that crashed), make one targeted fix, and try again. An attempt is one fix, whether you pushed it or tried it in
 the running container. **Stop after 3 failed attempts** and report what you tried, what failed
 each time, and the environment URL. Looping past that burns build capacity and rarely converges.
 
@@ -642,7 +654,7 @@ file and push per attempt instead.
 | `commit_hash` never matches | You pushed to a different remote or branch than the environment tracks | Confirm the branch and remote, then re-check |
 | Matching commit but the app 404s or redirects to a login | Shipyard's gate is passed; this is the app's own auth or routing | The acceptance command must handle app login |
 | Multi-repo environment, wrong code tested | Matched the wrong `projects[]` entry | Always filter by `repo_name` before reading `commit_hash` |
-| Build failed instead of completing | Real build failure | Read build logs, fix the cause, push; do not rebuild unchanged code |
+| Build failed instead of completing | The app failed to build or start, or Shipyard hit a problem a rebuild usually fixes | Call `get_failure_details`. If it says to rebuild once, do only that, and stop and report if the rebuild fails the same way. Otherwise fix the cause it names (`get_build_logs` has the full log) and push; do not rebuild unchanged code |
 | Polling never finishes, flags look inert | `stopped` or `retired` is true, or `commit_hash` is null and nothing is processing | The environment is not running. Start this change's own environment once ("Stopped environments" in Step 3); never one on another branch |
 | 302 to `/oauth2/sign_in` | The bypass token was not sent, or was sent on the wrong host | Send it as the `shipyard_token` cookie on the environment's own host |
 

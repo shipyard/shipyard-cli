@@ -25,20 +25,21 @@ type Config struct {
 // location for configuration files, which is $HOME/.shipyard.
 // If that directory does not exist, the function creates it.
 // It also pre-populates the file with keys for Shipyard's configurable values.
-func CreateDefaultConfig(homedir string) error {
+// It returns the path of the created file.
+func CreateDefaultConfig(homedir string) (string, error) {
 	p := filepath.Join(homedir, ".shipyard", "config.yaml")
 
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return fmt.Errorf("failed to create the .shipyard directory in $HOME: %v", err)
+		return "", fmt.Errorf("failed to create the .shipyard directory in $HOME: %v", err)
 	}
 
 	var cfg Config
 	b, err := yaml.Marshal(cfg)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	return os.WriteFile(p, b, 0o600)
+	return p, os.WriteFile(p, b, 0o600)
 }
 
 // Save writes values into the config file viper loaded, and nothing else.
@@ -52,7 +53,7 @@ func CreateDefaultConfig(homedir string) error {
 func Save(values map[string]any) error {
 	path := viper.ConfigFileUsed()
 	if path == "" {
-		return fmt.Errorf("no config file in use; run 'shipyard config init' first")
+		return fmt.Errorf("no config file in use; pass one with --config")
 	}
 
 	file := viper.New()
@@ -71,4 +72,13 @@ func Save(values map[string]any) error {
 	}
 
 	return nil
+}
+
+// SelfUpdateEnabled reports whether the CLI may update itself from GitHub: the
+// update notice, the MCP server's background check and `shipyard upgrade`.
+// It's on unless self_update is false, in the config file or as
+// SHIPYARD_SELF_UPDATE. An install that can't reach GitHub, such as one whose
+// CLI comes with a self-hosted Shipyard release, turns it off.
+func SelfUpdateEnabled() bool {
+	return !viper.IsSet("self_update") || viper.GetBool("self_update")
 }

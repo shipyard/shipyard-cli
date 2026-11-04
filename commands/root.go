@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 
+	"github.com/shipyard/shipyard-cli/commands/app"
 	"github.com/shipyard/shipyard-cli/commands/env"
 	"github.com/shipyard/shipyard-cli/commands/k8s"
 	"github.com/shipyard/shipyard-cli/commands/telepresence"
@@ -35,7 +36,17 @@ var rootCmd = &cobra.Command{
 		logging.Register()
 		log.Println("Git commit:", version.GitCommit)
 		log.Println("Current config file:", viper.ConfigFileUsed())
+		startUpdateCheck(cmd)
 	},
+}
+
+// initViper reads SHIPYARD_* environment variables and sets defaults. Tests
+// that call viper.Reset call it again, or later tests stop seeing the env.
+func initViper() {
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	viper.SetEnvPrefix("shipyard")
+	viper.AutomaticEnv()
+	viper.SetDefault("update_check", true)
 }
 
 var (
@@ -46,15 +57,18 @@ var (
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		fail("Command", err)
+		red := color.New(color.FgHiRed)
+		_, _ = red.Fprintf(os.Stderr, "Command error: %s\n", err)
+	}
+	// After the command's own output, including its error, as gh does.
+	showUpdateNotice()
+	if err != nil {
+		os.Exit(1)
 	}
 }
 
 func init() {
-	replacer := strings.NewReplacer("-", "_")
-	viper.SetEnvKeyReplacer(replacer)
-	viper.SetEnvPrefix("shipyard")
-	viper.AutomaticEnv()
+	initViper()
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.shipyard/config.yaml)")
@@ -82,8 +96,9 @@ func setupCommands() {
 	rootCmd.AddCommand(NewAPICmd(c))
 	rootCmd.AddCommand(NewGetCmd(c))
 	rootCmd.AddCommand(NewSetCmd())
-	rootCmd.AddCommand(NewUpdateCmd())
+	rootCmd.AddCommand(NewUpgradeCmd())
 	rootCmd.AddCommand(NewModeCmd())
+	rootCmd.AddCommand(app.NewAddCmd(c))
 	rootCmd.AddCommand(volumes.NewResetCmd(c))
 	rootCmd.AddCommand(volumes.NewCreateCmd(c))
 	rootCmd.AddCommand(volumes.NewUploadCmd(c))
@@ -105,7 +120,14 @@ func setupCommands() {
 	rootCmd.AddCommand(NewMCPCmd(mcpClient))
 }
 
+// envOnlyAnnotation marks a command configured from the environment only: no
+// config file is read, or created.
+const envOnlyAnnotation = "shipyard.env-only"
+
 func initConfig() {
+	if cmd, _, err := rootCmd.Find(os.Args[1:]); err == nil && cmd.Annotations[envOnlyAnnotation] == "true" {
+		return
+	}
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 		if err := viper.ReadInConfig(); err != nil {
@@ -129,13 +151,21 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err != nil {
 		if errors.As(err, &viper.ConfigFileNotFoundError{}) {
 			// Create an empty config for the user.
-			if err := config.CreateDefaultConfig(home); err != nil {
+			path, err := config.CreateDefaultConfig(home)
+			if err != nil {
 				fail("Init", err)
 			}
 			// Stderr, not stdout: on a first run `shipyard mcp serve` would
 			// otherwise open its JSON-RPC stream with this line and the client
 			// would fail to parse the initialize response.
 			_, _ = fmt.Fprintln(os.Stderr, "Creating a default config.yaml in $HOME/.shipyard")
+			// Load the new file so config.Save can write to it in this same
+			// run: without this, ConfigFileUsed stays empty and `shipyard login`
+			// fails on the first run after the config is deleted.
+			viper.SetConfigFile(path)
+			if err := viper.ReadInConfig(); err != nil {
+				fail("Init", err)
+			}
 			return
 		} else if errors.As(err, &viper.ConfigParseError{}) {
 			fail("Init", errConfigParse)

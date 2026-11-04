@@ -24,7 +24,7 @@ func TestServiceTool_Definition(t *testing.T) {
 			name:         "get_services tool definition",
 			toolName:     "get_services",
 			expectedName: "get_services",
-			expectedDesc: "List services in an environment",
+			expectedDesc: "List the enabled services in an environment. A Compose service that is not listed is disabled for this environment, so other services can't reach it",
 		},
 		{
 			// NewServiceTool leaves exec disabled, and the description says so:
@@ -161,6 +161,24 @@ func TestServiceTool_Execute_PortForward(t *testing.T) {
 		if !strings.Contains(result, substr) {
 			t.Errorf("Expected result to contain %q, got: %s", substr, result)
 		}
+	}
+}
+
+// The returned command is pasted into a shell: --ports takes a comma list
+// (it is a StringSlice flag), and every value is quoted like exec_service's.
+func TestServiceTool_Execute_PortForward_Command(t *testing.T) {
+	mockClient := client.New(&servicesMockRequester{}, func() string { return "test-org" })
+	tool := NewServiceTool(mockClient, "port_forward")
+
+	result, err := tool.Execute(context.Background(),
+		[]byte(`{"environment_id":"env-123","service_name":"web; rm x","ports":["8080:80","3000:3000"]}`))
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	want := "shipyard port-forward --env env-123 --service 'web; rm x' --ports 8080:80,3000:3000"
+	if !strings.Contains(result, want) {
+		t.Errorf("Expected result to contain %q, got: %s", want, result)
 	}
 }
 

@@ -48,6 +48,10 @@ type MCPServerConfig struct {
 	// Off by default: it is the one tool here that executes arbitrary code in a
 	// running environment, so it is the operator's call, not the assistant's.
 	AllowExec bool `yaml:"allow_exec" mapstructure:"allow_exec"`
+
+	// LatestVersion is the newest release the CLI's update check has cached,
+	// if any. Never read from or written to the config file.
+	LatestVersion string `yaml:"-" mapstructure:"-"`
 }
 
 // MCP Server
@@ -278,7 +282,7 @@ func (s *MCPServer) handleInitialize(req *JSONRPCRequest) []byte {
 			"name":    "shipyard-mcp-server",
 			"version": version.Version,
 		},
-		"instructions": Instructions(),
+		"instructions": s.instructions(),
 	}
 
 	return s.successResponse(req.ID, result)
@@ -288,7 +292,7 @@ func (s *MCPServer) handleInitialize(req *JSONRPCRequest) []byte {
 func (s *MCPServer) handleListTools(req *JSONRPCRequest) []byte {
 	toolsList := make([]interface{}, 0, len(s.tools))
 	for _, tool := range s.tools {
-		toolsList = append(toolsList, tool.Definition())
+		toolsList = append(toolsList, tools.Annotate(tool.Definition()))
 	}
 
 	result := map[string]interface{}{
@@ -498,14 +502,22 @@ func (s *MCPServer) registerTools() {
 	// Register telepresence tools
 	s.tools["telepresence_connect"] = tools.NewTelepresenceTool(s.client, "telepresence_connect")
 
+	// Register application tools
+	for _, name := range []string{"plan_application", "create_application", "update_application"} {
+		s.tools[name] = tools.NewApplicationTool(s.client, name)
+	}
+
 	// Typed tools for API surfaces without a prior MCP binding.
 	for _, name := range []string{
 		"get_build_history",
+		"get_failure_details",
+		"get_build_logs",
 		"get_env_vars",
 		"put_env_vars",
 		"delete_env_var",
 		"restart_service",
 		"deploy_detached",
+		"delete_detached",
 		"update_branches",
 	} {
 		s.tools[name] = tools.NewExtendedTool(s.client, name)
@@ -570,6 +582,7 @@ func LoadMCPServerConfig() MCPServerConfig {
 	}
 
 	config.AllowExec = allowExecFromEnv(config.AllowExec)
+	config.LatestVersion = cachedLatestVersion()
 
 	return config
 }

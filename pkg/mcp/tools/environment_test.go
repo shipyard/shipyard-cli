@@ -679,3 +679,15 @@ func TestEnvironmentTool_ErrorHandling(t *testing.T) {
 		t.Errorf("Expected 'invalid parameters' error, got: %v", err)
 	}
 }
+
+// Both tools return bypass_token. The rule against printing it lives in the tool
+// descriptions as well as the server instructions: Codex never shows server
+// instructions to the model, and Claude Code truncates them.
+func TestEnvironmentTools_DescriptionsGuardBypassToken(t *testing.T) {
+	for _, name := range []string{"get_environments", "get_environment"} {
+		desc := NewEnvironmentTool(newMockClient(), name).Definition().Description
+		if !strings.Contains(desc, "bypass_token") || !strings.Contains(strings.ToLower(desc), "never print") {
+			t.Errorf("%s description must warn never to print the bypass_token, got: %q", name, desc)
+		}
+	}
+}

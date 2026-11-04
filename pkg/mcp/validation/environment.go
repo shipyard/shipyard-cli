@@ -9,23 +9,32 @@ import (
 // TODO: validate UUID format using "github.com/google/uuid" package
 // validateEnvironmentID validates that an environment ID has the expected format
 func ValidateEnvironmentID(id string) error {
+	return validateID("environment_id", "my-environment-123", id)
+}
+
+// ValidateApplicationID validates an application ID with the environment ID rules.
+func ValidateApplicationID(id string) error {
+	return validateID("application_id", "0b6c5a2e-3f1d-4c8e-9a7b-2d4e6f8a1c3b", id)
+}
+
+func validateID(field, example, id string) error {
 	if id == "" {
-		return fmt.Errorf("environment_id is required. Example: 'my-environment-123'")
+		return fmt.Errorf("%s is required. Example: '%s'", field, example)
 	}
 
-	// Environment IDs should be non-empty strings with reasonable length
+	// IDs should be non-empty strings with reasonable length
 	if len(id) < 3 {
-		return fmt.Errorf("environment_id too short (minimum 3 characters). Provided: '%s'", id)
+		return fmt.Errorf("%s too short (minimum 3 characters). Provided: '%s'", field, id)
 	}
 
 	if len(id) > 100 {
-		return fmt.Errorf("environment_id too long (maximum 100 characters). Provided length: %d", len(id))
+		return fmt.Errorf("%s too long (maximum 100 characters). Provided length: %d", field, len(id))
 	}
 
 	// Check for invalid characters (allow alphanumeric, hyphens, underscores)
 	validID := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 	if !validID.MatchString(id) {
-		return fmt.Errorf("environment_id '%s' contains invalid characters. Only alphanumeric characters, hyphens (-), and underscores (_) are allowed", id)
+		return fmt.Errorf("%s '%s' contains invalid characters. Only alphanumeric characters, hyphens (-), and underscores (_) are allowed", field, id)
 	}
 
 	return nil

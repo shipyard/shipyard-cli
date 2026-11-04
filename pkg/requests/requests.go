@@ -25,6 +25,11 @@ type Requester interface {
 
 type HTTPClient struct {
 	userAgentType string
+	// bearer sends bearerToken as Authorization: Bearer in place of the CLI's
+	// configured API token. The hosted MCP server uses it for exchanged tokens,
+	// and an empty one is an error: it must never fall back to the configured token.
+	bearer      bool
+	bearerToken string
 }
 
 func New() HTTPClient {
@@ -35,13 +40,25 @@ func NewWithUserAgent(userAgentType string) HTTPClient {
 	return HTTPClient{userAgentType: userAgentType}
 }
 
+// NewWithBearerToken sends token as a bearer token instead of reading the CLI's
+// configured API token.
+func NewWithBearerToken(userAgentType, token string) HTTPClient {
+	return HTTPClient{userAgentType: userAgentType, bearer: true, bearerToken: token}
+}
+
 func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error) {
-	var token string
-	var err error
-	// TODO: refactor the CLI initialization process this to make the client not depend on global state.
-	token, err = auth.APIToken()
-	if err != nil {
-		return nil, err
+	token := c.bearerToken
+	if c.bearer {
+		if token == "" {
+			return nil, errors.New("no bearer token for this request")
+		}
+	} else {
+		var err error
+		// TODO: refactor the CLI initialization process this to make the client not depend on global state.
+		token, err = auth.APIToken()
+		if err != nil {
+			return nil, err
+		}
 	}
 	start := time.Now()
 	defer func() {
@@ -72,7 +89,11 @@ func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error
 
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-%s-%s-%s", "shipyard-"+c.userAgentType, version.Version, runtime.GOOS, runtime.GOARCH))
-	req.Header.Set("x-api-token", token)
+	if c.bearer {
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else {
+		req.Header.Set("x-api-token", token)
+	}
 
 	var netClient http.Client
 	resp, err := netClient.Do(req)
@@ -90,17 +111,27 @@ func (c HTTPClient) Do(method, uri, contentType string, body any) ([]byte, error
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if len(b) == 0 {
-			return nil, fmt.Errorf("empty response")
-		}
-		errString := types.ErrorFromResponse(b)
-		if errString == "" {
-			return nil, errors.New(string(b))
-		}
-		// Force the first character of the error string from the API to be lower-case.
-		errString = strings.ToLower(errString[:1]) + errString[1:]
-		return nil, errors.New(errString)
+		return nil, NewAPIError(resp.StatusCode, b)
 	}
 
 	return b, nil
+}
+
+// NewAPIError keeps the status and body of a failed response, with the message
+// callers have always seen: the API's first error title, lower-cased, or else
+// the raw body.
+func NewAPIError(status int, body []byte) *APIError {
+	e := &APIError{StatusCode: status, Body: body}
+	if len(body) == 0 {
+		e.message = "empty response"
+		return e
+	}
+	errString := types.ErrorFromResponse(body)
+	if errString == "" {
+		e.message = string(body)
+		return e
+	}
+	// Force the first character of the error string from the API to be lower-case.
+	e.message = strings.ToLower(errString[:1]) + errString[1:]
+	return e
 }

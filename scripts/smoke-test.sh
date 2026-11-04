@@ -76,13 +76,14 @@ check "binary executes (--version exits 0)" "$BINARY" --version
 check_output_not "version is stamped (not undefined)" "undefined" "$BINARY" --version
 
 # 3. Help text contains expected subcommands
-for subcmd in get login update rebuild exec logs mcp; do
+for subcmd in get login upgrade rebuild exec logs mcp; do
     check_output "help contains '$subcmd' subcommand" "$subcmd" "$BINARY" --help
 done
 
 # 4. Subcommand help works
 check "get --help exits 0" "$BINARY" get --help
 check "mcp --help exits 0" "$BINARY" mcp --help
+check "update alias still works" "$BINARY" update --help
 
 # 5. Config init with temp HOME doesn't crash
 TEMP_HOME=$(mktemp -d)

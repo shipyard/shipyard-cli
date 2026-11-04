@@ -71,6 +71,10 @@ func LogsSchema() map[string]interface{} {
 				"description": "Number of log lines per page",
 				"default":     20,
 			},
+			"previous": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Logs of the container's previous run, for a container that crashed and restarted",
+			},
 		},
 		"required": []string{"environment_id", "service_name"},
 	}

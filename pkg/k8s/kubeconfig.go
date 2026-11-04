@@ -14,7 +14,9 @@ import (
 )
 
 // setupKubeconfig tries to fetch a kubeconfig for a given environment and
-// save it in the default store directory.
+// save it in the default store directory. Only telepresence should call it:
+// the file is shared, so logs, exec and port-forward parse the fetched bytes
+// in memory instead (see New).
 func setupKubeconfig(c client.Client, envID string) error {
 	cfg, err := fetchKubeconfig(c, envID)
 	if err != nil {
