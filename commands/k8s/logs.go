@@ -1,6 +1,8 @@
 package k8s
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -63,6 +65,12 @@ func handleLogsCmd(c client.Client) error {
 
 	follow := viper.GetBool("follow")
 	tail := viper.GetInt64("tail")
+
+	// Only a followed stream stays open long enough to need a heartbeat.
+	if follow {
+		stop := k8s.StartActivityHeartbeat(context.Background(), c, id, k8s.ActivitySourceLogs, k8s.ActivityHeartbeatInterval)
+		defer stop()
+	}
 
 	return k.Logs(follow, tail)
 }
