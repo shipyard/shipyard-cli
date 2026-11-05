@@ -69,11 +69,10 @@ var applicationToolDefinitions = map[string]ToolDefinition{
 		Name: "update_application",
 		Description: "Reconfigure an existing app: change a repo's branch, services or routes, or add or remove repos. " +
 			"Only the fields given change; remove_routes drops a route set here, which puts back the compose file's. " +
-			"Material changes queue a rebuild. Status not_rebuilt means this request queued no build, usually because it " +
-			"matched what the app already has. A build from an earlier request may still be in progress, so check " +
-			"get_build_history before saying none is coming: RUNNING means deployed, and only a build newer than the " +
-			"latest RUNNING one can still be in progress. Otherwise a stopped app stays stopped and this request " +
-			"doesn't build new commits. Enabling a " +
+			"Material changes queue a rebuild. Status not_rebuilt means this request queued no build and none is " +
+			"unfinished, usually because it matched what the app already has: a stopped app stays stopped, and this " +
+			"request doesn't build new commits. Status build_in_progress means this request queued no build, but one " +
+			"from an earlier request is unfinished, and it can still replace what's deployed. Enabling a " +
 			"service whose enabled_by_default is false needs its profile in selected_profiles. It does not set env vars: " +
 			"use put_env_vars for runtime variables and the Shipyard dashboard for build args. " +
 			bypassTokenNote + needsActionNote,
@@ -331,16 +330,22 @@ func (t *ApplicationTool) executeUpdate(params json.RawMessage) (string, error) 
 }
 
 // updateStatus names how an update went. Core sends rebuild_queued false when no
-// build followed, and "updated" would read as one on its way. A core too old to
-// send it leaves "updated".
+// build followed, and "updated" would read as one on its way. build_in_progress
+// is then all that says an earlier request's build is still to land: the app's
+// own processing is false while an older deploy serves. A core too old to send
+// rebuild_queued leaves "updated".
 func updateStatus(body []byte) string {
 	var resp struct {
-		RebuildQueued *bool `json:"rebuild_queued"`
+		RebuildQueued   *bool `json:"rebuild_queued"`
+		BuildInProgress bool  `json:"build_in_progress"`
 	}
-	if json.Unmarshal(body, &resp) == nil && resp.RebuildQueued != nil && !*resp.RebuildQueued {
-		return "not_rebuilt"
+	if json.Unmarshal(body, &resp) != nil || resp.RebuildQueued == nil || *resp.RebuildQueued {
+		return "updated"
 	}
-	return "updated"
+	if resp.BuildInProgress {
+		return "build_in_progress"
+	}
+	return "not_rebuilt"
 }
 
 // actionOrSuccess turns core's create or update answer into the tool result:
