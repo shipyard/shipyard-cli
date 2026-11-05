@@ -68,7 +68,10 @@ var applicationToolDefinitions = map[string]ToolDefinition{
 	"update_application": {
 		Name: "update_application",
 		Description: "Reconfigure an existing app: change a repo's branch, services or routes, or add or remove repos. " +
-			"Only the fields given change; remove_routes drops a route set here, which puts back the compose file's. Material changes queue a rebuild. Enabling a " +
+			"Only the fields given change; remove_routes drops a route set here, which puts back the compose file's. " +
+			"Material changes queue a rebuild. Status not_rebuilt means no build was queued, usually because the request " +
+			"matched what the app already has: a stopped app stays stopped and new commits aren't picked up, so don't " +
+			"report a rebuild or wait for one. Enabling a " +
 			"service whose enabled_by_default is false needs its profile in selected_profiles. It does not set env vars: " +
 			"use put_env_vars for runtime variables and the Shipyard dashboard for build args. " +
 			bypassTokenNote + needsActionNote,
@@ -322,7 +325,20 @@ func (t *ApplicationTool) executeUpdate(params json.RawMessage) (string, error) 
 		notFound.Cause = err
 		return "", notFound
 	}
-	return actionOrSuccess("updated", body, err, nil, nil)
+	return actionOrSuccess(updateStatus(body), body, err, nil, nil)
+}
+
+// updateStatus names how an update went. Core sends rebuild_queued false when no
+// build followed, and "updated" would read as one on its way. A core too old to
+// send it leaves "updated".
+func updateStatus(body []byte) string {
+	var resp struct {
+		RebuildQueued *bool `json:"rebuild_queued"`
+	}
+	if json.Unmarshal(body, &resp) == nil && resp.RebuildQueued != nil && !*resp.RebuildQueued {
+		return "not_rebuilt"
+	}
+	return "updated"
 }
 
 // actionOrSuccess turns core's create or update answer into the tool result:

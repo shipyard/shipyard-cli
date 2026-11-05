@@ -292,6 +292,27 @@ func TestApplicationTools(t *testing.T) {
 			},
 		},
 		{
+			name:       "update that queued a rebuild",
+			tool:       "update_application",
+			args:       `{"application_id":"app-uuid-1","projects":[{"repo":"app","routes":{"web":"/new"}}]}`,
+			status:     http.StatusOK,
+			response:   `{"data":{"id":"app-uuid-1"},"rebuild_queued":true}`,
+			wantMethod: http.MethodPatch,
+			wantPath:   "/application/app-uuid-1",
+			wantResult: []string{`"status":"updated"`},
+		},
+		{
+			// Saying "updated" here reads as a build on its way
+			name:       "update that queued no rebuild",
+			tool:       "update_application",
+			args:       `{"application_id":"app-uuid-1","projects":[{"repo":"app","routes":{"web":"/same"}}]}`,
+			status:     http.StatusOK,
+			response:   `{"data":{"id":"app-uuid-1","attributes":{"stopped":true}},"rebuild_queued":false}`,
+			wantMethod: http.MethodPatch,
+			wantPath:   "/application/app-uuid-1",
+			wantResult: []string{`"status":"not_rebuilt"`, `"stopped":true`},
+		},
+		{
 			name:       "update needs_action passes through",
 			tool:       "update_application",
 			args:       `{"application_id":"app-uuid-1","projects":[{"repo":"app","branch":"gone"}]}`,
