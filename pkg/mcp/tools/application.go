@@ -69,9 +69,10 @@ var applicationToolDefinitions = map[string]ToolDefinition{
 		Name: "update_application",
 		Description: "Reconfigure an existing app: change a repo's branch, services or routes, or add or remove repos. " +
 			"Only the fields given change; remove_routes drops a route set here, which puts back the compose file's. " +
-			"Material changes queue a rebuild. Status not_rebuilt means no build was queued, usually because the request " +
-			"matched what the app already has: a stopped app stays stopped and new commits aren't picked up, so don't " +
-			"report a rebuild or wait for one. Enabling a " +
+			"Material changes queue a rebuild. Status not_rebuilt means this request queued no build, usually because it " +
+			"matched what the app already has; a change can also be saved without one, as on an expired trial. A build " +
+			"from an earlier request may still be running, so check get_build_history before saying none is coming. " +
+			"Otherwise a stopped app stays stopped and this request doesn't build new commits. Enabling a " +
 			"service whose enabled_by_default is false needs its profile in selected_profiles. It does not set env vars: " +
 			"use put_env_vars for runtime variables and the Shipyard dashboard for build args. " +
 			bypassTokenNote + needsActionNote,
