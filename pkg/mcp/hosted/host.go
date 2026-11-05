@@ -9,6 +9,7 @@ package hosted
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -359,13 +360,22 @@ func failureStatus(err error) string {
 
 // callOutcome names how a tool call that returned no error went. The application
 // tools can return what to do next, whether core refused the call or is still
-// working, which isn't what the client asked for. Other tools' answers can hold a
-// status of their own, so they aren't read.
+// working, which isn't what the client asked for, and an update can queue no
+// build. Other tools' answers can hold a status of their own, so they aren't read.
 func callOutcome(name, out string) string {
 	switch name {
 	case "plan_application", "create_application", "update_application":
 		if apps.IsActionBody([]byte(out)) {
 			return "action"
+		}
+	}
+	if name == "update_application" {
+		var result struct {
+			Status string `json:"status"`
+		}
+		if json.Unmarshal([]byte(out), &result) == nil &&
+			(result.Status == "not_rebuilt" || result.Status == "build_in_progress") {
+			return result.Status
 		}
 	}
 	return "ok"

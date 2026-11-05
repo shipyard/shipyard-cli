@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/shipyard/shipyard-cli/pkg/apps"
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/errors"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/schemas"
@@ -29,7 +30,7 @@ var toolDefinitions = map[string]ToolDefinition{
 	},
 	"restart_environment": {
 		Name:        "restart_environment",
-		Description: "Restart a stopped environment",
+		Description: "Restart a stopped environment. " + needsActionNote,
 		InputSchema: schemas.EnvironmentIDSchema(),
 	},
 	"stop_environment": {
@@ -44,12 +45,12 @@ var toolDefinitions = map[string]ToolDefinition{
 	},
 	"rebuild_environment": {
 		Name:        "rebuild_environment",
-		Description: "Rebuild an environment with the latest commit",
+		Description: "Rebuild an environment with the latest commit. " + needsActionNote,
 		InputSchema: schemas.EnvironmentIDSchema(),
 	},
 	"revive_environment": {
 		Name:        "revive_environment",
-		Description: "Revive a deleted environment",
+		Description: "Revive a deleted environment. " + needsActionNote,
 		InputSchema: schemas.EnvironmentIDSchema(),
 	},
 }
@@ -238,6 +239,9 @@ func (t *EnvironmentTool) executeRestartEnvironment(params json.RawMessage) (str
 	svc := environment.NewEnvironmentManager(t.client)
 	err := svc.Restart(toolParams.EnvironmentID)
 	if err != nil {
+		if body, ok := apps.ActionBody(err); ok {
+			return string(body), nil
+		}
 		log.Printf("MCP restart_environment info: %v", err)
 		// Return the API error as informational text instead of failing
 		return fmt.Sprintf("Cannot restart environment %s: %s", toolParams.EnvironmentID, err.Error()), nil
@@ -316,6 +320,9 @@ func (t *EnvironmentTool) executeRebuildEnvironment(params json.RawMessage) (str
 	svc := environment.NewEnvironmentManager(t.client)
 	err := svc.Rebuild(toolParams.EnvironmentID)
 	if err != nil {
+		if body, ok := apps.ActionBody(err); ok {
+			return string(body), nil
+		}
 		log.Printf("MCP rebuild_environment info: %v", err)
 		// Return the API error as informational text instead of failing
 		return fmt.Sprintf("Cannot rebuild environment %s: %s", toolParams.EnvironmentID, err.Error()), nil
@@ -342,6 +349,9 @@ func (t *EnvironmentTool) executeReviveEnvironment(params json.RawMessage) (stri
 	svc := environment.NewEnvironmentManager(t.client)
 	err := svc.Revive(toolParams.EnvironmentID)
 	if err != nil {
+		if body, ok := apps.ActionBody(err); ok {
+			return string(body), nil
+		}
 		log.Printf("MCP revive_environment info: %v", err)
 		// Return the API error as informational text instead of failing
 		return fmt.Sprintf("Cannot revive environment %s: %s", toolParams.EnvironmentID, err.Error()), nil

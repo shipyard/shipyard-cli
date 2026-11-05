@@ -284,6 +284,9 @@ func TestCallOutcome(t *testing.T) {
 		{"create_application", action, "action"},
 		{"update_application", action, "action"},
 		{"update_application", `{"status":"updated"}`, "ok"},
+		{"update_application", `{"status":"not_rebuilt"}`, "not_rebuilt"},
+		{"update_application", `{"status":"build_in_progress"}`, "build_in_progress"},
+		{"create_application", `{"status":"not_rebuilt"}`, "ok"},
 		// Only the application tools answer this way: an environment has its own status.
 		{"get_environment", `{"status":"creating"}`, "ok"},
 	}
