@@ -33,15 +33,20 @@ var rootCmd = &cobra.Command{
 	Version:       fmt.Sprintf("%s (Git Commit %s)", version.Version, version.GitCommit),
 	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		logging.Register()
-		log.Println("Git commit:", version.GitCommit)
-		log.Println("Current config file:", viper.ConfigFileUsed())
-		// mode hasn't read the config yet, and update_check is in it. The command
-		// it runs starts the check.
-		if cmd.Name() != "mode" {
-			startUpdateCheck(cmd)
+		// mode hasn't read its flags or the config yet, and verbose and update_check
+		// come from those. The command it runs does this instead.
+		if cmd.Name() == "mode" {
+			return
 		}
+		logStartup()
+		startUpdateCheck(cmd)
 	},
+}
+
+func logStartup() {
+	logging.Register()
+	log.Println("Git commit:", version.GitCommit)
+	log.Println("Current config file:", viper.ConfigFileUsed())
 }
 
 // initViper reads SHIPYARD_* environment variables and sets defaults. Tests

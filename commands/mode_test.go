@@ -9,6 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/shipyard/shipyard-cli/version"
 )
 
 const qaURL = "https://qa.shipyard.build/api/v1"
@@ -278,6 +280,81 @@ func TestModeHelpDoesntNeedAConfig(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("shipyard mode qa")) {
 		t.Errorf("help is not mode's:\n%s", out)
+	}
+}
+
+func TestModeWithOnlyANamedConfigTakesItsProfileToken(t *testing.T) {
+	named := writeConfig(t, "profiles:\n  qa:\n    auth_token: named-token\n")
+	root, _ := newModeRoot(t)
+	t.Cleanup(func() { viper.Set("api_token", nil) })
+	if err := execute(t, root, "mode", "qa", "--config", named); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	saved, err := os.ReadFile(named)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(saved), "api_token: named-token") {
+		t.Errorf("token not saved:\n%s", saved)
+	}
+}
+
+// The saved token belongs to the environment being left, so a profile that sets
+// an empty token mustn't let it follow the mode to another host.
+func TestModeWithAnEmptyProfileTokenClearsTheSavedOne(t *testing.T) {
+	root, _ := newModeRoot(t)
+	t.Cleanup(func() { viper.Set("api_token", nil) })
+	if err := os.WriteFile(cfgFile, []byte("api_token: saved-token\nprofiles:\n  qa:\n    auth_token: \"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := execute(t, root, "mode", "qa"); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	wantSavedMode(t, cfgFile, true)
+	saved, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), "saved-token") {
+		t.Errorf("the previous token is still saved:\n%s", saved)
+	}
+}
+
+// An inherited token belongs to whatever set it, not to this mode's host.
+func TestAProfileWithAnEmptyTokenMasksTheEnvironmentsToken(t *testing.T) {
+	root, run := newModeRoot(t)
+	t.Setenv("SHIPYARD_API_TOKEN", "env-token")
+	if err := os.WriteFile(cfgFile, []byte("profiles:\n  qa:\n    auth_token: \"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := execute(t, root, "mode", "qa", "get"); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if run.apiToken != "" {
+		t.Errorf("token = %q, want it masked", run.apiToken)
+	}
+}
+
+// mode hasn't read the config yet, so it can't know update_check: only the
+// command it runs can start the check.
+func TestModeLeavesTheUpdateCheckToTheCommandItRuns(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, name := range append([]string{"CI", "SHIPYARD_SELF_UPDATE"}, agentEnvVars...) {
+		t.Setenv(name, "")
+	}
+	oldVersion, oldTerminal, oldNotice := version.Version, stderrIsTerminal, pendingNotice
+	version.Version, stderrIsTerminal, pendingNotice = "1.9.0", func() bool { return true }, nil
+	viper.Set("update_check", true)
+	t.Cleanup(func() {
+		version.Version, stderrIsTerminal, pendingNotice = oldVersion, oldTerminal, oldNotice
+		viper.Set("update_check", nil)
+	})
+	root := &cobra.Command{Use: "shipyard"}
+	mode := &cobra.Command{Use: "mode"}
+	root.AddCommand(mode)
+	rootCmd.PersistentPreRun(mode, nil)
+	if pendingNotice != nil {
+		t.Error("mode started the update check")
 	}
 }
 

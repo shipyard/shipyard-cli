@@ -69,6 +69,7 @@ func runMode(cmd *cobra.Command, args []string) error {
 		subArgs = root.Flags().Args()
 		if len(subArgs) == 0 {
 			loadConfig()
+			logStartup()
 			return setPermanentMode(mode, buildURL)
 		}
 	}
@@ -77,17 +78,16 @@ func runMode(cmd *cobra.Command, args []string) error {
 	return executeWithMode(cmd, mode, buildURL, subArgs)
 }
 
-// applyModeProfile overrides the config's token with the mode's profile, if it has one.
+// profileTokenKey is where the config keeps a mode's profile token.
+func profileTokenKey(mode string) string {
+	return "profiles." + mode + ".auth_token"
+}
+
+// applyModeProfile overrides the token with the one the mode's profile sets, if
+// it sets one. An empty one masks a token inherited from the environment.
 func applyModeProfile() {
-	profiles := viper.GetStringMap("profiles")
-	if profileData, exists := profiles[modeProfile]; exists {
-		if profileMap, ok := profileData.(map[string]interface{}); ok {
-			if token, hasToken := profileMap["auth_token"]; hasToken {
-				if tokenStr, ok := token.(string); ok {
-					os.Setenv("SHIPYARD_API_TOKEN", tokenStr)
-				}
-			}
-		}
+	if key := profileTokenKey(modeProfile); viper.IsSet(key) {
+		os.Setenv("SHIPYARD_API_TOKEN", viper.GetString(key))
 	}
 }
 
@@ -110,18 +110,12 @@ func setPermanentMode(mode, buildURL string) error {
 	// Save the API URL to the config file
 	values := map[string]any{"api_url": buildURL}
 
-	// Copy token from profile to auth_token field if profile exists
-	profiles := viper.GetStringMap("profiles")
-	profileFound := false
-	if profileData, exists := profiles[mode]; exists {
-		if profileMap, ok := profileData.(map[string]interface{}); ok {
-			if token, hasToken := profileMap["auth_token"]; hasToken {
-				if tokenStr, ok := token.(string); ok {
-					values["api_token"] = tokenStr
-					profileFound = true
-				}
-			}
-		}
+	// Use the token the profile sets as api_token. An empty one clears it, or the
+	// saved token, which belongs to the environment being left, goes to this one.
+	key := profileTokenKey(mode)
+	tokenSet := viper.IsSet(key)
+	if tokenSet {
+		values["api_token"] = viper.GetString(key)
 	}
 
 	if err := config.Save(values); err != nil {
@@ -129,7 +123,7 @@ func setPermanentMode(mode, buildURL string) error {
 	}
 
 	fmt.Printf("Mode set to %s.\n", mode)
-	if !profileFound {
+	if !tokenSet {
 		fmt.Printf("Don't forget to update your auth token or set new profiles using `shipyard set token --profile %s`.\n", mode)
 	}
 	return nil
