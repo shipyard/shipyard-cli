@@ -33,11 +33,20 @@ var rootCmd = &cobra.Command{
 	Version:       fmt.Sprintf("%s (Git Commit %s)", version.Version, version.GitCommit),
 	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		logging.Register()
-		log.Println("Git commit:", version.GitCommit)
-		log.Println("Current config file:", viper.ConfigFileUsed())
+		// mode hasn't read its flags or the config yet, and verbose and update_check
+		// come from those. The command it runs does this instead.
+		if cmd.Name() == "mode" {
+			return
+		}
+		logStartup()
 		startUpdateCheck(cmd)
 	},
+}
+
+func logStartup() {
+	logging.Register()
+	log.Println("Git commit:", version.GitCommit)
+	log.Println("Current config file:", viper.ConfigFileUsed())
 }
 
 // initViper reads SHIPYARD_* environment variables and sets defaults. Tests
@@ -125,9 +134,22 @@ func setupCommands() {
 const envOnlyAnnotation = "shipyard.env-only"
 
 func initConfig() {
-	if cmd, _, err := rootCmd.Find(os.Args[1:]); err == nil && cmd.Annotations[envOnlyAnnotation] == "true" {
+	cmd, _, err := rootCmd.Find(os.Args[1:])
+	if err == nil && cmd.Annotations[envOnlyAnnotation] == "true" {
 		return
 	}
+	// Flags after the mode aren't parsed yet, so a --config among them isn't known
+	// either: the config waits for mode, or for the command it runs.
+	if err == nil && cmd.Name() == "mode" && modeProfile == "" {
+		return
+	}
+	loadConfig()
+	if modeProfile != "" {
+		applyModeProfile()
+	}
+}
+
+func loadConfig() {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 		if err := viper.ReadInConfig(); err != nil {

@@ -1,14 +1,19 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/shipyard/shipyard-cli/config"
 )
+
+// modeProfile is the mode a command is running under, set while mode runs it.
+var modeProfile string
 
 func NewModeCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -24,10 +29,16 @@ Examples:
   shipyard mode qa mcp serve -v
 
   # Run any command in local mode
-  shipyard mode local get environments`,
+  shipyard mode local get environments
+
+  # Flags after the mode go to the command
+  shipyard mode qa get environment 12345 --bypass-token`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runMode,
 	}
+
+	// Flags after the mode belong to the command it runs, which mode doesn't know about
+	cmd.Flags().SetInterspersed(false)
 
 	return cmd
 }
@@ -41,13 +52,43 @@ func runMode(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// If no additional args, set mode permanently (legacy behavior)
-	if len(args) == 1 {
-		return setPermanentMode(mode, buildURL)
+	subArgs := args[1:]
+	if len(subArgs) > 0 && subArgs[0] == "--" {
+		subArgs = subArgs[1:]
+	}
+
+	// Without a command, set mode permanently (legacy behavior)
+	root := cmd.Root()
+	if target, _, err := root.Find(subArgs); err == nil && target == root {
+		if err := root.ParseFlags(subArgs); errors.Is(err, pflag.ErrHelp) {
+			return cmd.Help()
+		} else if err != nil {
+			return err
+		}
+		// Find stops at a separator, so the command can still be after one
+		subArgs = root.Flags().Args()
+		if len(subArgs) == 0 {
+			loadConfig()
+			logStartup()
+			return setPermanentMode(mode, buildURL)
+		}
 	}
 
 	// Otherwise, execute the subcommand with temporary mode context
-	return executeWithMode(cmd, mode, buildURL, args[1:])
+	return executeWithMode(cmd, mode, buildURL, subArgs)
+}
+
+// profileTokenKey is where the config keeps a mode's profile token.
+func profileTokenKey(mode string) string {
+	return "profiles." + mode + ".auth_token"
+}
+
+// applyModeProfile overrides the token with the one the mode's profile sets, if
+// it sets one. An empty one masks a token inherited from the environment.
+func applyModeProfile() {
+	if key := profileTokenKey(modeProfile); viper.IsSet(key) {
+		os.Setenv("SHIPYARD_API_TOKEN", viper.GetString(key))
+	}
 }
 
 func getBuildURLForMode(mode string) (string, error) {
@@ -69,18 +110,12 @@ func setPermanentMode(mode, buildURL string) error {
 	// Save the API URL to the config file
 	values := map[string]any{"api_url": buildURL}
 
-	// Copy token from profile to auth_token field if profile exists
-	profiles := viper.GetStringMap("profiles")
-	profileFound := false
-	if profileData, exists := profiles[mode]; exists {
-		if profileMap, ok := profileData.(map[string]interface{}); ok {
-			if token, hasToken := profileMap["auth_token"]; hasToken {
-				if tokenStr, ok := token.(string); ok {
-					values["api_token"] = tokenStr
-					profileFound = true
-				}
-			}
-		}
+	// Use the token the profile sets as api_token. An empty one clears it, or the
+	// saved token, which belongs to the environment being left, goes to this one.
+	key := profileTokenKey(mode)
+	tokenSet := viper.IsSet(key)
+	if tokenSet {
+		values["api_token"] = viper.GetString(key)
 	}
 
 	if err := config.Save(values); err != nil {
@@ -88,7 +123,7 @@ func setPermanentMode(mode, buildURL string) error {
 	}
 
 	fmt.Printf("Mode set to %s.\n", mode)
-	if !profileFound {
+	if !tokenSet {
 		fmt.Printf("Don't forget to update your auth token or set new profiles using `shipyard set token --profile %s`.\n", mode)
 	}
 	return nil
@@ -102,20 +137,13 @@ func executeWithMode(parentCmd *cobra.Command, mode, buildURL string, subArgs []
 	// Set the API URL for this execution
 	os.Setenv("SHIPYARD_API_URL", buildURL)
 
-	// Set token from profile if available
-	profiles := viper.GetStringMap("profiles")
-	if profileData, exists := profiles[mode]; exists {
-		if profileMap, ok := profileData.(map[string]interface{}); ok {
-			if token, hasToken := profileMap["auth_token"]; hasToken {
-				if tokenStr, ok := token.(string); ok {
-					os.Setenv("SHIPYARD_API_TOKEN", tokenStr)
-				}
-			}
-		}
-	}
+	// initConfig sets the token from the profile, in the run below: only that
+	// run's flags say which config to read
+	modeProfile = mode
 
 	// Restore original environment variables when done
 	defer func() {
+		modeProfile = ""
 		if originalAPIURL == "" {
 			os.Unsetenv("SHIPYARD_API_URL")
 		} else {

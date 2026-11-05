@@ -165,6 +165,14 @@ func ParseHTTPError(operation string, err error, resourceID string) *MCPError {
 		return nil
 	}
 
+	// The message comes from the error's text, so the error itself stays behind
+	// it: the text can't be trusted for what the API really answered.
+	parsed := classifyHTTPError(operation, err, resourceID)
+	parsed.Cause = err
+	return parsed
+}
+
+func classifyHTTPError(operation string, err error, resourceID string) *MCPError {
 	errStr := err.Error()
 
 	// Use a more descriptive default if no resourceID provided

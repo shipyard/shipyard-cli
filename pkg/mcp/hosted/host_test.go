@@ -39,6 +39,7 @@ type fakeCore struct {
 	exchanges  int
 	exchange   func(w http.ResponseWriter, form map[string]string)
 	apiStatus  int
+	apiBody    string // the API's answer, when it isn't the default for apiStatus
 	apiTokens  []string
 	apiHeaders []http.Header
 }
@@ -51,7 +52,7 @@ func newFakeCore(t *testing.T) *fakeCore {
 			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 			return
 		}
-		_, _ = fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":300,"scope":%q,"issued_token_type":%q}`,
+		_, _ = fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":300,"org":"test-org","scope":%q,"issued_token_type":%q}`,
 			coreToken, strings.Join(tools.KnownScopes, " "), tokenTypeAccessToken)
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +82,9 @@ func newFakeCore(t *testing.T) *fakeCore {
 		f.apiTokens = append(f.apiTokens, r.Header.Get("Authorization"))
 		f.apiHeaders = append(f.apiHeaders, r.Header.Clone())
 		w.WriteHeader(f.apiStatus)
-		if f.apiStatus == http.StatusOK {
+		if f.apiBody != "" {
+			_, _ = w.Write([]byte(f.apiBody))
+		} else if f.apiStatus == http.StatusOK {
 			_, _ = w.Write([]byte(`{"data":[],"links":{},"meta":{"pagination":{"page":1,"pages":1}}}`))
 		} else {
 			_, _ = w.Write([]byte(`{"errors":[{"title":"Invalid token"}]}`))
@@ -1273,7 +1276,7 @@ func TestAnExchangedTokenTheAPIRefusedStillReachesCoreWhenThrottled(t *testing.T
 	if _, err := e.exchange(t.Context(), clientToken, testAddr); err != nil {
 		t.Fatal(err)
 	}
-	(&host{exchanger: e}).toolError("get_environments", clientToken, &requests.APIError{StatusCode: http.StatusUnauthorized})
+	(&host{exchanger: e}).toolError("get_environments", clientToken, "test-org", &requests.APIError{StatusCode: http.StatusUnauthorized}, 0)
 	core.exchange = func(w http.ResponseWriter, _ map[string]string) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))

@@ -466,7 +466,7 @@ its server (`power-shipyard-plugins-shipyard`).
 |---|---|
 | `plan_application` | Preview creating an app for a pushed GitHub branch: its compose file, services, suggested routes, the env vars the compose file needs set (`optional` when it has a default), any existing app, `app_name` (a name free in the org whose URL is free too) and `visitors_required` (true for an org API token). Changes nothing |
 | `create_application` | Create an app from a confirmed plan: services (at least one), routes and env vars. Requires the plan's `head_sha`, so Shipyard builds the commit you confirmed. Each env item needs the services the plan lists for it, so a value reaches only those services, or `[]` when the plan lists none (a variable the compose file interpolates, set for the whole app); values are sent to Shipyard but never returned. Pass the plan's `app_name`; without one Shipyard picks a free name the same way. A service behind a compose profile needs that profile in `selected_profiles`. With an org API token, pass `visitors` (GitHub logins) |
-| `update_application` | Reconfigure an app: a repo's branch, services, routes (`remove_routes` removes one) or `selected_profiles`, added or removed repos. Runtime env vars are set with `put_env_vars`, build args in the dashboard |
+| `update_application` | Reconfigure an app: a repo's branch, services, routes (`remove_routes` drops one set here, which puts back the compose file's) or `selected_profiles`, added or removed repos. Runtime env vars are set with `put_env_vars`, build args in the dashboard |
 
 When Shipyard needs something done first, such as installing the GitHub app,
 pushing the branch, adding a compose file or freeing an environment under your
@@ -809,8 +809,26 @@ shipyard mcp host --listen :8080
 At startup it checks its client id, secret and site URL with Shipyard's
 token endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
 it starts anyway. It never reads or creates a CLI config file, so it runs on a
-read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr; the tools' request logs,
-which carry users' parameters, appear only with `--verbose`.
+read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr, including a line per well-formed tool call with
+its name, outcome, duration and org. A `tools/call` without valid params is refused
+before any of that, so it logs nothing:
+
+| Line | Meaning |
+| --- | --- |
+| `get_environment ok in 212ms org="acme"` | The tool ran and returned. |
+| `update_application action in 90ms org="acme"` | Shipyard answered with what to do next, not the change: needs_action, already_exists, creating or a next_step. |
+| `get_environment failed status=404 in 90ms org="acme"` | The tool failed. `status=none` means the API didn't refuse the call: it never answered, or the tool couldn't use its answer. |
+| `get_environment: the API refused the exchanged token in 90ms org="acme"` | The API answered 401, so the client is sent to sign in again. |
+| `get_environment unavailable org="unknown"` | The token exchange failed, so the tool didn't run. |
+| `create_application not offered org="acme"` | The token's scopes don't include that tool. |
+| `unknown tool org="acme"` | No hosted tool has that name. The name isn't logged, since the client chose it. |
+
+`org="unknown"` means the token exchange failed or Shipyard's token endpoint
+didn't name an org, so it also appears on every line during a Shipyard outage.
+The org comes from the token exchange, so these lines name customers. A failure's
+reason goes only to the client, since an API error body can hold a user's data.
+The tools' request logs, which carry users' parameters, appear only with
+`--verbose`.
 
 `GET /healthz` answers `ok` while the process runs. `GET /readyz` answers 503
 until its first check of the server's client id, secret and site URL has
@@ -848,14 +866,19 @@ connection, so clients have to sign in again.
    headers from the load balancer), or every client shares one rate limit.
    Check the ingress controller's namespace too: only it may reach the pods,
    and the chart assumes `ingress-nginx` (`networkPolicy.ingressNamespace`).
-3. **Image**, from a release tag that's on origin, on a clean tree:
+3. **Pull secret, on QA.** The registry is private and QA's nodes can't read it,
+   so `mcp-host.install.qa` names `private-registry-auth`. It has to exist in
+   `qa-mcp-host` before the first release, so create that namespace and copy the
+   secret from the `qa` namespace. The copy doesn't follow a rotation of the source.
+   Production's nodes read the registry themselves, and its install names none.
+4. **Image**, from a release tag that's on origin, on a clean tree:
 
    ```bash
    git checkout v1.11.0
    make mcp-host.push
    ```
 
-4. **Release**, naming the kube context of the environment's cluster, with the
+5. **Release**, naming the kube context of the environment's cluster, with the
    secret in `SHIPYARD_MCP_CLIENT_SECRET` (from the secret store, not typed
    into a shell history):
 
@@ -867,7 +890,7 @@ connection, so clients have to sign in again.
    looked up with `docker buildx imagetools inspect`, so a tag pushed again
    later can't change what runs. `--atomic` rolls back a release whose pods
    don't become ready.
-5. **Check it** from outside the cluster. A request without a token gets a 401
+6. **Check it** from outside the cluster. A request without a token gets a 401
    pointing at the metadata, and the metadata names core:
 
    ```bash

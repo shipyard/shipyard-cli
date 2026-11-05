@@ -26,6 +26,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
+	"github.com/shipyard/shipyard-cli/pkg/apps"
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	mcperrors "github.com/shipyard/shipyard-cli/pkg/mcp/errors"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/tools"
@@ -39,8 +40,11 @@ var instructions string
 // serversBuilt counts the MCP servers built, one per request.
 var serversBuilt atomic.Int64
 
-// Logger is the hosted server's own log, for its operator. The tools' request
-// logs follow --verbose: they carry users' params and the API's error bodies.
+// Logger is the hosted server's own log, for its operator: one line per tool
+// call, with its outcome, duration and org. The org names a customer, so these
+// logs are customer data, but params and response bodies stay out of them. The
+// tools' request logs follow --verbose: they carry users' params and the API's
+// error bodies.
 var Logger = log.New(os.Stderr, "", log.LstdFlags|log.LUTC)
 
 const (
@@ -49,6 +53,7 @@ const (
 	// Keys in auth.TokenInfo.Extra.
 	extraCoreToken   = "core_token"
 	extraSubject     = "subject_token"
+	extraOrg         = "org"
 	extraUnavailable = "exchange_unavailable"
 	extraThrottled   = "exchange_throttled"
 
@@ -250,7 +255,7 @@ func (h *host) verify(ctx context.Context, token string, req *http.Request) (*au
 	return &auth.TokenInfo{
 		Scopes:     got.scopes,
 		Expiration: got.expires,
-		Extra:      map[string]any{extraCoreToken: got.token, extraSubject: token},
+		Extra:      map[string]any{extraCoreToken: got.token, extraSubject: token, extraOrg: got.org},
 	}, nil
 }
 
@@ -273,10 +278,21 @@ func (h *host) server(req *http.Request) *mcp.Server {
 	}
 	serversBuilt.Add(1)
 	server := mcp.NewServer(&mcp.Implementation{Name: "shipyard-mcp-server", Version: version.Version},
-		&mcp.ServerOptions{Instructions: strings.TrimSpace(instructions)})
+		&mcp.ServerOptions{
+			Instructions: strings.TrimSpace(instructions),
+			// Every request builds its own server, so the tool list can't change
+			// under a client. Advertising that it can has clients hold a stream open
+			// that never carries anything, until the ingress cuts it. This also drops
+			// the SDK's default logging capability: nothing here sends client logs.
+			Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
+		})
 
 	coreToken, _ := info.Extra[extraCoreToken].(string)
 	subject, _ := info.Extra[extraSubject].(string)
+	org, _ := info.Extra[extraOrg].(string)
+	if org == "" {
+		org = "unknown"
+	}
 	unavailable, _ := info.Extra[extraUnavailable].(bool)
 	// A hosted token is bound to one org, and core reads it from the token.
 	api := client.New(requests.NewWithBearerToken("mcp-hosted", coreToken), func() string { return "" })
@@ -288,16 +304,21 @@ func (h *host) server(req *http.Request) *mcp.Server {
 		}
 	}
 	slices.Sort(names)
+	server.AddReceivingMiddleware(logRequest(org, names))
 	for _, name := range names {
 		tool := tools.NewHostedTool(api, name)
 		server.AddTool(sdkTool(tools.Annotate(tool.Definition())), func(ctx context.Context, call *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if unavailable {
+				Logger.Printf("MCP hosted: %s unavailable org=%q", name, org)
 				return errorResult(unavailableMessage), nil
 			}
+			start := time.Now()
 			out, err := tool.Execute(ctx, call.Params.Arguments)
+			elapsed := time.Since(start).Round(time.Millisecond)
 			if err != nil {
-				return errorResult(h.toolError(name, subject, err)), nil
+				return errorResult(h.toolError(name, subject, org, err, elapsed)), nil
 			}
+			Logger.Printf("MCP hosted: %s %s in %s org=%q", name, callOutcome(name, out), elapsed, org)
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: out}}}, nil
 		})
 	}
@@ -306,22 +327,80 @@ func (h *host) server(req *http.Request) *mcp.Server {
 
 // toolError is the message a failed tool call answers with. The response body
 // isn't logged: it can hold the user's data.
-func (h *host) toolError(name, subject string, err error) string {
+func (h *host) toolError(name, subject, org string, err error, elapsed time.Duration) string {
 	var apiErr *requests.APIError
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
 		// The exchanged token stopped working, most likely because the user
 		// revoked the connection. The next request exchanges again, and gets the
 		// 401 that sends the client to sign in.
 		h.exchanger.expire(subject)
-		Logger.Printf("MCP hosted: %s: the API refused the exchanged token", name)
+		Logger.Printf("MCP hosted: %s: the API refused the exchanged token in %s org=%q", name, elapsed, org)
 		return reconnectMessage
 	}
-	Logger.Printf("MCP hosted: %s failed", name)
+	Logger.Printf("MCP hosted: %s failed status=%s in %s org=%q", name, failureStatus(err), elapsed, org)
 	var mcpErr *mcperrors.MCPError
 	if !errors.As(err, &mcpErr) {
 		mcpErr = mcperrors.ParseHTTPError(name, err, "")
 	}
 	return mcpErr.Error()
+}
+
+// failureStatus is the HTTP status behind a failed tool call, or "none" when the
+// API didn't refuse it: it never got an answer, as with a bad argument or a
+// timeout, or the tool couldn't use the answer. Only an APIError holds a status
+// the API sent: an MCPError's can be a guess from its text.
+func failureStatus(err error) string {
+	var apiErr *requests.APIError
+	if errors.As(err, &apiErr) {
+		return strconv.Itoa(apiErr.StatusCode)
+	}
+	return "none"
+}
+
+// callOutcome names how a tool call that returned no error went. The application
+// tools can return what to do next, whether core refused the call or is still
+// working, which isn't what the client asked for. Other tools' answers can hold a
+// status of their own, so they aren't read.
+func callOutcome(name, out string) string {
+	switch name {
+	case "plan_application", "create_application", "update_application":
+		if apps.IsActionBody([]byte(out)) {
+			return "action"
+		}
+	}
+	return "ok"
+}
+
+// logRequest logs the requests that say how clients connect, and the tool calls
+// the SDK refuses, since those reach no tool to log them. Other tool calls log
+// their own line, and the rest would only add noise. It names the methods it
+// logs because the method comes from the client: a made-up one isn't written.
+func logRequest(org string, offered []string) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			switch method {
+			case "initialize", "server/discover", "subscriptions/listen":
+				Logger.Printf("MCP hosted: %s org=%q", method, org)
+			case "tools/call":
+				logRefusedCall(req, org, offered)
+			}
+			return next(ctx, method, req)
+		}
+	}
+}
+
+// logRefusedCall logs a call to a tool the token doesn't offer. The name comes
+// from the client too, so it's written only when it's a hosted tool's.
+func logRefusedCall(req mcp.Request, org string, offered []string) {
+	params, ok := req.GetParams().(*mcp.CallToolParamsRaw)
+	if !ok || slices.Contains(offered, params.Name) {
+		return
+	}
+	if _, known := tools.HostedToolScopes[params.Name]; known {
+		Logger.Printf("MCP hosted: %s not offered org=%q", params.Name, org)
+		return
+	}
+	Logger.Printf("MCP hosted: unknown tool org=%q", org)
 }
 
 func errorResult(message string) *mcp.CallToolResult {
