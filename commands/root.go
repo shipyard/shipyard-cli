@@ -36,7 +36,11 @@ var rootCmd = &cobra.Command{
 		logging.Register()
 		log.Println("Git commit:", version.GitCommit)
 		log.Println("Current config file:", viper.ConfigFileUsed())
-		startUpdateCheck(cmd)
+		// mode hasn't read the config yet, and update_check is in it. The command
+		// it runs starts the check.
+		if cmd.Name() != "mode" {
+			startUpdateCheck(cmd)
+		}
 	},
 }
 
@@ -125,9 +129,22 @@ func setupCommands() {
 const envOnlyAnnotation = "shipyard.env-only"
 
 func initConfig() {
-	if cmd, _, err := rootCmd.Find(os.Args[1:]); err == nil && cmd.Annotations[envOnlyAnnotation] == "true" {
+	cmd, _, err := rootCmd.Find(os.Args[1:])
+	if err == nil && cmd.Annotations[envOnlyAnnotation] == "true" {
 		return
 	}
+	// Flags after the mode aren't parsed yet, so a --config among them isn't known
+	// either: the config waits for mode, or for the command it runs.
+	if err == nil && cmd.Name() == "mode" && modeProfile == "" {
+		return
+	}
+	loadConfig()
+	if modeProfile != "" {
+		applyModeProfile()
+	}
+}
+
+func loadConfig() {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 		if err := viper.ReadInConfig(); err != nil {
