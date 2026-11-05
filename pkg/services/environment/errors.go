@@ -9,10 +9,16 @@ type BusinessError struct {
 	Code    string                 `json:"code"`
 	Message string                 `json:"message"`
 	Context map[string]interface{} `json:"context,omitempty"`
+	// Cause is the API error, which holds what the message doesn't, such as a next_step.
+	Cause error `json:"-"`
 }
 
 func (e *BusinessError) Error() string {
 	return e.Message
+}
+
+func (e *BusinessError) Unwrap() error {
+	return e.Cause
 }
 
 // Error codes for common business logic scenarios
@@ -40,30 +46,35 @@ func ParseAPIError(err error, context map[string]interface{}) error {
 			Code:    ErrorCodeEnvironmentNotPaused,
 			Message: errMsg,
 			Context: context,
+			Cause:   err,
 		}
 	case strings.Contains(errMsg, "no builds for this environment"):
 		return &BusinessError{
 			Code:    ErrorCodeNoBuildFound,
 			Message: errMsg,
 			Context: context,
+			Cause:   err,
 		}
 	case strings.Contains(errMsg, "environment not found"):
 		return &BusinessError{
 			Code:    ErrorCodeEnvironmentNotFound,
 			Message: errMsg,
 			Context: context,
+			Cause:   err,
 		}
 	case strings.Contains(errMsg, "invalid token"):
 		return &BusinessError{
 			Code:    ErrorCodeInvalidToken,
 			Message: errMsg,
 			Context: context,
+			Cause:   err,
 		}
 	case strings.Contains(errMsg, "user org not found"):
 		return &BusinessError{
 			Code:    ErrorCodeOrgNotFound,
 			Message: errMsg,
 			Context: context,
+			Cause:   err,
 		}
 	default:
 		// For unrecognized errors, still wrap them but mark as unknown
@@ -71,6 +82,7 @@ func ParseAPIError(err error, context map[string]interface{}) error {
 			Code:    ErrorCodeUnknown,
 			Message: errMsg,
 			Context: context,
+			Cause:   err,
 		}
 	}
 }

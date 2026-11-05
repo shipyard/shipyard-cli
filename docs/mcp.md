@@ -469,8 +469,8 @@ its server (`power-shipyard-plugins-shipyard`).
 | `update_application` | Reconfigure an app: a repo's branch, services, routes (`remove_routes` drops one set here, which puts back the compose file's) or `selected_profiles`, added or removed repos. Runtime env vars are set with `put_env_vars`, build args in the dashboard. Status `not_rebuilt` means this request queued no build, usually because it matched what the app already has. A build from an earlier request may still be in progress, so check `get_build_history` before saying none is coming: `RUNNING` means deployed, and only a build newer than the latest `RUNNING` one can still be in progress. Otherwise a stopped app stays stopped and this request doesn't build new commits |
 
 When Shipyard needs something done first, such as installing the GitHub app,
-pushing the branch, adding a compose file or freeing an environment under your
-plan's limit, these return `status: needs_action` with a `next_step` (`kind`,
+pushing the branch, adding a compose file, freeing an environment under your
+plan's limit or choosing a plan after a trial ends, these return `status: needs_action` with a `next_step` (`kind`,
 `message`, and a `url` when there is one) instead of an error. The agent shows
 you the message and waits for you to act.
 

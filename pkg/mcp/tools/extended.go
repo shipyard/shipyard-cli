@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/shipyard/shipyard-cli/pkg/apps"
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/errors"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/schemas"
@@ -64,7 +65,7 @@ var extendedToolDefinitions = map[string]ToolDefinition{
 	},
 	"deploy_detached": {
 		Name:        "deploy_detached",
-		Description: "Deploy a detached environment by cloning an existing application build. Optional display_name, project_branch_overrides, and build_on_commit.",
+		Description: "Deploy a detached environment by cloning an existing application build. Optional display_name, project_branch_overrides, and build_on_commit. " + needsActionNote,
 		InputSchema: schemas.DeployDetachedSchema(),
 	},
 	"delete_detached": {
@@ -76,7 +77,7 @@ var extendedToolDefinitions = map[string]ToolDefinition{
 	},
 	"update_branches": {
 		Name:        "update_branches",
-		Description: "Change branches for an environment. You must include every repo in projects (repo_name + branch); partial lists fail.",
+		Description: "Change branches for an environment. You must include every repo in projects (repo_name + branch); partial lists fail. " + needsActionNote,
 		InputSchema: schemas.UpdateBranchesSchema(),
 	},
 }
@@ -360,6 +361,9 @@ func (t *ExtendedTool) executeDeployDetached(params json.RawMessage) (string, er
 		payload,
 	)
 	if err != nil {
+		if body, ok := apps.ActionBody(err); ok {
+			return string(body), nil
+		}
 		return "", err
 	}
 	return string(body), nil
@@ -431,6 +435,9 @@ func (t *ExtendedTool) executeUpdateBranches(params json.RawMessage) (string, er
 		payload,
 	)
 	if err != nil {
+		if body, ok := apps.ActionBody(err); ok {
+			return string(body), nil
+		}
 		return "", err
 	}
 	return string(body), nil
