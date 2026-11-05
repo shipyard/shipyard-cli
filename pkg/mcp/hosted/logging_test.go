@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,11 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	mcperrors "github.com/shipyard/shipyard-cli/pkg/mcp/errors"
+	"github.com/shipyard/shipyard-cli/pkg/requests"
 )
 
 // syncBuffer is a log destination the test can read while the server runs.
@@ -107,8 +113,6 @@ func TestRequestsThatAreNotToolCallsLogTheirMethodOnlyIfUseful(t *testing.T) {
 	before := log.String()
 	call(t, srv, clientToken, "tools/list", map[string]any{})
 	call(t, srv, clientToken, "ping", map[string]any{})
-	// A client names its own method, so an unknown one isn't written to the log.
-	call(t, srv, clientToken, "made/up-method", map[string]any{})
 	if got := strings.TrimPrefix(log.String(), before); got != "" {
 		t.Errorf("logged:\n%s", got)
 	}
@@ -208,5 +212,139 @@ func TestTheServerDoesNotPromiseToolListChanges(t *testing.T) {
 	}
 	if _, ok := capabilities["logging"]; ok {
 		t.Errorf("advertises logging, which nothing here sends: %v", capabilities)
+	}
+}
+
+func TestOnlyTheNamedMethodsAreLogged(t *testing.T) {
+	log := captureLog(t)
+	handle := logRequest("acme", nil)(func(context.Context, string, mcp.Request) (mcp.Result, error) {
+		return nil, nil
+	})
+	for _, method := range []string{"initialize", "server/discover", "subscriptions/listen"} {
+		if _, err := handle(t.Context(), method, nil); err != nil {
+			t.Fatal(err)
+		}
+		wantLogLine(t, log, `MCP hosted: `+method+` org="acme"$`)
+	}
+	before := log.String()
+	// A client names its own method, so an unknown one isn't written to the log.
+	for _, method := range []string{"made/up-method", "resources/list", "tools/list", "ping"} {
+		if _, err := handle(t.Context(), method, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.TrimPrefix(log.String(), before); got != "" {
+		t.Errorf("logged:\n%s", got)
+	}
+}
+
+func TestACallOutsideTheTokensScopesLogsThatItWasRefused(t *testing.T) {
+	core := newFakeCore(t)
+	core.exchange = func(w http.ResponseWriter, _ map[string]string) {
+		_, _ = fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":300,"scope":"envs:read","org":"test-org"}`, coreToken)
+	}
+	srv := newHost(t, core)
+	log := captureLog(t)
+	call(t, srv, clientToken, "tools/call", map[string]any{"name": "create_application", "arguments": map[string]any{}})
+	wantLogLine(t, log, `MCP hosted: create_application not offered org="test-org"$`)
+}
+
+func TestACallToNoToolLogsWithoutTheClientsName(t *testing.T) {
+	core := newFakeCore(t)
+	srv := newHost(t, core)
+	log := captureLog(t)
+	call(t, srv, clientToken, "tools/call", map[string]any{"name": "client-named-this", "arguments": map[string]any{}})
+	wantLogLine(t, log, `MCP hosted: unknown tool org="test-org"$`)
+	if strings.Contains(log.String(), "client-named-this") {
+		t.Errorf("the log holds the client's name:\n%s", log.String())
+	}
+}
+
+// Core can answer a create or update with what to do next, and nothing changed.
+func TestAnApplicationCallCoreAnsweredWithAnActionDoesntLogOK(t *testing.T) {
+	core := newFakeCore(t)
+	core.apiStatus = http.StatusConflict
+	core.apiBody = `{"status":"needs_action","message":"private-detail"}`
+	srv := newHost(t, core)
+	log := captureLog(t)
+	call(t, srv, clientToken, "tools/call", map[string]any{"name": "update_application", "arguments": map[string]any{
+		"application_id": "11111111-1111-1111-1111-111111111111",
+		"projects":       []map[string]any{{"repo": "app", "branch": "main"}},
+	}})
+	wantLogLine(t, log, `MCP hosted: update_application action in \S+ org="test-org"$`)
+	if strings.Contains(log.String(), "private-detail") {
+		t.Errorf("the log holds the body:\n%s", log.String())
+	}
+}
+
+func TestCallOutcome(t *testing.T) {
+	const action = `{"status":"needs_action"}`
+	tests := []struct{ name, out, want string }{
+		{"plan_application", action, "action"},
+		{"create_application", action, "action"},
+		{"update_application", action, "action"},
+		{"update_application", `{"status":"updated"}`, "ok"},
+		// Only the application tools answer this way: an environment has its own status.
+		{"get_environment", `{"status":"creating"}`, "ok"},
+	}
+	for _, tt := range tests {
+		if got := callOutcome(tt.name, tt.out); got != tt.want {
+			t.Errorf("callOutcome(%s, %s) = %s, want %s", tt.name, tt.out, got, tt.want)
+		}
+	}
+}
+
+func TestAnUpdateOfAMissingAppLogsTheAPIsStatus(t *testing.T) {
+	core := newFakeCore(t)
+	core.apiStatus = http.StatusNotFound
+	srv := newHost(t, core)
+	log := captureLog(t)
+	call(t, srv, clientToken, "tools/call", map[string]any{"name": "update_application", "arguments": map[string]any{
+		"application_id": "11111111-1111-1111-1111-111111111111",
+		"projects":       []map[string]any{{"repo": "app", "branch": "main"}},
+	}})
+	wantLogLine(t, log, `MCP hosted: update_application failed status=404 in \S+ org="test-org"$`)
+}
+
+func TestTheLoggedStatusIsTheAPIsNotOneGuessedFromItsWords(t *testing.T) {
+	core := newFakeCore(t)
+	core.apiStatus = http.StatusBadRequest
+	core.apiBody = `{"errors":[{"title":"Branch not found"}]}`
+	srv := newHost(t, core)
+	log := captureLog(t)
+	callGetEnvironments(t, srv)
+	wantLogLine(t, log, `MCP hosted: get_environments failed status=400 in \S+ org="test-org"$`)
+}
+
+func TestARefusedTokenIsSeenWhateverTheAPISays(t *testing.T) {
+	core := newFakeCore(t)
+	core.apiStatus = http.StatusUnauthorized
+	core.apiBody = `{"errors":[{"title":"Unauthorized"}]}`
+	srv := newHost(t, core)
+	log := captureLog(t)
+	callGetEnvironments(t, srv)
+	wantLogLine(t, log, `MCP hosted: get_environments: the API refused the exchanged token in \S+ org="test-org"$`)
+}
+
+func TestFailureStatus(t *testing.T) {
+	apiErr := requests.NewAPIError(http.StatusBadRequest, []byte(`{"errors":[{"title":"Branch not found"}]}`))
+	// The address of a request that never got an answer can hold any digits.
+	network := errors.New(`error sending API request: Get "https://example.test/environment/a404b": EOF`)
+	tests := map[string]struct {
+		err  error
+		want string
+	}{
+		"an API error":             {apiErr, "400"},
+		"a converted API error":    {mcperrors.ParseHTTPError("get_environment", apiErr, ""), "400"},
+		"no answer":                {network, "none"},
+		"no answer, converted":     {mcperrors.ParseHTTPError("get_environment", network, ""), "none"},
+		"a guess with no response": {&mcperrors.MCPError{StatusCode: http.StatusForbidden}, "none"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := failureStatus(tt.err); got != tt.want {
+				t.Errorf("failureStatus = %s, want %s", got, tt.want)
+			}
+		})
 	}
 }

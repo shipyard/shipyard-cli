@@ -26,6 +26,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
+	"github.com/shipyard/shipyard-cli/pkg/apps"
 	"github.com/shipyard/shipyard-cli/pkg/client"
 	mcperrors "github.com/shipyard/shipyard-cli/pkg/mcp/errors"
 	"github.com/shipyard/shipyard-cli/pkg/mcp/tools"
@@ -291,7 +292,6 @@ func (h *host) server(req *http.Request) *mcp.Server {
 	if org == "" {
 		org = "unknown"
 	}
-	server.AddReceivingMiddleware(logRequest(org))
 	unavailable, _ := info.Extra[extraUnavailable].(bool)
 	// A hosted token is bound to one org, and core reads it from the token.
 	api := client.New(requests.NewWithBearerToken("mcp-hosted", coreToken), func() string { return "" })
@@ -303,6 +303,7 @@ func (h *host) server(req *http.Request) *mcp.Server {
 		}
 	}
 	slices.Sort(names)
+	server.AddReceivingMiddleware(logRequest(org, names))
 	for _, name := range names {
 		tool := tools.NewHostedTool(api, name)
 		server.AddTool(sdkTool(tools.Annotate(tool.Definition())), func(ctx context.Context, call *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -316,7 +317,7 @@ func (h *host) server(req *http.Request) *mcp.Server {
 			if err != nil {
 				return errorResult(h.toolError(name, subject, org, err, elapsed)), nil
 			}
-			Logger.Printf("MCP hosted: %s ok in %s org=%q", name, elapsed, org)
+			Logger.Printf("MCP hosted: %s %s in %s org=%q", name, callOutcome(name, out), elapsed, org)
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: out}}}, nil
 		})
 	}
@@ -343,33 +344,62 @@ func (h *host) toolError(name, subject, org string, err error, elapsed time.Dura
 	return mcpErr.Error()
 }
 
-// failureStatus is the HTTP status behind a failed tool call, or "none" when it
-// never got an answer from the API, as with a bad argument or a timeout.
+// failureStatus is the HTTP status behind a failed tool call, or "none" when the
+// API didn't refuse it: it never got an answer, as with a bad argument or a
+// timeout, or the tool couldn't use the answer. Only an APIError holds a status
+// the API sent: an MCPError's can be a guess from its text.
 func failureStatus(err error) string {
 	var apiErr *requests.APIError
 	if errors.As(err, &apiErr) {
 		return strconv.Itoa(apiErr.StatusCode)
 	}
-	var mcpErr *mcperrors.MCPError
-	if errors.As(err, &mcpErr) && mcpErr.StatusCode != 0 {
-		return strconv.Itoa(mcpErr.StatusCode)
-	}
 	return "none"
 }
 
-// logRequest logs the requests that say how clients connect. Tool calls log
+// callOutcome names how a tool call that returned no error went. The application
+// tools can return what to do next, whether core refused the call or is still
+// working, which isn't what the client asked for. Other tools' answers can hold a
+// status of their own, so they aren't read.
+func callOutcome(name, out string) string {
+	switch name {
+	case "plan_application", "create_application", "update_application":
+		if apps.IsActionBody([]byte(out)) {
+			return "action"
+		}
+	}
+	return "ok"
+}
+
+// logRequest logs the requests that say how clients connect, and the tool calls
+// the SDK refuses, since those reach no tool to log them. Other tool calls log
 // their own line, and the rest would only add noise. It names the methods it
 // logs because the method comes from the client: a made-up one isn't written.
-func logRequest(org string) mcp.Middleware {
+func logRequest(org string, offered []string) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			switch method {
 			case "initialize", "server/discover", "subscriptions/listen":
 				Logger.Printf("MCP hosted: %s org=%q", method, org)
+			case "tools/call":
+				logRefusedCall(req, org, offered)
 			}
 			return next(ctx, method, req)
 		}
 	}
+}
+
+// logRefusedCall logs a call to a tool the token doesn't offer. The name comes
+// from the client too, so it's written only when it's a hosted tool's.
+func logRefusedCall(req mcp.Request, org string, offered []string) {
+	params, ok := req.GetParams().(*mcp.CallToolParamsRaw)
+	if !ok || slices.Contains(offered, params.Name) {
+		return
+	}
+	if _, known := tools.HostedToolScopes[params.Name]; known {
+		Logger.Printf("MCP hosted: %s not offered org=%q", params.Name, org)
+		return
+	}
+	Logger.Printf("MCP hosted: unknown tool org=%q", org)
 }
 
 func errorResult(message string) *mcp.CallToolResult {

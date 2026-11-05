@@ -68,7 +68,7 @@ var applicationToolDefinitions = map[string]ToolDefinition{
 	"update_application": {
 		Name: "update_application",
 		Description: "Reconfigure an existing app: change a repo's branch, services or routes, or add or remove repos. " +
-			"Only the fields given change; remove_routes removes a service's route. Material changes queue a rebuild. Enabling a " +
+			"Only the fields given change; remove_routes drops a route set here, which puts back the compose file's. Material changes queue a rebuild. Enabling a " +
 			"service whose enabled_by_default is false needs its profile in selected_profiles. It does not set env vars: " +
 			"use put_env_vars for runtime variables and the Shipyard dashboard for build args. " +
 			bypassTokenNote + needsActionNote,
@@ -318,7 +318,9 @@ func (t *ApplicationTool) executeUpdate(params json.RawMessage) (string, error) 
 	body, err := apps.Update(t.client, toolParams.ApplicationID, payload)
 	var apiErr *requests.APIError
 	if stderrors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
-		return "", errors.NotFoundError(t.name, "application", toolParams.ApplicationID)
+		notFound := errors.NotFoundError(t.name, "application", toolParams.ApplicationID)
+		notFound.Cause = err
+		return "", notFound
 	}
 	return actionOrSuccess("updated", body, err, nil, nil)
 }

@@ -1,10 +1,13 @@
 package errors
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/shipyard/shipyard-cli/pkg/requests"
 )
 
 func TestMCPError_Error(t *testing.T) {
@@ -230,5 +233,20 @@ func TestParseHTTPError_Timeout(t *testing.T) {
 	if !strings.Contains(msg, "did not answer within 20 seconds") || !strings.Contains(msg, "retry") ||
 		strings.Contains(msg, "internet connection") {
 		t.Errorf("unexpected error %q", msg)
+	}
+}
+
+func TestParseHTTPErrorKeepsTheAPIError(t *testing.T) {
+	for _, title := range []string{"Branch not found", "Unauthorized", "Forbidden", "A conflict", "Bad input"} {
+		t.Run(title, func(t *testing.T) {
+			err := requests.NewAPIError(http.StatusBadRequest, []byte(`{"errors":[{"title":"`+title+`"}]}`))
+			var apiErr *requests.APIError
+			if !errors.As(ParseHTTPError("get_environment", err, ""), &apiErr) {
+				t.Fatal("the APIError is gone")
+			}
+			if apiErr.StatusCode != http.StatusBadRequest {
+				t.Errorf("status = %d", apiErr.StatusCode)
+			}
+		})
 	}
 }
