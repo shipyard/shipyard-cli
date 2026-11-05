@@ -41,7 +41,8 @@ var instructions string
 var serversBuilt atomic.Int64
 
 // Logger is the hosted server's own log, for its operator: one line per tool
-// call, with its outcome, duration and org, and none of the user's data. The
+// call, with its outcome, duration and org. The org names a customer, so these
+// logs are customer data, but params and response bodies stay out of them. The
 // tools' request logs follow --verbose: they carry users' params and the API's
 // error bodies.
 var Logger = log.New(os.Stderr, "", log.LstdFlags|log.LUTC)

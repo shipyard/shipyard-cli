@@ -809,8 +809,9 @@ shipyard mcp host --listen :8080
 At startup it checks its client id, secret and site URL with Shipyard's
 token endpoint, and exits if Shipyard refuses them. If Shipyard can't be reached then,
 it starts anyway. It never reads or creates a CLI config file, so it runs on a
-read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr, including a line per tool call with
-its name, outcome, duration and org:
+read-only filesystem, and the image runs it as a non-root user (uid 10001). Its own messages go to stderr, including a line per well-formed tool call with
+its name, outcome, duration and org. A `tools/call` without valid params is refused
+before any of that, so it logs nothing:
 
 | Line | Meaning |
 | --- | --- |
@@ -867,7 +868,8 @@ connection, so clients have to sign in again.
    and the chart assumes `ingress-nginx` (`networkPolicy.ingressNamespace`).
 3. **Pull secret, on QA.** The registry is private and QA's nodes can't read it,
    so `mcp-host.install.qa` names `private-registry-auth`. It has to exist in
-   `qa-mcp-host` before the first release: copy it from the `qa` namespace.
+   `qa-mcp-host` before the first release, so create that namespace and copy the
+   secret from the `qa` namespace. The copy doesn't follow a rotation of the source.
    Production's nodes read the registry themselves, and its install names none.
 4. **Image**, from a release tag that's on origin, on a clean tree:
 
