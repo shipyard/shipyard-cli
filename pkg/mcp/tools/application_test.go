@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -228,11 +229,17 @@ func TestApplicationTools(t *testing.T) {
 			wantErr: "head_sha is required",
 		},
 		{
-			// Core gives an unscoped value to every service, sidecars included
-			name:    "create rejects an env item without services",
-			tool:    "create_application",
-			args:    `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web"],"env":[{"name":"API_KEY","value":"v1234"}]}`,
-			wantErr: "env[0].services is required",
+			// Core gives an unscoped value to every service, sidecars included.
+			// The plan doesn't list the variable, so none can be taken from it,
+			// and the plan is the only request sent
+			name:       "create rejects an env item without services",
+			tool:       "create_application",
+			args:       `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web"],"env":[{"name":"API_KEY","value":"v1234"}]}`,
+			status:     http.StatusOK,
+			response:   `{"status":"ok","head_sha":"abc123","env":[]}`,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application/plan",
+			wantErr:    "env[0].services is required: pass the services the plan lists for it, [] when it lists none (not taken from the plan: the plan does not list it",
 		},
 		{
 			// The plan lists a variable the compose file interpolates with no
@@ -721,5 +728,192 @@ func TestApplicationToolsConfirmAndNeverEchoValues(t *testing.T) {
 	create := applicationToolDefinitions["create_application"].Description
 	if !strings.Contains(create, "Never repeat an env value") || !strings.Contains(create, "app_name") {
 		t.Errorf("create_application description = %q", create)
+	}
+}
+
+// newPlanCreateServer answers the plan endpoint with status and plan (status 0
+// is 200) and the create endpoint with a created app, and records the create
+// body and plan calls.
+func newPlanCreateServer(t *testing.T, status int, plan string) (client.Client, *capturedRequest, *int) {
+	t.Helper()
+	got, plans := &capturedRequest{}, new(int)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/application/plan") {
+			*plans++
+			if status != 0 {
+				w.WriteHeader(status)
+			}
+			_, _ = w.Write([]byte(plan))
+			return
+		}
+		got.method, got.path, got.query = r.Method, r.URL.Path, r.URL.RawQuery
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got.body)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"status":"created","data":{"id":"app-uuid-1"}}`))
+	}))
+	t.Cleanup(server.Close)
+	viper.Set("api_url", server.URL)
+	t.Cleanup(func() { viper.Set("api_url", "") })
+	t.Setenv("SHIPYARD_API_TOKEN", "fake-token")
+	return client.New(requests.New(), func() string { return "example-org" }), got, plans
+}
+
+// sentServices maps each env item core received under list (secrets or
+// build_args) to its services, printed.
+func sentServices(t *testing.T, body map[string]any, list string) map[string]string {
+	t.Helper()
+	items, _ := body[list].([]any)
+	out := make(map[string]string, len(items))
+	for _, s := range items {
+		item, _ := s.(map[string]any)
+		name, _ := item["name"].(string)
+		services, ok := item["services"].([]any)
+		if !ok {
+			out[name] = "<none>"
+			continue
+		}
+		out[name] = fmt.Sprint(services)
+	}
+	return out
+}
+
+// Kiro drops an empty array from tool arguments, so an interpolated variable
+// the plan lists with services [] arrives with no services at all.
+func TestCreateApplicationFillsMissingEnvServicesFromPlan(t *testing.T) {
+	plan := `{"status":"ok","head_sha":"abc123","compose_file":"compose.yaml","env":[{"name":"GREETING","kind":"runtime"},` +
+		`{"name":"API_KEY","kind":"runtime","services":["api"]},{"name":"VITE_TITLE","kind":"build_arg","services":["web"]}]}`
+	args := `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web","api"]%s,"env":[` +
+		`{"name":"GREETING","value":"hello"},{"name":"API_KEY","value":"` + secretValue + `"},` +
+		`{"name":"VITE_TITLE","value":"Notes","kind":"build_arg"}]}`
+	for name, compose := range map[string]string{
+		"no compose file": "",
+		// The schema asks for compose_filename when the plan's file is not
+		// the default, so an agent may pass back the file the plan read
+		"the plan's own compose file": `,"compose_filename":"./compose.yaml"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, got, plans := newPlanCreateServer(t, 0, plan)
+			out, err := NewApplicationTool(c, "create_application").Execute(context.Background(), json.RawMessage(fmt.Sprintf(args, compose)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out, `"status":"created"`) || strings.Contains(out, secretValue) {
+				t.Fatalf("result = %s", out)
+			}
+			if *plans != 1 {
+				t.Errorf("plan calls = %d, want 1", *plans)
+			}
+			secrets := sentServices(t, got.body, "secrets")
+			for name, want := range map[string]string{"GREETING": "[]", "API_KEY": "[api]"} {
+				if secrets[name] != want {
+					t.Errorf("secret %s services = %q, want %s", name, secrets[name], want)
+				}
+			}
+			if s := sentServices(t, got.body, "build_args")["VITE_TITLE"]; s != "[web]" {
+				t.Errorf("build_arg VITE_TITLE services = %q, want [web]", s)
+			}
+		})
+	}
+}
+
+// When the services can't be taken from the plan for the confirmed commit, the
+// item is refused as before, the refusal says why, and nothing is created.
+func TestCreateApplicationRefusesEnvServicesThePlanCantGive(t *testing.T) {
+	const greeting = `"env":[{"name":"GREETING","value":"hello"}]}`
+	const base = `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web"],`
+	tests := []struct {
+		name, plan, args, wantReason string
+		planStatus                   int
+	}{
+		{
+			name:       "branch moved past the confirmed commit",
+			plan:       `{"status":"ok","head_sha":"def456","env":[{"name":"GREETING","kind":"runtime"}]}`,
+			args:       base + greeting,
+			wantReason: "run plan_application again",
+		},
+		{
+			name:       "variable the plan doesn't list",
+			plan:       `{"status":"ok","head_sha":"abc123","env":[{"name":"GREETING","kind":"runtime"}]}`,
+			args:       base + `"env":[{"name":"OTHER","value":"x"}]}`,
+			wantReason: "the plan does not list it",
+		},
+		{
+			name:       "same name, other kind",
+			plan:       `{"status":"ok","head_sha":"abc123","env":[{"name":"GREETING","kind":"build_arg","services":["web"]}]}`,
+			args:       base + greeting,
+			wantReason: "the plan does not list it",
+		},
+		{
+			name:       "compose file the plan didn't read",
+			plan:       `{"status":"ok","head_sha":"abc123","compose_file":"docker-compose.yml","env":[{"name":"GREETING","kind":"runtime"}]}`,
+			args:       base + `"compose_filename":"deploy/compose.yml",` + greeting,
+			wantReason: "compose_filename",
+		},
+		{
+			name:       "plan answers needs_action",
+			plan:       `{"status":"needs_action","next_step":{"kind":"push_branch","message":"Push the branch"}}`,
+			args:       base + greeting,
+			wantReason: "run plan_application",
+		},
+		{
+			// Core answers a plan it can't make yet with an error status and a
+			// next_step, which plan_application shows the agent as is
+			name:       "plan answers needs_action with an error status",
+			plan:       `{"status":"needs_action","next_step":{"kind":"install_github_app","message":"Install the Shipyard GitHub app"}}`,
+			planStatus: http.StatusConflict,
+			args:       base + greeting,
+			wantReason: "the plan answers needs_action: run plan_application and act on its next_step",
+		},
+		{
+			name:       "plan request fails",
+			plan:       `{"status":"error","message":"boom"}`,
+			planStatus: http.StatusInternalServerError,
+			args:       base + greeting,
+			wantReason: "the plan could not be read",
+		},
+		{
+			name:       "plan body is not JSON",
+			plan:       `not json`,
+			args:       base + greeting,
+			wantReason: "the plan could not be read",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, got, plans := newPlanCreateServer(t, tt.planStatus, tt.plan)
+			_, err := NewApplicationTool(c, "create_application").Execute(context.Background(), json.RawMessage(tt.args))
+			if err == nil || !strings.Contains(err.Error(), "env[0].services is required") || !strings.Contains(err.Error(), tt.wantReason) {
+				t.Fatalf("err = %v, want env[0].services is required with %q", err, tt.wantReason)
+			}
+			if got.method != "" {
+				t.Errorf("create was sent: %s %s", got.method, got.path)
+			}
+			if *plans != 1 {
+				t.Errorf("plan calls = %d, want 1", *plans)
+			}
+		})
+	}
+}
+
+// An item that arrives with services, even an explicit [], keeps them: the
+// plan is not read, so its services can't replace the caller's.
+func TestCreateApplicationKeepsGivenEnvServices(t *testing.T) {
+	plan := `{"status":"ok","head_sha":"abc123","env":[{"name":"GREETING","kind":"runtime","services":["api"]},` +
+		`{"name":"API_KEY","kind":"runtime","services":["api"]}]}`
+	c, got, plans := newPlanCreateServer(t, 0, plan)
+	args := `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web","api"],"env":[` +
+		`{"name":"GREETING","value":"hello","services":[]},{"name":"API_KEY","value":"` + secretValue + `","services":["web"]}]}`
+	if _, err := NewApplicationTool(c, "create_application").Execute(context.Background(), json.RawMessage(args)); err != nil {
+		t.Fatal(err)
+	}
+	if *plans != 0 {
+		t.Errorf("plan calls = %d, want 0", *plans)
+	}
+	secrets := sentServices(t, got.body, "secrets")
+	for name, want := range map[string]string{"GREETING": "[]", "API_KEY": "[web]"} {
+		if secrets[name] != want {
+			t.Errorf("secret %s services = %q, want %s", name, secrets[name], want)
+		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path"
 	"slices"
 
 	"github.com/shipyard/shipyard-cli/pkg/apps"
@@ -127,17 +128,81 @@ func (t *ApplicationTool) Execute(ctx context.Context, params json.RawMessage) (
 // gives a value with no services to every service, sidecars included. An
 // explicit [] is allowed: the plan lists a ${VAR} the file interpolates with
 // no services, as it is set for the whole app.
-func checkEnvItems(tool string, items []apps.EnvItem) error {
+// unfilled, when set, says why fillEnvServices gave an item no services.
+func checkEnvItems(tool string, items []apps.EnvItem, unfilled string) error {
 	for i, item := range items {
 		if item.Value == "" {
 			return errors.ValidationError(tool, "env", fmt.Sprintf("env[%d].value is required", i))
 		}
 		if item.Services == nil || slices.Contains(item.Services, "") {
-			return errors.ValidationError(tool, "env",
-				fmt.Sprintf("env[%d].services is required: pass the services the plan lists for it, [] when it lists none", i))
+			msg := fmt.Sprintf("env[%d].services is required: pass the services the plan lists for it, [] when it lists none", i)
+			if item.Services == nil && unfilled != "" {
+				msg += " (not taken from the plan: " + unfilled + ")"
+			}
+			return errors.ValidationError(tool, "env", msg)
 		}
 	}
 	return nil
+}
+
+// fillEnvServices gives an env item without services the services the plan
+// lists for it at the confirmed commit. Some clients drop an empty array from
+// tool arguments, so a variable the plan lists with services [] (one the
+// compose file interpolates) arrives with none and would be refused. Items are
+// left alone, and checkEnvItems refuses them as before, when the plan can't be
+// read, the branch has moved past headSHA, composeFilename is a file the plan
+// didn't read, or the plan doesn't list the variable. It returns why an item
+// was left without services, for the refusal: never a value.
+func fillEnvServices(c client.Client, repo, branch, headSHA, composeFilename string, items []apps.EnvItem) string {
+	missing := slices.ContainsFunc(items, func(item apps.EnvItem) bool { return item.Services == nil })
+	if !missing {
+		return ""
+	}
+	body, err := apps.Plan(c, repo, branch)
+	if _, ok := apps.ActionBody(err); ok {
+		return "the plan answers needs_action: run plan_application and act on its next_step"
+	}
+	if err != nil {
+		return "the plan could not be read"
+	}
+	var plan apps.PlanResponse
+	if err := json.Unmarshal(body, &plan); err != nil {
+		return "the plan could not be read"
+	}
+	if plan.HeadSHA == "" {
+		return "the plan has no head_sha: run plan_application and act on its next_step"
+	}
+	if plan.HeadSHA != headSHA {
+		return "the branch has moved past head_sha: run plan_application again and confirm the new plan"
+	}
+	// The plan describes the file core detects; one named here may differ
+	if composeFilename != "" && path.Clean(composeFilename) != path.Clean(plan.ComposeFile) {
+		return "the plan read a different file than compose_filename"
+	}
+	unfilled := ""
+	for i := range items {
+		if items[i].Services != nil {
+			continue
+		}
+		for _, name := range plan.Env {
+			if name.Name == items[i].Name && envKind(name.Kind) == envKind(items[i].Kind) {
+				items[i].Services = append([]string{}, name.Services...)
+				break
+			}
+		}
+		if items[i].Services == nil {
+			unfilled = "the plan does not list it with this kind"
+		}
+	}
+	return unfilled
+}
+
+// envKind reads an unset kind as runtime, as core does.
+func envKind(kind string) string {
+	if kind == "" {
+		return apps.KindRuntime
+	}
+	return kind
 }
 
 // envNames lists what was set, for the result: names and kinds, never values.
@@ -220,7 +285,11 @@ func (t *ApplicationTool) executeCreate(params json.RawMessage) (string, error) 
 	if toolParams.HeadSHA == "" {
 		return "", errors.ValidationError(t.name, "head_sha", "head_sha is required: pass the head_sha from plan_application")
 	}
-	if err := checkEnvItems(t.name, toolParams.Env); err != nil {
+	unfilled := fillEnvServices(t.client, toolParams.Repo, toolParams.Branch, toolParams.HeadSHA, toolParams.ComposeFilename, toolParams.Env)
+	if unfilled != "" {
+		log.Printf("%s: env services not taken from the plan: %s", t.name, unfilled)
+	}
+	if err := checkEnvItems(t.name, toolParams.Env, unfilled); err != nil {
 		return "", err
 	}
 	// Core enables no service by default and rejects a create without one
