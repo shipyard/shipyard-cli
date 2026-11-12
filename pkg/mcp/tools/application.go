@@ -140,6 +140,47 @@ func checkEnvItems(tool string, items []apps.EnvItem) error {
 	return nil
 }
 
+// fillEnvServices gives an env item without services the services the plan
+// lists for it at the confirmed commit. Some clients drop an empty array from
+// tool arguments, so a variable the plan lists with services [] (one the
+// compose file interpolates) arrives with none and would be refused. Items are
+// left alone, and checkEnvItems refuses them as before, when the plan can't be
+// read, the branch has moved past headSHA, the file is one the plan can't see
+// (composeFilename), or the plan doesn't list the variable.
+func fillEnvServices(c client.Client, repo, branch, headSHA, composeFilename string, items []apps.EnvItem) {
+	missing := slices.ContainsFunc(items, func(item apps.EnvItem) bool { return item.Services == nil })
+	if !missing || composeFilename != "" {
+		return
+	}
+	body, err := apps.Plan(c, repo, branch)
+	if err != nil {
+		return
+	}
+	var plan apps.PlanResponse
+	if err := json.Unmarshal(body, &plan); err != nil || plan.HeadSHA != headSHA {
+		return
+	}
+	for i := range items {
+		if items[i].Services != nil {
+			continue
+		}
+		for _, name := range plan.Env {
+			if name.Name == items[i].Name && envKind(name.Kind) == envKind(items[i].Kind) {
+				items[i].Services = append([]string{}, name.Services...)
+				break
+			}
+		}
+	}
+}
+
+// envKind reads an unset kind as runtime, as core does.
+func envKind(kind string) string {
+	if kind == "" {
+		return apps.KindRuntime
+	}
+	return kind
+}
+
 // envNames lists what was set, for the result: names and kinds, never values.
 func envNames(items []apps.EnvItem) []apps.EnvName {
 	names := make([]apps.EnvName, 0, len(items))
@@ -220,6 +261,7 @@ func (t *ApplicationTool) executeCreate(params json.RawMessage) (string, error) 
 	if toolParams.HeadSHA == "" {
 		return "", errors.ValidationError(t.name, "head_sha", "head_sha is required: pass the head_sha from plan_application")
 	}
+	fillEnvServices(t.client, toolParams.Repo, toolParams.Branch, toolParams.HeadSHA, toolParams.ComposeFilename, toolParams.Env)
 	if err := checkEnvItems(t.name, toolParams.Env); err != nil {
 		return "", err
 	}
