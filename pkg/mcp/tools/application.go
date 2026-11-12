@@ -159,6 +159,9 @@ func fillEnvServices(c client.Client, repo, branch, headSHA, composeFilename str
 		return ""
 	}
 	body, err := apps.Plan(c, repo, branch)
+	if _, ok := apps.ActionBody(err); ok {
+		return "the plan answers needs_action: run plan_application and act on its next_step"
+	}
 	if err != nil {
 		return "the plan could not be read"
 	}

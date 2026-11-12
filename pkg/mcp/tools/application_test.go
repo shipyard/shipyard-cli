@@ -229,11 +229,17 @@ func TestApplicationTools(t *testing.T) {
 			wantErr: "head_sha is required",
 		},
 		{
-			// Core gives an unscoped value to every service, sidecars included
-			name:    "create rejects an env item without services",
-			tool:    "create_application",
-			args:    `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web"],"env":[{"name":"API_KEY","value":"v1234"}]}`,
-			wantErr: "env[0].services is required",
+			// Core gives an unscoped value to every service, sidecars included.
+			// The plan doesn't list the variable, so none can be taken from it,
+			// and the plan is the only request sent
+			name:       "create rejects an env item without services",
+			tool:       "create_application",
+			args:       `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web"],"env":[{"name":"API_KEY","value":"v1234"}]}`,
+			status:     http.StatusOK,
+			response:   `{"status":"ok","head_sha":"abc123","env":[]}`,
+			wantMethod: http.MethodPost,
+			wantPath:   "/application/plan",
+			wantErr:    "env[0].services is required: pass the services the plan lists for it, [] when it lists none (not taken from the plan: the plan does not list it",
 		},
 		{
 			// The plan lists a variable the compose file interpolates with no
@@ -851,6 +857,15 @@ func TestCreateApplicationRefusesEnvServicesThePlanCantGive(t *testing.T) {
 			wantReason: "run plan_application",
 		},
 		{
+			// Core answers a plan it can't make yet with an error status and a
+			// next_step, which plan_application shows the agent as is
+			name:       "plan answers needs_action with an error status",
+			plan:       `{"status":"needs_action","next_step":{"kind":"install_github_app","message":"Install the Shipyard GitHub app"}}`,
+			planStatus: http.StatusConflict,
+			args:       base + greeting,
+			wantReason: "the plan answers needs_action: run plan_application and act on its next_step",
+		},
+		{
 			name:       "plan request fails",
 			plan:       `{"status":"error","message":"boom"}`,
 			planStatus: http.StatusInternalServerError,
@@ -878,5 +893,27 @@ func TestCreateApplicationRefusesEnvServicesThePlanCantGive(t *testing.T) {
 				t.Errorf("plan calls = %d, want 1", *plans)
 			}
 		})
+	}
+}
+
+// An item that arrives with services, even an explicit [], keeps them: the
+// plan is not read, so its services can't replace the caller's.
+func TestCreateApplicationKeepsGivenEnvServices(t *testing.T) {
+	plan := `{"status":"ok","head_sha":"abc123","env":[{"name":"GREETING","kind":"runtime","services":["api"]},` +
+		`{"name":"API_KEY","kind":"runtime","services":["api"]}]}`
+	c, got, plans := newPlanCreateServer(t, 0, plan)
+	args := `{"repo":"example-org/app","branch":"main","head_sha":"abc123","services":["web","api"],"env":[` +
+		`{"name":"GREETING","value":"hello","services":[]},{"name":"API_KEY","value":"` + secretValue + `","services":["web"]}]}`
+	if _, err := NewApplicationTool(c, "create_application").Execute(context.Background(), json.RawMessage(args)); err != nil {
+		t.Fatal(err)
+	}
+	if *plans != 0 {
+		t.Errorf("plan calls = %d, want 0", *plans)
+	}
+	secrets := sentServices(t, got.body, "secrets")
+	for name, want := range map[string]string{"GREETING": "[]", "API_KEY": "[web]"} {
+		if secrets[name] != want {
+			t.Errorf("secret %s services = %q, want %s", name, secrets[name], want)
+		}
 	}
 }
