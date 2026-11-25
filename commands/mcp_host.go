@@ -37,7 +37,10 @@ It is configured from the environment only, so the client secret never lands in 
   SHIPYARD_MCP_CLIENT_ID      this server's OAuth client id (default shipyard-mcp-host)
   SHIPYARD_MCP_CLIENT_SECRET  this server's OAuth client secret (required)
   SHIPYARD_MCP_BEHIND_PROXY   true behind a proxy that appends the client's address to
-                              X-Forwarded-For, such as an ingress (default false)`,
+                              X-Forwarded-For, such as an ingress (default false)
+  SHIPYARD_MCP_OPENAI_DOMAIN_CHALLENGE
+                              the domain verification token from OpenAI's plugin directory,
+                              served at /.well-known/openai-apps-challenge (default unset)`,
 		Args: cobra.NoArgs,
 		// It never reads the CLI's config file, nor creates one: the image may
 		// run on a read-only filesystem.
@@ -72,10 +75,11 @@ func runHost(ctx context.Context, listen string, cfg hosted.Config,
 
 func hostConfigFromEnv() (hosted.Config, error) {
 	cfg := hosted.Config{
-		ResourceURL:  os.Getenv("SHIPYARD_MCP_RESOURCE_URL"),
-		SiteURL:      os.Getenv("SHIPYARD_MCP_SITE_URL"),
-		ClientID:     os.Getenv("SHIPYARD_MCP_CLIENT_ID"),
-		ClientSecret: os.Getenv("SHIPYARD_MCP_CLIENT_SECRET"),
+		ResourceURL:           os.Getenv("SHIPYARD_MCP_RESOURCE_URL"),
+		SiteURL:               os.Getenv("SHIPYARD_MCP_SITE_URL"),
+		ClientID:              os.Getenv("SHIPYARD_MCP_CLIENT_ID"),
+		ClientSecret:          os.Getenv("SHIPYARD_MCP_CLIENT_SECRET"),
+		OpenAIDomainChallenge: os.Getenv("SHIPYARD_MCP_OPENAI_DOMAIN_CHALLENGE"),
 	}
 	if cfg.SiteURL == "" {
 		cfg.SiteURL = "https://shipyard.build"

@@ -30,6 +30,10 @@ mcp:
   existingSecret: ""
   existingSecretKey: SHIPYARD_MCP_CLIENT_SECRET
   clientSecret: ""
+  # The domain verification token from OpenAI's plugin directory, served as
+  # plain text at /.well-known/openai-apps-challenge. Not a secret: OpenAI reads
+  # it from that public URL. Empty, the path is a 404.
+  openaiDomainChallenge: ""
   # Logs tools' requests, which carry users' parameters. Leave off in production:
   # without it, each tool call still logs its name, outcome, duration and org.
   verbose: false

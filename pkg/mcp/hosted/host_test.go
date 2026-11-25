@@ -1306,3 +1306,65 @@ func TestAThrottledAddressStillRefreshesATokenNearExpiry(t *testing.T) {
 		t.Errorf("exchanges = %d, want a refresh after %d", core.exchanges, asked)
 	}
 }
+
+// OpenAI's plugin directory verifies a remote MCP server's domain by fetching
+// a token from it (SHIP-745). The body must be the token and nothing else.
+func TestOpenAIDomainChallenge(t *testing.T) {
+	core := newFakeCore(t)
+	cfg := Config{
+		ResourceURL:  "https://mcp.example.test/mcp",
+		SiteURL:      core.server.URL,
+		ClientID:     "host",
+		ClientSecret: secret,
+	}
+
+	t.Run("unset, the path is not found", func(t *testing.T) {
+		if status := get(t, newHost(t, core), openAIChallengePath); status != http.StatusNotFound {
+			t.Errorf("%s = %d without a token", openAIChallengePath, status)
+		}
+	})
+
+	t.Run("set, the body is exactly the token, without a bearer token", func(t *testing.T) {
+		withToken := cfg
+		withToken.OpenAIDomainChallenge = "oai-challenge-1234"
+		handler, err := Handler(withToken)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := httptest.NewServer(handler)
+		t.Cleanup(srv.Close)
+		resp, err := http.Get(srv.URL + openAIChallengePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || string(body) != "oai-challenge-1234" {
+			t.Errorf("got %d %q", resp.StatusCode, body)
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+			t.Errorf("Content-Type = %q, want plain text", ct)
+		}
+		// Only GET: the challenge path never accepts a write.
+		post, err := http.Post(srv.URL+openAIChallengePath, "text/plain", strings.NewReader("x"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = post.Body.Close()
+		if post.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("POST %s = %d", openAIChallengePath, post.StatusCode)
+		}
+		// The MCP endpoint still needs a token.
+		if status := get(t, srv, "/mcp"); status != http.StatusUnauthorized {
+			t.Errorf("/mcp = %d", status)
+		}
+	})
+
+	for _, bad := range []string{"oai challenge", "oai-challenge\n", "\toai", "oai\x00"} {
+		withToken := cfg
+		withToken.OpenAIDomainChallenge = bad
+		if _, err := Handler(withToken); err == nil {
+			t.Errorf("token %q was accepted: OpenAI would never match it", bad)
+		}
+	}
+}

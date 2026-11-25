@@ -54,12 +54,16 @@ chart-test:
 # cluster, named every time so a release can't land on whichever is current.
 # The fourth argument is the pull secret, for a cluster whose nodes can't read
 # the registry; it has to exist in the namespace first.
+# MCP_HOST_OPENAI_DOMAIN_CHALLENGE: OpenAI's domain verification token, once
+# issued. Pass it on every release after that: a release without it removes the
+# challenge path.
 define mcp_host_install
 	@test -n "$(KUBE_CONTEXT)" || { echo "KUBE_CONTEXT is required: the kube context of this environment's cluster"; exit 1; }
 	@test -n "$(MCP_HOST_TAG)" || { echo "MCP_HOST_TAG is required, e.g. v1.11.0"; exit 1; }
 	@test -n "$$SHIPYARD_MCP_CLIENT_SECRET" || { echo "SHIPYARD_MCP_CLIENT_SECRET is required"; exit 1; }
 	@# A pattern, not grep: grep passes a value with a newline if any one line matches.
 	@case "$$SHIPYARD_MCP_CLIENT_SECRET" in *[!A-Za-z0-9._~+/=-]*) echo "SHIPYARD_MCP_CLIENT_SECRET must be one token: letters, digits and ._~+/=-"; exit 1 ;; esac
+	@case "$(MCP_HOST_OPENAI_DOMAIN_CHALLENGE)" in *[!A-Za-z0-9._~+/=:-]*) echo "MCP_HOST_OPENAI_DOMAIN_CHALLENGE must be one token: letters, digits and ._~+/=:-"; exit 1 ;; esac
 	@# Deployed by digest, looked up now: a tag pushed again later can't change what runs.
 	@digest=$$(docker buildx imagetools inspect "$(MCP_HOST_IMAGE):$(MCP_HOST_TAG)" --format '{{.Manifest.Digest}}') \
 	  && case "$$digest" in sha256:*) ;; *) echo "Couldn't look up the digest of $(MCP_HOST_IMAGE):$(MCP_HOST_TAG)"; exit 1 ;; esac \
@@ -71,6 +75,7 @@ define mcp_host_install
 	  --set-string mcp.resourceUrl=$(2) \
 	  --set-string mcp.siteUrl=$(3) \
 	  $(if $(4),--set-string 'imagePullSecrets[0].name=$(4)') \
+	  $(if $(MCP_HOST_OPENAI_DOMAIN_CHALLENGE),--set-string mcp.openaiDomainChallenge=$(MCP_HOST_OPENAI_DOMAIN_CHALLENGE)) \
 	  -f - mcp-host $(MCP_HOST_CHART)
 endef
 
