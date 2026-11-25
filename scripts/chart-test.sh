@@ -82,6 +82,12 @@ if render "${ok[@]}" | grep -A1 'name: SHIPYARD_MCP_BEHIND_PROXY' | grep -qF 'va
 else
     fail "SHIPYARD_MCP_BEHIND_PROXY isn't true with the ingress on"
 fi
+if render "${ok[@]}" --set-string mcp.openaiDomainChallenge=oai-challenge-1234 \
+    | grep -A1 'name: SHIPYARD_MCP_OPENAI_DOMAIN_CHALLENGE' | grep -qF 'value: "oai-challenge-1234"'; then
+    pass "the OpenAI domain challenge reaches the server"
+else
+    fail "the OpenAI domain challenge doesn't reach the server"
+fi
 expect_contains "the garbage collector knows the memory limit" "name: GOMEMLIMIT" "${ok[@]}"
 digest="sha256:$(printf '0123456789abcdef%.0s' 1 2 3 4)"
 expect_contains "the image runs by digest when given one" \
@@ -111,6 +117,7 @@ expect_absent() {
 # A PDB with one replica would block every drain.
 expect_absent "no PDB with one replica" "kind: PodDisruptionBudget" "${ok[@]}" --set replicaCount=1
 expect_absent "no X-Forwarded-For without the ingress" "SHIPYARD_MCP_BEHIND_PROXY" "${ok[@]}" --set ingress.enabled=false
+expect_absent "no OpenAI domain challenge by default" "SHIPYARD_MCP_OPENAI_DOMAIN_CHALLENGE" "${ok[@]}"
 expect_absent "no NetworkPolicy when it's turned off" "kind: NetworkPolicy" "${ok[@]}" --set networkPolicy.enabled=false
 expect_absent "no chart Secret with an existing one" "kind: Secret" \
     --set image.tag=v1.0.0 --set mcp.resourceUrl=https://mcp.example.test/mcp \

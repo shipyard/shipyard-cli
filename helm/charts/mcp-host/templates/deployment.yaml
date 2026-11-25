@@ -52,6 +52,10 @@ spec:
                 secretKeyRef:
                   name: {{ include "mcp-host.secretName" . }}
                   key: {{ include "mcp-host.secretKey" . }}
+            {{- with .Values.mcp.openaiDomainChallenge }}
+            - name: SHIPYARD_MCP_OPENAI_DOMAIN_CHALLENGE
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.ingress.enabled }}
             # The ingress appends each client's address to X-Forwarded-For: the
             # server limits refused tokens per address.

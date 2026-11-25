@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -50,6 +51,9 @@ var Logger = log.New(os.Stderr, "", log.LstdFlags|log.LUTC)
 
 const (
 	protectedResourcePath = "/.well-known/oauth-protected-resource"
+	// openAIChallengePath is where OpenAI's plugin directory looks for the
+	// domain verification token of a remote MCP server.
+	openAIChallengePath = "/.well-known/openai-apps-challenge"
 
 	// Keys in auth.TokenInfo.Extra.
 	extraCoreToken   = "core_token"
@@ -77,6 +81,11 @@ type Config struct {
 	// X-Forwarded-For, which the proxy in front (the ingress) appends. Set it
 	// only behind one: without it a client could name any address it likes.
 	BehindProxy bool
+	// OpenAIDomainChallenge is the token OpenAI's plugin directory issues to
+	// verify this server's domain. Set, the server answers it as plain text at
+	// /.well-known/openai-apps-challenge; unset, that path is a 404. It isn't
+	// a secret: OpenAI reads it from the public URL.
+	OpenAIDomainChallenge string
 }
 
 func (c Config) validate() error {
@@ -91,11 +100,17 @@ func (c Config) validate() error {
 	if c.ClientID == "" || c.ClientSecret == "" {
 		return errors.New("the client id and secret are required")
 	}
+	// OpenAI compares the body with its token exactly, so a pasted space or
+	// line break would fail verification without saying why.
+	if strings.IndexFunc(c.OpenAIDomainChallenge, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return errors.New("the OpenAI domain challenge token has a space, line break or control character")
+	}
 	return nil
 }
 
 // Handler serves the MCP endpoint at the resource URL's path, its protected
-// resource metadata (RFC 9728), /healthz and /readyz.
+// resource metadata (RFC 9728), /healthz and /readyz, and OpenAI's domain
+// challenge when one is set.
 func Handler(cfg Config) (http.Handler, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -154,6 +169,12 @@ func Handler(cfg Config) (http.Handler, error) {
 		}
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	if token := cfg.OpenAIDomainChallenge; token != "" {
+		mux.HandleFunc("GET "+openAIChallengePath, func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = w.Write([]byte(token))
+		})
+	}
 	mux.Handle(mcpPath, auth.RequireBearerToken(h.verify, &auth.RequireBearerTokenOptions{
 		ResourceMetadataURL: metadataURL,
 	})(h.withServer(streamable)))

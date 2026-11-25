@@ -891,7 +891,18 @@ connection, so clients have to sign in again.
    looked up with `docker buildx imagetools inspect`, so a tag pushed again
    later can't change what runs. `--atomic` rolls back a release whose pods
    don't become ready.
-6. **Check it** from outside the cluster. A request without a token gets a 401
+6. **OpenAI domain verification**, only once the server is connected in
+   OpenAI's plugin directory: OpenAI issues a token and fetches it from
+   `/.well-known/openai-apps-challenge`. Pass it to the release, and on every
+   release after that, since a release without it removes the path:
+
+   ```bash
+   make mcp-host.install.production MCP_HOST_TAG=v1.11.0 KUBE_CONTEXT=<cluster context> \
+     MCP_HOST_OPENAI_DOMAIN_CHALLENGE=<token from OpenAI>
+   ```
+
+   Then click **Verify Domain** in OpenAI's portal. The token isn't a secret.
+7. **Check it** from outside the cluster. A request without a token gets a 401
    pointing at the metadata, and the metadata names core:
 
    ```bash

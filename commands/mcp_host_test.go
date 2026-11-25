@@ -53,6 +53,24 @@ func TestHostConfigFromEnvDefaults(t *testing.T) {
 	}
 }
 
+func TestHostConfigFromEnvOpenAIDomainChallenge(t *testing.T) {
+	t.Setenv("SHIPYARD_MCP_RESOURCE_URL", "https://mcp.example.test/mcp")
+	t.Setenv("SHIPYARD_MCP_CLIENT_SECRET", "host-secret")
+	t.Setenv("SHIPYARD_MCP_BEHIND_PROXY", "")
+	t.Setenv("SHIPYARD_MCP_OPENAI_DOMAIN_CHALLENGE", "")
+	cfg, err := hostConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OpenAIDomainChallenge != "" {
+		t.Errorf("OpenAIDomainChallenge = %q by default", cfg.OpenAIDomainChallenge)
+	}
+	t.Setenv("SHIPYARD_MCP_OPENAI_DOMAIN_CHALLENGE", "oai-challenge-1234")
+	if cfg, err = hostConfigFromEnv(); err != nil || cfg.OpenAIDomainChallenge != "oai-challenge-1234" {
+		t.Errorf("cfg = %+v, err = %v", cfg, err)
+	}
+}
+
 // The hosted server is configured from the environment only. It must start on
 // a read-only filesystem, and must not load an operator's CLI config.
 func TestMCPHostDoesNotCreateAConfigFile(t *testing.T) {
